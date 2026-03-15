@@ -1,30 +1,16 @@
 services:
 
-  ipxe-dhcpd:
-    image: wastrachan/dhcpd
-    container_name: ipxe-dhcpd
-    environment:
-      - PUID=1111
-      - PGID=1112
+  ipxe-dnsmasq:
+    image: jpillora/dnsmasq:latest
+    container_name: dnsmasq-pxe
+    network_mode: host          # 必须使用 host 网络（DHCP/TFTP 需要）
+    cap_add:
+      - NET_ADMIN              # 需要网络权限
     volumes:
-      - ./dhcp:/config
+      - ./dnsmasq.conf:/etc/dnsmasq.conf:ro
+      - ./tftpboot:/var/tftpboot:ro
     restart: unless-stopped
-    network_mode: host
-
-  ipxe-tftp:
-    build:
-      context: ./dockerfile/tftp
-      dockerfile: Dockerfile
-    image: local/tftp
-    container_name: ipxe-tftp
-    ports:
-      - "69:69/udp"
-    volumes:
-      - ./tftp:/var/lib/tftpboot
-    environment:
-      - PUID=0
-      - PGID=0
-    restart: unless-stopped
+    # 调试时可加：command: ["--no-daemon", "--log-queries", "--log-dhcp"]
 
   ipxe-iscsi:
     image: wtnb75/stgt
@@ -45,11 +31,10 @@ services:
       - NET_ADMIN
       - SYS_MODULE
 
-  ipxe-http-server:
-    image: nginx:latest
-    container_name: ipxe-http-server
+  nginx:
+    image: nginx:alpine
+    volumes:
+      - ./html:/usr/share/nginx/html:ro
     ports:
       - "88:80"
-    volumes:
-      - ./www:/usr/share/nginx/html
     restart: unless-stopped
