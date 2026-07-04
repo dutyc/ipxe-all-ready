@@ -1,0 +1,4 @@
+#!ipxe
+
+dhcp
+chain --autofree tftp://${next-server}/boot.ipxe

@@ -1,0 +1,6 @@
+#!ipxe
+echo
+echo Booting 您的電腦名稱
+set menu-default centos
+set menu-timeout 1000
+chain --replace --autofree ${menu-url}

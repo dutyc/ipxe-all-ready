@@ -1,0 +1,49 @@
+services:
+
+  ipxe-dnsmasq:
+    image: jpillora/dnsmasq@sha256:98b69ad825942089fb7c4b9153e3c5af0205eda3a103c691e30b1a13fd912830
+    container_name: ipxe-dnsmasq
+    network_mode: host          
+    cap_add:
+      - NET_ADMIN              
+    volumes:
+      - ./dnsmasq/dnsmasq.conf:/etc/dnsmasq.conf
+      - ./tftp:/var/tftp:ro
+    restart: unless-stopped
+    command: ["--no-daemon", "--log-queries", "--log-dhcp"]    
+
+  ipxe-iscsi:
+    image: wtnb75/stgt@sha256:1b609555f26bb7a2b2a49a093eff8473e196a8cff49acc684345020eb79f813e
+    container_name: ipxe-iscsi
+    restart: unless-stopped          
+    network_mode: host               
+    privileged: true                 
+    volumes:
+      - /etc/target:/etc/target
+      - /run/lvm:/run/lvm
+      - /lib/modules:/lib/modules
+      - /sys/kernel/config:/sys/kernel/config
+      - /dev:/dev
+      - ./iscsi_img:/home/iscsi_img  # 挂载 iSCSI 存储镜像目录
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+
+  ipxe-nginx:
+    image: nginx@sha256:54f2a904c251d5a34adf545a72d32515a15e08418dae0266e23be2e18c66fefa    #
+    container_name: ipxe-nginx
+    ports:
+      - "88:80"
+    volumes:
+      - ./www/Grub:/usr/share/nginx/html:ro
+      - ./www/web/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./www/web/conf.d:/etc/nginx/conf.d:ro
+    restart: unless-stopped
+
+      
+
+networks:
+  ipxe:
+    driver: bridge  # 定义 ipxe 网络
