@@ -31,7 +31,7 @@
 
 ## 架构说明
 
-本项目采用现代化的节点命名规范，摒弃了传统的 `master/slave` 或 `master/node` 称呼，采用以下角色定义：
+本项目采用现代化的节点命名规范，采用以下角色定义：
 
 * **Controller（控制端/服务端）**：提供 DHCP、HTTP 文件分发、iSCSI Target 存储以及 iPXE 菜单配置。
 * **Worker（工作端/无盘节点）**：无本地硬盘的计算节点。通过 PXE 获取 IP，加载 iPXE，挂载 iSCSI 磁盘，并最终引导操作系统。
