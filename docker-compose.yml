@@ -8,6 +8,8 @@ services:
       - NET_ADMIN              
     volumes:
       - ./dnsmasq/dnsmasq.conf:/etc/dnsmasq.conf
+      - ./dnsmasq/dhcp-hosts.conf:/etc/dnsmasq.d/dhcp-hosts.conf
+      - ./dnsmasq/dnsmasq.leases:/var/lib/misc/dnsmasq.leases
       - ./tftp:/var/tftp:ro
     restart: unless-stopped
     command: ["--no-daemon", "--log-queries", "--log-dhcp"]    

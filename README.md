@@ -1,92 +1,71 @@
 # IPXE-All-Ready
 
-**IPXE-All-Ready** 是一个致力于实现纯开源组件（iPXE + iSCSI + Linux）无盘启动的自动化部署方案与避坑指南。
+**IPXE-All-Ready** 旨在构建一套基于纯开源组件（iPXE + iSCSI + OS）的、企业级无状态（Stateless）计算节点部署标准。
 
-本项目旨在解决在 Linux 环境下使用 iPXE 进行 iSCSI 无盘引导时，因官方文档缺失、社区经验断层而导致的各种“黑盒”问题。通过本方案，你可以将一台普通的 x86 设备转化为无状态（Stateless）的计算节点，所有系统状态与数据均集中存储于服务端。
+我们的目标不仅是“跑通”无盘启动，而是要将这条充满黑盒与断头路的荒野，铺成一条跨平台、跨架构的现代化无盘基础设施高速公路。
 
-无盘开源时代，来了。
+**无盘开源时代，来了。**
 
-## 项目愿景与当前进度
+## 路线图 (Roadmap)
 
-本项目的终极目标是提供一套开箱即用的、支持多操作系统的纯开源无盘启动方案。
+`ipxe-all-ready` 的最终目标并非仅仅实现单一系统的无盘启动，而是构建一个跨平台、跨架构、云原生的无状态计算基础设施底座。
 
-**当前进度：**
-- [x] **Debian 12**：已完整跑通。从 PXE 引导、iSCSI 挂载、initramfs 模块注入到 GRUB 修复，全链路验证通过。
-- [ ] **Ubuntu**：正在适配中。
-- [ ] **Windows**：正在攻克注册表与驱动注入的“灵魂”逻辑。
-- [ ] **自动化脚本**：正在将手动排查过程封装为 Controller 端的一键部署脚本。
+### Phase 1: 破冰与核心系统攻坚
+*确立无盘启动的核心标准，打通最主流桌面与服务器操作系统的底层引导闭环。*
 
-如果你也对无状态计算架构感兴趣，欢迎 Star 并关注本项目，我们将持续更新多系统的适配进度。
+- [x] **Debian 12**：已完成全链路验证，确立无盘启动的核心标准与底层逻辑基线。
+- [ ] **Ubuntu (LTS 版本)**：适配其现代网络管理与初始化机制，实现开箱即用的无盘体验。
+- [ ] **Windows 10/11**：攻克 Windows 环境下的底层引导机制与系统状态依赖，彻底解决无盘启动的蓝屏死穴。
 
-## 为什么需要这个项目？
+### Phase 2: 主流 Linux 发行版生态兼容
+*跨越不同的包管理器与初始化流派，扩大无盘架构的 Linux 生态版图。*
 
-翻遍整个互联网，关于 iPXE + iSCSI 无盘 Linux 的完整记录屈指可数。官方文档简陋，社区里充满了“我遇到了问题”的求助，却鲜有完整的解决方案。
+- [ ] **Arch Linux**：适配其滚动更新特性与自定义初始化框架，提供面向极客的极简无盘方案。
+- [ ] **RHEL / Fedora 系**：探索企业级 Linux 发行版在严格安全策略下的无盘运行模式与兼容性。
+- [ ] **Alpine Linux**：打造面向边缘计算、微型路由与物联网节点的超轻量级无盘底座。
 
-本项目总结了在纯开源链路中极易踩坑的核心技术细节，填补了这些空白：
+### Phase 3: 云原生与现代化架构演进
+*推动控制平面的现代化，并探索下一代网络存储协议，突破传统架构瓶颈。*
 
-1. **Initramfs 灵魂注入**：解决 Linux 无盘启动的“先有鸡还是先有蛋”死锁。强制将 `iscsi_tcp` 和 `ib_iser` 模块注入 initramfs，并配置 `open-iscsi` 自动握手。
-2. **GRUB 参数与 MBR 修复**：修复 Debian/Ubuntu 安装程序在 iSCSI 环境下容易出现的 `GRUB_CMDLINE_LINUX_DEFAULT` 变量名拼写错误，以及 `update-grub` 后遗漏 `grub-install` 导致 MBR 无引导代码的黑屏问题。
-3. **iPXE Sanboot 保活机制**：使用 `sanboot --keep --drive 0x80` 强制 iPXE 在移交控制权后保持 iSCSI 会话，防止内核在 initramfs 阶段因底层连接断开而 Kernel Panic。
-4. **网络栈排雷**：强制禁用 IPv6 (`ipv6.disable=1`) 并配置 `ip=dhcp`，彻底杜绝虚拟机网络栈的路由黑洞与 DHCP 超时。
+- [ ] **Controller 容器化与高可用**：探索将引导服务与存储控制面容器化，实现一键部署与集群化管理。
+- [ ] **下一代存储协议评估**：研究并测试 NVMe-oF 等高性能网络存储协议，探索突破传统 iSCSI I/O 瓶颈的路径。
+- [ ] **云原生边缘节点纳管**：探索无盘 Worker 节点与轻量级 Kubernetes 集群的无缝对接，实现“开机即入列”的自动化编排。
 
-## 架构说明
+### Phase 4: 跨架构与异构计算探索
+*打破 x86 架构的边界，面向未来的多元化算力场景提供无状态底座。*
 
-本项目采用现代化的节点命名规范，采用以下角色定义：
+- [ ] **ARM64 架构支持**：研究 ARM UEFI 环境下的网络引导机制，探索 ARM 服务器与边缘集群的无盘化可能。
+- [ ] **异构算力节点交付**：为 AI 推理、GPU 渲染等特殊算力节点，探索无盘系统结合共享存储的标准化交付模板。
 
-* **Controller（控制端/服务端）**：提供 DHCP、HTTP 文件分发、iSCSI Target 存储以及 iPXE 菜单配置。
-* **Worker（工作端/无盘节点）**：无本地硬盘的计算节点。通过 PXE 获取 IP，加载 iPXE，挂载 iSCSI 磁盘，并最终引导操作系统。
+## 我们正在攻克的硬核壁垒
 
-## 核心避坑指南（Debian 12 验证）
+翻遍整个互联网，关于 iPXE + iSCSI 无盘启动的完整记录屈指可数。官方文档极其克制，社区里充满了“求助”与“黑屏”，却鲜有从底层协议到内核引导的完整闭环方案。
 
-在 Worker 端通过 iPXE 引导 Debian Installer 完成基础系统安装后，**切勿直接重启**。必须通过 Rescue Mode 或挂载 iSCSI 磁盘到 Controller 本地进行以下修复：
+大多数人在面对以下技术断层时选择了放弃，或转向昂贵的商业黑盒方案。而 `ipxe-all-ready` 正在逐一击破这些壁垒，并将其封装为未来的自动化脚本：
 
-**1. 修正 GRUB 变量名并注入网络启动参数**
-安装程序默认生成的 GRUB 参数往往不包含网络启动指令，且变量名可能存在拼写陷阱。
-```bash
-sed -i 's/^GRUB_CMDLINE_DEFAULT=/GRUB_CMDLINE_LINUX_DEFAULT=/' /etc/default/grub
-sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=".*"/GRUB_CMDLINE_LINUX_DEFAULT="text ip=dhcp ipv6.disable=1"/' /etc/default/grub
-```
+1. **Initramfs 的“先有鸡还是先有蛋”死锁**：如何在内核挂载根文件系统前，让极简的 initramfs 具备完整的 iSCSI 网络存储握手能力？我们正在建立标准化的模块注入与自动登录机制。
+2. **引导加载器的黑盒陷阱**：解决跨环境安装时，GRUB 变量名的隐蔽拼写错误，以及更新配置后 MBR 引导代码丢失导致的“完美黑屏”问题。
+3. **iPXE 会话的“断崖式”移交**：突破 `sanboot` 在控制权移交瞬间断开底层连接的传统机制，实现 Pre-OS 到内核态 iSCSI 会话的无缝保活与接管。
+4. **复杂的 Pre-OS 网络栈初始化**：在引导极早期彻底解决 IPv6 路由黑洞、DHCP 超时以及多网卡环境下的路由冲突。
 
-**2. 确保 iSCSI 模块已注入 initramfs**
-```bash
-echo "iscsi_tcp" >> /etc/initramfs-tools/modules
-echo "ib_iser" >> /etc/initramfs-tools/modules
-update-initramfs -u -k all
-```
+## 架构定义
 
-**3. 将 GRUB 引导代码写入 MBR**
-`update-grub` 仅生成配置文件，必须执行 `grub-install` 才能将 Stage 1 写入磁盘，否则 iPXE `sanboot` 会因找不到引导代码而黑屏。
-```bash
-grub-install /dev/sdX
-grub-install --recheck /dev/sdX
-```
+本项目采用现代化的分布式节点命名规范，摒弃了陈旧且存在争议的 `master/slave` 称呼，采用以下角色定义：
 
-**4. 断开 Controller 端连接**
-在 Worker 重启前，必须在 Controller 端执行 `iscsiadm -u` 登出 Target，防止 SCSI 锁冲突导致文件系统损坏。
+* **Controller（控制端）**：集群的大脑与存储中心。提供 DHCP、HTTP 文件分发、iSCSI Target 存储以及 iPXE 菜单路由。
+* **Worker（工作端）**：无状态的算力节点。无本地硬盘，通过 PXE 获取 IP，加载 iPXE，挂载 iSCSI 磁盘，最终引导操作系统。
 
-## 验证无盘启动
+## 当前进展与参与方式
 
-Worker 重启并成功进入系统后，可通过以下命令验证其无盘状态：
+目前，**Debian 12 的全链路已经彻底打通**，我们正在将无数个夜晚踩过的深坑封装为一键部署脚本。同时，Ubuntu 和 Windows 的核心攻坚正在日夜兼程地进行中。
 
-查看设备物理路径：
-```bash
-ls -l /dev/disk/by-path/
-# 输出应包含：ip-192.168.1.5:3260-iscsi-iqn...-lun-0 -> ../../sda
-```
+我们现在不急于放出零散的“避坑命令”，因为我们希望交付给你的是一套**开箱即用、经过严苛验证的完整方案**。
 
-查看内核启动参数：
-```bash
-cat /proc/cmdline
-# 输出应包含：ip=dhcp ipv6.disable=1
-```
-
-## 贡献与关注
-
-这是一个由极客驱动、从深坑中蹚出来的开源项目。如果你在使用本方案时遇到了新的坑并成功解决，或者希望加入 Ubuntu/Windows 的适配工作，欢迎提交 Issue 或 Pull Request。
+如果你也对无状态计算架构充满野心，如果你也受够了商业方案的黑盒与傲慢：
+- 请 **Star** 和 **Watch** 本项目，你将是第一批拿到多系统无盘部署完整方案的人。
+- 欢迎在 **Issues** 中探讨技术方向，或提交 **Pull Request** 参与 Ubuntu/Windows 及 ARM 架构的适配研究。
 
 **创造历史的人是怎样的？我们不知道，但今天，我们正在成为他们。**
-
-关注 `ipxe-all-ready`，一起见证无盘开源时代的到来。
 
 ## License
 

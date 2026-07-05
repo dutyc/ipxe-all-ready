@@ -19,6 +19,7 @@ menu iPXE boot menu for ${initiator-iqn}
 item --gap --             ------------------------- Operating systems ------------------------------
 item --key w windows      Boot Windows from iSCSI
 item --key u ubuntu       Boot Ubuntu from iSCSI
+item --key d debian       Boot Debian from iSCSI
 item --key u centos       Boot CentOS from iSCSI
 item --key u esxi         Boot ESXi from iSCSI
 item --gap --             ------------------------- Tools and utilities ----------------------------
@@ -79,6 +80,12 @@ set root-path iscsi:${iscsi-server}:::1:${base-iqn}:${hostname}.Ubuntu
 sanboot --keep --drive 0x80 ${root-path} || goto failed
 goto start
 
+:debian
+echo Booting Debian from iSCSI for ${initiator-iqn}
+set root-path iscsi:${iscsi-server}:::1:${base-iqn}:${hostname}.Debian
+sanboot --keep --drive 0x80 ${root-path} || goto failed
+goto start
+
 :centos
 echo Booting CentOS from iSCSI for ${initiator-iqn}
 set root-path ${base-iscsi}:${hostname}.CentOS
@@ -124,6 +131,7 @@ goto start
 menu Installers for ${initiator-iqn}
 item winpe-install        Hook Windows iSCSI and boot WinPE for intallation
 item ubuntu-install       Hook Ubuntu ${archl} iSCSI and install
+item debian-install       Hook Debian ${archl} iSCSI and install
 item centos-install       Hook CentOS ${archl} iSCSI and install
 item esxi-install         Hook ESXi ${archl} iSCSI and install
 item
@@ -173,7 +181,7 @@ goto start
 :centos-install
 echo Starting CentOS 7 ${archl} installer for ${initiator-iqn}
 set root-path ${base-iscsi}:${hostname}.CentOS
-set base-url ${sanboot-url}CentOS/x86_64
+set base-url ${chain-url}CentOS/x86_64
 set keep-san 1
 sanhook ${root-path} || goto failed
 kernel ${base-url}/images/pxeboot/vmlinuz initrd=initrd.img repo=${base-url}
