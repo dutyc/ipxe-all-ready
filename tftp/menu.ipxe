@@ -159,6 +159,26 @@ boot || goto failed
 goto start
 
 :ubuntu-install
+echo Starting Ubuntu installer for ${initiator-iqn}
+set root-path ${base-iscsi}:${hostname}.Ubuntu
+cpuid --ext 29 && set arch amd64 || set arch x86
+set base-url http://${controller_ip}:88/Install/Ubuntu/22.04
+kernel ${base-url}/netboot/vmlinuz \
+    auto=true \
+    priority=critical \
+    url=${base-url}/preseed.cfg \
+    ipv6.disable=1 \
+    netcfg/disable_autoconfig=true \
+    mirror/country=manual \
+    mirror/http/hostname=mirrors.tuna.tsinghua.edu.cn \
+    mirror/http/directory=/debian \
+    mirror/suite=bookworm \
+    ---
+initrd ${base-url}/netboot/initrd.gz
+boot || goto failed
+goto start
+
+:debian-install
 echo Starting Debian 12 installer for ${initiator-iqn}
 set root-path ${base-iscsi}:${hostname}.Ubuntu
 cpuid --ext 29 && set arch amd64 || set arch x86
