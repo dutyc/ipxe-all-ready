@@ -94,8 +94,8 @@ sanboot ${root-path} || goto failed
 goto start
 
 :esxi
-echo Booting ESXi from iSCSI for iqn.2025-07.com.example:storage1.2
-set root-path iscsi:192.168.1.6:::1:iqn.2025-07.com.example:storage1.2
+echo Booting ESXi from iSCSI for ${initiator-iqn}
+set root-path ${base-iscsi}:${hostname}.Esxi
 set keep-san 1
 sanboot ${root-path} || goto failed
 goto start
@@ -146,15 +146,17 @@ echo Booting Windows PE ${arch} installer for ${initiator-iqn}
 echo (for installing Windows)
 set netX/gateway ${iscsi-server}
 set root-path ${base-iscsi}:${hostname}.Windows
+set data-path ${base-iscsi}:${hostname}.Windows.iso
 set keep-san 1
 echo sanhook start...
-sanhook ${root-path} || goto failed
+sanhook --drive 0x80 ${root-path} || goto failed
+sanhook --drive 0x81 ${data-path} || goto failed
 echo set base url starting
-set base-url http://${controller_ip}:88/Install/WinPE
-kernel wimboot
-initrd ${base-url}/x64/Boot/BCD bcd
-initrd ${base-url}/x64/Boot/boot.sdi boot.sdi
-initrd ${base-url}/x64/sources/boot.wim boot.wim
+set base-url http://${controller_ip}:88/Install/Windows/24H2
+kernel ${base-url}/wimboot
+initrd ${base-url}/boot/bcd bcd
+initrd ${base-url}/boot/boot.sdi boot.sdi
+initrd ${base-url}/sources/boot.wim boot.wim
 boot || goto failed
 goto start
 
@@ -210,11 +212,11 @@ boot || goto failed
 goto start
 
 :esxi-install
-echo Starting ESXi 6.7 installer for iqn.2025-07.com.example:storage1.2
-set root-path iscsi:192.168.1.6:::1:iqn.2025-07.com.example:storage1.2
-set base-url http://192.168.1.6:88/Install/ESXI
+echo Starting ESXi 6.7 installer for ${initiator-iqn}
+set root-path ${base-iscsi}:${hostname}.Esxi
+set base-url http://${controller_ip}:88/Install/ESXI
 set keep-san 1
 sanhook ${root-path} || goto failed
-initrd ${base-url}/123.iso
+initrd ${base-url}/Esxi.iso
 chain memdisk iso raw || goto failed
 goto start
