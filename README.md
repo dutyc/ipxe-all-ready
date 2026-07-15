@@ -73,3 +73,7 @@
 ## License
 
 本项目遵循 MIT License。
+
+## 项目成长轨迹
+
+[![Star History Chart](https://api.star-history.com/svg?repos=dutyc/ipxe-all-ready&type=Date)](https://star-history.com/dutyc/ipxe-all-ready&Date)
