@@ -60,7 +60,7 @@
 
 ## 当前进展与参与方式
 
-目前，**Phase 1 核心系统攻坚已全面收官！Debian 12、Ubuntu 22.04 LTS 以及 Windows 11 24H2/25h2 的全链路已经彻底打通**，我们正在将无数个夜晚踩过的深坑封装为一键部署脚本。
+目前，**Phase 1 核心系统攻坚已全面收官！Debian 12、Ubuntu 22.04 LTS 以及 Windows 11 24H2/25H2 的全链路已经彻底打通**，我们正在将无数个夜晚踩过的深坑封装为一键部署脚本。
 
 我们现在不急于放出零散的“避坑命令”，因为我们希望交付给你的是一套**开箱即用、经过严苛验证的完整方案**。
 
@@ -76,4 +76,10 @@
 
 ## 项目成长轨迹
 
-[![Star History Chart](https://api.star-history.com/svg?repos=dutyc/ipxe-all-ready&type=Date)](https://star-history.com/dutyc/ipxe-all-ready&Date)
+<a href="https://www.star-history.com/?repos=dutyc%2Fipxe-all-ready&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=dutyc/ipxe-all-ready&type=date&theme=dark&legend=top-left&sealed_token=zjOknpQELRo5XRHVkZyVFbzpe3vGpw7134qQQpvRcCNi89-GWZKA9NmUisZj8-0rngIFYnEpjMkDcTyDcbpjeoo6F4-CNJ-_Jn5DDmYZQElWO7WgDPbJuA" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=dutyc/ipxe-all-ready&type=date&legend=top-left&sealed_token=zjOknpQELRo5XRHVkZyVFbzpe3vGpw7134qQQpvRcCNi89-GWZKA9NmUisZj8-0rngIFYnEpjMkDcTyDcbpjeoo6F4-CNJ-_Jn5DDmYZQElWO7WgDPbJuA" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=dutyc/ipxe-all-ready&type=date&legend=top-left&sealed_token=zjOknpQELRo5XRHVkZyVFbzpe3vGpw7134qQQpvRcCNi89-GWZKA9NmUisZj8-0rngIFYnEpjMkDcTyDcbpjeoo6F4-CNJ-_Jn5DDmYZQElWO7WgDPbJuA" />
+ </picture>
+</a>
