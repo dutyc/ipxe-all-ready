@@ -21,7 +21,8 @@ export default defineConfig({
             text: 'Guide',
             items: [
               { text: 'Preface', link: '/guide/preface' }, // 新增前言链接
-              { text: 'Ch1: Architecture & Core Link', link: '/guide/architecture' }
+              { text: 'Ch1: Architecture & Core Link', link: '/guide/architecture' },
+              { text: 'Ch2: Windows 11 E2E Deployment', link: '/guide/windows-11' }
             ]
           }
         ]
@@ -41,7 +42,8 @@ export default defineConfig({
             text: '实战指南',
             items: [
               { text: '前言', link: '/zh/guide/preface' }, // 新增前言链接
-              { text: '第一章：架构设计与核心链路', link: '/zh/guide/architecture' }
+              { text: '第一章：架构设计与核心链路', link: '/zh/guide/architecture' },
+              { text: '第二章: Windows 11 24H2 无盘系统全流程实战', link: '/zh/guide/windows-11' }
             ]
           }
         ]
