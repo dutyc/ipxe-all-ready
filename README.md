@@ -9,6 +9,20 @@ Our goal is not just to “get diskless boot working,” but to pave the wildern
 **All truly means All. Ready truly means Production-Ready.**  
 **The open-source diskless era has arrived.**
 
+## 📚 Official Documentation & Hands-on Guides
+
+For complete architecture design, low-level mechanism deep-dives, and ground-up deployment walkthroughs for each operating system, visit our dedicated documentation site:
+
+ **[ipxe.lecreate.asia](https://ipxe.lecreate.asia)** | **[中文文档](https://ipxe.lecreate.asia/zh/)**
+
+**Core breakthrough topics currently covered:**
+
+- **[Ch1: Architecture & Core Link](https://ipxe.lecreate.asia/guide/architecture)**  
+  Dissect the iPXE + iSCSI boot state machine, unravel the DHCP/iPXE/iSCSI dynamic variable chain, and eliminate the black boxes in network booting.
+
+- **[Ch2: Windows 11 Diskless Walkthrough](https://ipxe.lecreate.asia/guide/windows-11)**  
+  Use `dism++` to sidestep the ADK trap and inject universal drivers; leverage the `tgt --device-type cd` virtual optical drive mechanism to achieve a seamless native `setup.exe` installation and iBFT handover.
+
 ## Roadmap
 
 The ultimate vision of `ipxe-all-ready` is not merely diskless booting for a single operating system, but building a cross-platform, cross-architecture, cloud-native stateless computing infrastructure foundation.

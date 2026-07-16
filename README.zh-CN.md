@@ -9,6 +9,19 @@
 **All 是真的 All，Ready 是真的 Ready。**
 **无盘开源时代，来了。**
 
+## 📚 官方文档与实战指南
+
+完整的架构设计、底层原理解析以及各操作系统的“降维打击”部署实战，请访问我们的专属文档站：
+
+ **[ipxe.lecreate.asia](https://ipxe.lecreate.asia)** | **[中文文档](https://ipxe.lecreate.asia/zh/)**
+
+**当前文档已收录的核心攻坚内容：**
+
+-  **[第一章：架构设计与核心链路](https://ipxe.lecreate.asia/zh/guide/architecture)**
+  剖析 iPXE + iSCSI 启动状态机，拆解 DHCP/iPXE/iSCSI 动态变量传递链，彻底告别网络引导黑盒。
+-  **[第二章：Windows 11 24H2 无盘全流程实战](https://ipxe.lecreate.asia/zh/guide/windows-11)**
+  利用 `dism++` 避开 ADK 陷阱注入万能驱动，结合 `tgt --device-type cd` 虚拟光驱机制，实现原生 `setup.exe` 丝滑安装与 iBFT 无缝接管。
+
 ## 路线图 (Roadmap)
 
 `ipxe-all-ready` 的最终目标并非仅仅实现单一系统的无盘启动，而是构建一个跨平台、跨架构、云原生的无状态计算基础设施底座。
