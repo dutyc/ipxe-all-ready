@@ -177,7 +177,7 @@ root@vm-ubuntu:/home/dutyc/ipxe-all-ready#
 
 启动无盘虚拟机，第一次启动可以看到以 MAC 地址拼接的 IQN，记录下 MAC 地址（此虚拟机 MAC 为 `00:0c:29:b9:8b:2d`）。
 
-![屏幕截图 2026-07-17 151113](./assets/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE%202026-07-17%20151113.png)
+![屏幕截图 2026-07-17 151113](/assets/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE%202026-07-17%20151113.png)
 
 编辑项目仓库中的 `dnsmasq/dhcp-hosts.conf` 文件，添加以下主机名分配：
 
@@ -193,43 +193,43 @@ docker exec ipxe-dnsmasq killall -HUP dnsmasq
 
 再次启动无盘虚拟机，可以看到以主机名拼接的基础 IQN 地址。
 
-![image-20260717152039637](./assets/image-20260717152039637.png)
+![image-20260717152039637](/assets/image-20260717152039637.png)
 
 选择 `Installers` 选项，选择 `Hook Debian ${arch} iSCSI and install` 选项，下载所需文件，启动 netboot。
 
-![屏幕截图 2026-07-17 155438](./assets/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE%202026-07-17%20155438.png)
+![屏幕截图 2026-07-17 155438](/assets/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE%202026-07-17%20155438.png)
 
 安装器随后会提示为该 Worker 配置 IP 地址。此处配置的是安装程序运行时的网络环境，不会继承至 Debian 系统启动阶段，因此分配一个未被占用的 IP 即可，此处填写 `192.168.80.40/24`。
 
-![image-20260717155806096](./assets/image-20260717155806096.png)
+![image-20260717155806096](/assets/image-20260717155806096.png)
 
 配置网关，填写该局域网内的网关地址 `192.168.80.2`。
 
-![屏幕截图 2026-07-17 155854](./assets/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE%202026-07-17%20155854.png)
+![屏幕截图 2026-07-17 155854](/assets/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE%202026-07-17%20155854.png)
 
 配置 DNS 服务器，填写 `223.5.5.5`。
 
-![image-20260717160243132](./assets/image-20260717160243132.png)
+![image-20260717160243132](/assets/image-20260717160243132.png)
 
 进行语言选择。
 
-![image-20260717160315226](./assets/image-20260717160315226.png)
+![image-20260717160315226](/assets/image-20260717160315226.png)
 
 随后进入镜像源配置阶段。需根据实际网络环境填写镜像源地址，否则会导致下载速度缓慢。该 netboot 安装程序默认会安装 GNOME 桌面环境（若需大规模部署，建议在局域网内搭建 deb 包缓存镜像站以提升效率）。此处配置为阿里云镜像源。
 
-![image-20260717160738849](./assets/image-20260717160738849.png)
+![image-20260717160738849](/assets/image-20260717160738849.png)
 
 安装器将检查镜像可用性。若此步骤顺利通过，则表明网络配置正确；若提示连接错误且镜像源地址拼写无误，则需排查 IP 地址、网关或 DNS 配置是否存在异常。
 
-![image-20260717160944807](./assets/image-20260717160944807.png)
+![image-20260717160944807](/assets/image-20260717160944807.png)
 
 随后进入 root 密码及常规用户设置环节，按常规流程配置即可。
 
-![image-20260717161241983](./assets/image-20260717161241983.png)
+![image-20260717161241983](/assets/image-20260717161241983.png)
 
 完成账号设置后，安装器将提示配置 iSCSI 相关参数，选择 `Configure iSCSI volumes`。
 
-![image-20260717161523200](./assets/image-20260717161523200.png)
+![image-20260717161523200](/assets/image-20260717161523200.png)
 
 界面出现以下提示：
 
@@ -244,19 +244,19 @@ iSCSI configuration actions
 
 选择 `Log into iSCSI targets`。
 
-![image-20260717161807430](./assets/image-20260717161807430.png)
+![image-20260717161807430](/assets/image-20260717161807430.png)
 
 在 `iSCSI target portal address:` 提示符后，输入 iSCSI Server IP（本次部署中 Controller 与 iSCSI Server 同机，故填写 `192.168.80.3`）。
 
 随后系统会要求输入认证账号与密码。由于 Target 端未配置 CHAP 认证，此处任意输入字符以满足安装器的表单校验逻辑即可完成连接。
 
-![image-20260717162219109](./assets/image-20260717162219109.png)
+![image-20260717162219109](/assets/image-20260717162219109.png)
 
 部分情况下，安装器可能会要求重复输入一次凭据以确认连接，视具体提示进行操作即可。
 
 连接成功后，界面将列出可用的 iSCSI Target，按空格键勾选目标，按 Tab 键切换至 `<Continue>` 并回车。
 
-![image-20260717162430661](./assets/image-20260717162430661.png)
+![image-20260717162430661](/assets/image-20260717162430661.png)
 
 此时界面可能会提示 iSCSI 连接丢失：
 
@@ -271,7 +271,7 @@ Check /var/log/syslog or see virtual console 4 for the details.
 <Continue>
 ```
 
-![image-20260717162648543](./assets/image-20260717162648543.png)
+![image-20260717162648543](/assets/image-20260717162648543.png)
 
 针对此报错，需进行链路排查。首先检查 **Controller** 节点的 docker compose 状态：
 
@@ -363,15 +363,15 @@ Finish <---选择这个
 
 选择 `Finish` 并回车。
 
-![image-20260717183827148](./assets/image-20260717183827148.png)
+![image-20260717183827148](/assets/image-20260717183827148.png)
 
 随后界面将正常跳转至硬盘分区阶段。在此界面可正常完成分区操作，进一步证实 iSCSI 硬盘实际上已成功连接。
 
-![image-20260717184018562](./assets/image-20260717184018562.png)
+![image-20260717184018562](/assets/image-20260717184018562.png)
 
 在设备列表中可明确观察到一块 21GB 的硬盘，确认 iSCSI 存储已就绪。
 
-![image-20260717185939498](./assets/image-20260717185939498.png)
+![image-20260717185939498](/assets/image-20260717185939498.png)
 
 完成分区流程后，系统开始安装基础组件。在安装 `Base system` 阶段，偶发安装失败并提示重试的情况，通常重试后即可继续。若持续卡死，建议改用路线二进行部署。
 
@@ -404,7 +404,7 @@ be a thumbdrive);
 
 最终，安装流程将抵达重启提示界面。
 
-![image-20260717194257384](./assets/image-20260717194257384.png)
+![image-20260717194257384](/assets/image-20260717194257384.png)
 
 在此界面，由于 Initramfs 存在前文所述的配置断层缺陷，必须拦截重启流程并手动修复系统文件。修复方式有两种：其一，在当前界面按下 `Shift + F8` 呼出 `[! !] Debian installer main menu`，选择 `Execute a shell` 进入底层命令行环境，通过 `chroot` 修改配置。
 
@@ -418,7 +418,7 @@ be a thumbdrive);
 
 在 "Installation complete" 界面，你可以按下组合键 `Shift + F8`，呼出 `[! !] Debian installer main menu` 菜单，选择 `Execute a shell` 选项，进入 d-i 底层的 BusyBox 命令行环境。
 
-![image-20260717194651747](./assets/image-20260717194651747.png)
+![image-20260717194651747](/assets/image-20260717194651747.png)
 
 成功进入 Shell 后，理论上你可以直接通过以下命令挂载 `/target` 并进行 `chroot`：
 
@@ -432,7 +432,7 @@ mount --bind /sys /target/sys
 chroot /target /bin/bash
 ```
 
-![image-20260717194929225](./assets/image-20260717194929225.png)
+![image-20260717194929225](/assets/image-20260717194929225.png)
 
 **工程建议**：虽然上述方法可行，但**不建议**在安装程序的 BusyBox 命令行中进行复杂的 `chroot` 和文件编辑操作。BusyBox 环境极其简陋，无法便捷地复制粘贴长命令（如编写 Hook 脚本），且缺乏完整的终端支持，极易因拼写错误导致修复失败。
 
@@ -691,7 +691,7 @@ sudo iscsiadm -m node -T iqn.2026-07.com.controller:worker-01.Debian -p 192.168.
 
 如果一切顺利，可以看到 GNOME 桌面环境启动，至此 netboot 安装 Debian 的任务完成。
 
-![image-20260704120832240](./assets/image-20260704120832240.png)
+![image-20260704120832240](/assets/image-20260704120832240.png)
 
 ## 3.3 路线二：虚拟机镜像转换与定制
 

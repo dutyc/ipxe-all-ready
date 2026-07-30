@@ -229,7 +229,7 @@ Target 2: iqn.2026-07.com.controller:worker-02.Windows.iso
 
 首次启动该虚拟机，由于尚未配置 DHCP 静态绑定，iPXE 菜单上方会显示该机器的真实 MAC 地址。
 
-![image-20260716121658845](./assets/image-20260716121658845.png)
+![image-20260716121658845](/assets/image-20260716121658845.png)
 
 记录该 MAC 地址，在 Controller 节点的 `dnsmasq/dhcp-hosts.conf` 文件中添加主机名分配：
 
@@ -248,19 +248,19 @@ docker exec ipxe-dnsmasq killall -HUP dnsmasq
 
 重新启动 Windows 11 无盘虚拟机。此时，iPXE 菜单上方的基础 IQN 已动态拼接为 `iqn.2026-07.com.controller:worker-02`，证明 DHCP 变量传递链已生效。
 
-![image-20260716122622794](./assets/image-20260716122622794.png)
+![image-20260716122622794](/assets/image-20260716122622794.png)
 
 在菜单中选择 `Installers`，随后选择 `Hook Windows iSCSI and boot WinPE for installation`，进入 WinPE 引导流程。
 
-![屏幕截图 2026-07-12 135419](./assets/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE%202026-07-12%20135419.png)
+![屏幕截图 2026-07-12 135419](/assets/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE%202026-07-12%20135419.png)
 
 iPXE 将在后台挂载两个 iSCSI 会话，并通过 HTTP 拉取 `wimboot` 及引导文件。
 
-![image-20260716124009741](./assets/image-20260716124009741.png)
+![image-20260716124009741](/assets/image-20260716124009741.png)
 
 等待加载完成后，系统将自动进入 Windows 11 的图形化安装界面。该界面即为 iSCSI 虚拟光驱中的 `setup.exe` 自动运行的结果。
 
-![image-20260716124146823](./assets/image-20260716124146823.png)
+![image-20260716124146823](/assets/image-20260716124146823.png)
 
 ### 5. 规避 24H2 安装程序 Bug（关键细节）
 
@@ -269,13 +269,13 @@ iPXE 将在后台挂载两个 iSCSI 会话，并通过 HTTP 拉取 `wimboot` 及
 
 **解决方案**：在此界面左下角，点击 **“以前版本的安装程序”**（Previous Version of Setup），切换回传统的 Win32 安装程序，即可完美规避此 Bug。
 
-![image-20260716124327652](./assets/image-20260716124327652.png)
+![image-20260716124327652](/assets/image-20260716124327652.png)
 
 随后，在磁盘选择界面选中之前通过 `sanhook` 挂载的 60GB iSCSI 系统盘（未分配空间），点击“下一步”开始正常的系统文件复制与安装流程。
 
-<img src="./assets/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE%202026-07-15%20170007.png" alt="屏幕截图 2026-07-15 170007" style="zoom:33%;" />
+<img src="/assets/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE%202026-07-15%20170007.png" alt="屏幕截图 2026-07-15 170007" style="zoom:33%;" />
 
-<img src="./assets/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE%202026-07-15%20171823.png" alt="屏幕截图 2026-07-15 171823" style="zoom:33%;" />
+<img src="/assets/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE%202026-07-15%20171823.png" alt="屏幕截图 2026-07-15 171823" style="zoom:33%;" />
 
 ### 6. OOBE 配置与系统首次启动
 
@@ -295,7 +295,7 @@ iPXE 将在后台挂载两个 iSCSI 会话，并通过 HTTP 拉取 `wimboot` 及
 
 后续日常使用时，只需在 iPXE 菜单的第一行选择 `Boot Windows from iSCSI`。iPXE 会执行 `sanboot`，将 iSCSI 连接信息写入 iBFT，Windows 内核将原生接管系统盘并直接进入桌面。
 
-![image-20260716124922705](./assets/image-20260716124922705.png)
+![image-20260716124922705](/assets/image-20260716124922705.png)
 
 至此，Windows 11 24H2 无盘部署全流程完成。
 

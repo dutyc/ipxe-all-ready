@@ -1,0 +1,2 @@
+{"id": 1, "ts": "2026-07-26T10:38:34.479697+00:00", "op": "disk", "req": {"iqn": "iqn.2026-07.com.controller:worker-99.Ubuntu", "master": null, "size": "1G", "filename": null}, "result": "ok", "client": "172.18.0.1"}
+{"id": 2, "ts": "2026-07-26T10:39:48.445088+00:00", "op": "delete", "req": {"iqn": "iqn.2026-07.com.controller:worker-99.Ubuntu", "delete_file": true}, "result": "ok", "client": "172.18.0.1"}

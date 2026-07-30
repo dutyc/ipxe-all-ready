@@ -1,0 +1,12 @@
+agents:
+  storage-lio-01:
+    base_url: http://host.docker.internal:4840
+    iscsi_server: 192.168.1.5
+    token: 2ed09ffad4e5f64b9f4f549785cbeabee40291bdf6df0b14302ae7c7ac0679e4
+    role:
+      disk: true
+      cd: false
+    tags:
+      - storage
+      - lio
+    enabled: true

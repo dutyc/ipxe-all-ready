@@ -1,0 +1,12 @@
+.code-block {
+  background: var(--gray-25);
+  border: 1px solid var(--border);
+  padding: 20px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--gray-700);
+  white-space: pre;
+  margin: 0;
+}

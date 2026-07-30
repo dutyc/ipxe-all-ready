@@ -69,33 +69,33 @@ goto start
 :windows
 echo Booting Windows from iSCSI for ${initiator-iqn}
 set netX/gateway ${iscsi-server}
-set root-path ${base-iscsi}:${hostname}.Windows
+set root-path ${base-iscsi}:${hostname}.windows
 set keep-san 1
 sanboot ${root-path} || goto failed
 goto start
 
 :ubuntu
 echo Booting Debian from iSCSI for ${initiator-iqn}
-set root-path iscsi:${iscsi-server}:::1:${base-iqn}:${hostname}.Ubuntu
+set root-path iscsi:${iscsi-server}:::1:${base-iqn}:${hostname}.ubuntu
 sanboot --keep --drive 0x80 ${root-path} || goto failed
 goto start
 
 :debian
 echo Booting Debian from iSCSI for ${initiator-iqn}
-set root-path iscsi:${iscsi-server}:::1:${base-iqn}:${hostname}.Debian
+set root-path iscsi:${iscsi-server}:::1:${base-iqn}:${hostname}.debian
 sanboot --keep --drive 0x80 ${root-path} || goto failed
 goto start
 
 :centos
 echo Booting CentOS from iSCSI for ${initiator-iqn}
-set root-path ${base-iscsi}:${hostname}.CentOS
+set root-path ${base-iscsi}:${hostname}.centOS
 set keep-san 1
 sanboot ${root-path} || goto failed
 goto start
 
 :esxi
 echo Booting ESXi from iSCSI for ${initiator-iqn}
-set root-path ${base-iscsi}:${hostname}.Esxi
+set root-path ${base-iscsi}:${hostname}.esxi
 set keep-san 1
 sanboot ${root-path} || goto failed
 goto start
@@ -114,14 +114,14 @@ choose selected && goto ${selected} || goto start
 choose --timeout ${submenu-timeout} --default ${submenu-default} selected && goto ${selected} || goto start
 
 :memtest
-set base-url http://${controller_ip}:88/tools
+set base-url ${chain-url}/tools
 initrd ${base-url}/memtest86_5.01.iso
 chain memdisk iso raw || goto failed
 goto start
 
 :winpe
-set base-url http://${controller_ip}:88/tools
-initrd ${base-url}/UQi_USBsys_10th.iso
+set base-url ${chain-url}/tools
+initrd ${base-url}/wepe.iso
 chain memdisk iso raw || goto failed
 goto start
 
@@ -145,14 +145,14 @@ choose --timeout ${submenu-timeout} --default ${submenu-default} selected && got
 echo Booting Windows PE ${arch} installer for ${initiator-iqn}
 echo (for installing Windows)
 set netX/gateway ${iscsi-server}
-set root-path ${base-iscsi}:${hostname}.Windows
-set data-path ${base-iscsi}:${hostname}.Windows.iso
+set root-path ${base-iscsi}:${hostname}.windows
+set data-path ${base-iscsi}:${hostname}.windows.iso
 set keep-san 1
 echo sanhook start...
 sanhook --drive 0x80 ${root-path} || goto failed
 sanhook --drive 0x81 ${data-path} || goto failed
 echo set base url starting
-set base-url http://${controller_ip}:88/Install/Windows/24H2
+set base-url ${chain-url}/windows/24h2
 kernel ${base-url}/wimboot
 initrd ${base-url}/boot/bcd bcd
 initrd ${base-url}/boot/boot.sdi boot.sdi
@@ -162,9 +162,9 @@ goto start
 
 :ubuntu-install
 echo Starting Ubuntu installer for ${initiator-iqn}
-set root-path ${base-iscsi}:${hostname}.Ubuntu
+set root-path ${base-iscsi}:${hostname}.ubuntu
 cpuid --ext 29 && set arch amd64 || set arch x86
-set base-url http://${controller_ip}:88/Install/Ubuntu/22.04
+set base-url ${chain-url}/ubuntu/22.04
 kernel ${base-url}/netboot/vmlinuz \
     auto=true \
     priority=critical \
@@ -182,9 +182,9 @@ goto start
 
 :debian-install
 echo Starting Debian 12 installer for ${initiator-iqn}
-set root-path ${base-iscsi}:${hostname}.Debian
+set root-path ${base-iscsi}:${hostname}.debian
 cpuid --ext 29 && set arch amd64 || set arch x86
-set base-url http://${controller_ip}:88/Install/Debian/12
+set base-url ${chain-url}/debian/12
 kernel ${base-url}/netboot/vmlinuz \
     auto=true \
     priority=critical \
@@ -202,8 +202,8 @@ goto start
 
 :centos-install
 echo Starting CentOS 7 ${archl} installer for ${initiator-iqn}
-set root-path ${base-iscsi}:${hostname}.CentOS
-set base-url ${chain-url}CentOS/x86_64
+set root-path ${base-iscsi}:${hostname}.centOS
+set base-url ${chain-url}/centos
 set keep-san 1
 sanhook ${root-path} || goto failed
 kernel ${base-url}/images/pxeboot/vmlinuz initrd=initrd.img repo=${base-url}
@@ -212,11 +212,11 @@ boot || goto failed
 goto start
 
 :esxi-install
-echo Starting ESXi 6.7 installer for ${initiator-iqn}
-set root-path ${base-iscsi}:${hostname}.Esxi
-set base-url http://${controller_ip}:88/Install/ESXI
+echo Starting ESXi 7 installer for ${initiator-iqn}
+set root-path ${base-iscsi}:${hostname}.esxi
+set base-url ${chain-url}/esxi
 set keep-san 1
 sanhook ${root-path} || goto failed
-initrd ${base-url}/Esxi.iso
+initrd ${base-url}/esxi.iso
 chain memdisk iso raw || goto failed
 goto start

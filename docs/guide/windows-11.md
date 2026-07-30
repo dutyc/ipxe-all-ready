@@ -229,7 +229,7 @@ Create a Windows 11 Worker virtual machine in VMware:
 
 Start the VM for the first time. Since no static DHCP binding has been configured yet, the real MAC address of the machine will be displayed at the top of the iPXE menu.
 
-![image-20260716121658845](./assets/image-20260716121658845.png)
+![image-20260716121658845](/assets/image-20260716121658845.png)
 
 Take note of this MAC address and add a hostname assignment in the `dnsmasq/dhcp-hosts.conf` file on the Controller node:
 
@@ -248,19 +248,19 @@ docker exec ipxe-dnsmasq killall -HUP dnsmasq
 
 Restart the diskless Windows 11 VM. At this point, the base IQN displayed at the top of the iPXE menu has been dynamically assembled as `iqn.2026-07.com.controller:worker-02`, proving that the DHCP variable passing chain is working.
 
-![image-20260716122622794](./assets/image-20260716122622794.png)
+![image-20260716122622794](/assets/image-20260716122622794.png)
 
 From the menu choose `Installers`, then select `Hook Windows iSCSI and boot WinPE for installation` to begin the WinPE boot process.
 
-![Screenshot 2026-07-12 135419](./assets/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE%202026-07-12%20135419.png)
+![Screenshot 2026-07-12 135419](/assets/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE%202026-07-12%20135419.png)
 
 iPXE will attach two iSCSI sessions in the background and pull `wimboot` and the boot files over HTTP.
 
-![image-20260716124009741](./assets/image-20260716124009741.png)
+![image-20260716124009741](/assets/image-20260716124009741.png)
 
 After loading completes, the system will automatically enter the graphical Windows 11 Setup wizard. This screen is the result of `setup.exe` running automatically from the iSCSI virtual optical drive.
 
-![image-20260716124146823](./assets/image-20260716124146823.png)
+![image-20260716124146823](/assets/image-20260716124146823.png)
 
 ### 5. Workaround for a 24H2 Setup Bug (Critical Detail)
 
@@ -269,13 +269,13 @@ Proceed normally by clicking “Next” until you reach the “Choose installati
 
 **Solution**: On the bottom‑left corner of this screen, click **“Previous version of Setup”** to switch back to the traditional Win32 Setup, which completely avoids this bug.
 
-![image-20260716124327652](./assets/image-20260716124327652.png)
+![image-20260716124327652](/assets/image-20260716124327652.png)
 
 Then, on the disk selection screen, select the 60 GB iSCSI system disk (unallocated space) that was attached earlier via `sanhook` and click “Next” to begin the normal file copy and installation process.
 
-<img src="./assets/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE%202026-07-15%20170007.png" alt="Screenshot 2026-07-15 170007" style="zoom:33%;" />
+<img src="/assets/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE%202026-07-15%20170007.png" alt="Screenshot 2026-07-15 170007" style="zoom:33%;" />
 
-<img src="./assets/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE%202026-07-15%20171823.png" alt="Screenshot 2026-07-15 171823" style="zoom:33%;" />
+<img src="/assets/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE%202026-07-15%20171823.png" alt="Screenshot 2026-07-15 171823" style="zoom:33%;" />
 
 ### 6. OOBE Configuration and First System Boot
 
@@ -295,7 +295,7 @@ Once the desktop appears, the diskless installation phase of Windows 11 24H2 is 
 
 For subsequent daily use, simply select `Boot Windows from iSCSI` from the top line of the iPXE menu. iPXE will execute `sanboot`, writing the iSCSI connection information into the iBFT, and the Windows kernel will natively take over the system disk and boot directly to the desktop.
 
-![image-20260716124922705](./assets/image-20260716124922705.png)
+![image-20260716124922705](/assets/image-20260716124922705.png)
 
 At this point the full diskless deployment workflow for Windows 11 24H2 is complete.
 

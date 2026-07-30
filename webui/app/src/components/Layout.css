@@ -1,0 +1,162 @@
+.layout {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ===== Nav ===== */
+.nav {
+  border-bottom: 1px solid var(--black);
+  background: var(--white);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.nav-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 32px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 40px;
+}
+
+.nav-brand {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: var(--black);
+  white-space: nowrap;
+}
+
+.nav-links {
+  display: flex;
+  gap: 32px;
+  flex: 1;
+}
+
+.nav-link {
+  font-size: 13px;
+  color: var(--gray-500);
+  padding: 4px 0;
+  border-bottom: 2px solid transparent;
+  transition: color var(--transition), border-color var(--transition);
+  text-decoration: none;
+}
+
+.nav-link:hover {
+  color: var(--black);
+  text-decoration: none;
+}
+
+.nav-link.active {
+  color: var(--black);
+  border-bottom-color: var(--black);
+}
+
+/* ===== Nav Right ===== */
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* ===== Lang Switch ===== */
+.lang-switch {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.lang-btn {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 3px 7px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--gray-400);
+  cursor: pointer;
+  transition: color var(--transition), border-color var(--transition);
+}
+
+.lang-btn:hover {
+  color: var(--black);
+}
+
+.lang-active {
+  color: var(--black);
+  border-color: var(--black);
+}
+
+.lang-sep {
+  font-size: 11px;
+  color: var(--gray-300);
+}
+
+/* ===== Token ===== */
+.nav-token {
+  display: flex;
+  align-items: center;
+}
+
+.token-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.token-input {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 5px 10px;
+  border: 1px solid var(--gray-300);
+  background: transparent;
+  color: var(--black);
+  outline: none;
+  width: 160px;
+  transition: border-color var(--transition);
+}
+
+.token-input:focus {
+  border-color: var(--black);
+}
+
+.token-btn {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 5px 12px;
+  border: 1px solid var(--black);
+  background: transparent;
+  color: var(--black);
+  cursor: pointer;
+  letter-spacing: 0.5px;
+  transition: background var(--transition), color var(--transition);
+}
+
+.token-btn:hover {
+  background: var(--black);
+  color: var(--white);
+}
+
+.token-clear {
+  font-size: 11px;
+  border-color: var(--gray-300);
+  color: var(--gray-500);
+}
+
+.token-clear:hover {
+  background: var(--black);
+  color: var(--white);
+  border-color: var(--black);
+}
+
+/* ===== Main ===== */
+.main {
+  flex: 1;
+  max-width: 1100px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 40px 32px 80px;
+}

@@ -14,36 +14,75 @@ services:
     restart: unless-stopped
     command: ["--no-daemon", "--log-queries", "--log-dhcp"]    
 
-  ipxe-iscsi:
-    image: wtnb75/stgt@sha256:1b609555f26bb7a2b2a49a093eff8473e196a8cff49acc684345020eb79f813e
-    container_name: ipxe-iscsi
-    restart: unless-stopped          
-    network_mode: host               
-    privileged: true                 
-    volumes:
-      - /etc/target:/etc/target
-      - /run/lvm:/run/lvm
-      - /lib/modules:/lib/modules
-      - /sys/kernel/config:/sys/kernel/config
-      - /dev:/dev
-      - ./iscsi_img:/home/iscsi_img  # 挂载 iSCSI 存储镜像目录
-      - /etc/localtime:/etc/localtime:ro
-      - /etc/timezone:/etc/timezone:ro
-    cap_add:
-      - NET_ADMIN
-      - SYS_MODULE
+  # ipxe-iscsi:
+  #   image: wtnb75/stgt@sha256:1b609555f26bb7a2b2a49a093eff8473e196a8cff49acc684345020eb79f813e
+  #   container_name: ipxe-iscsi
+  #   restart: unless-stopped          
+  #   network_mode: host               
+  #   privileged: true                 
+  #   volumes:
+  #     - /etc/target:/etc/target
+  #     - /run/lvm:/run/lvm
+  #     - /lib/modules:/lib/modules
+  #     - /sys/kernel/config:/sys/kernel/config
+  #     - /dev:/dev
+  #     - ./iscsi_img:/home/iscsi_img  # 挂载 iSCSI 存储镜像目录
+  #     - /etc/localtime:/etc/localtime:ro
+  #     - /etc/timezone:/etc/timezone:ro
+  #   cap_add:
+  #     - NET_ADMIN
+  #     - SYS_MODULE
 
-  ipxe-nginx:
-    image: nginx@sha256:54f2a904c251d5a34adf545a72d32515a15e08418dae0266e23be2e18c66fefa    #
-    container_name: ipxe-nginx
-    ports:
-      - "88:80"
-    volumes:
-      - ./www/Grub:/usr/share/nginx/html:ro
-      - ./www/web/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./www/web/conf.d:/etc/nginx/conf.d:ro
+  # ipxe-nginx:
+  #   image: nginx@sha256:54f2a904c251d5a34adf545a72d32515a15e08418dae0266e23be2e18c66fefa    #
+  #   container_name: ipxe-nginx
+  #   ports:
+  #     - "88:80"
+  #   volumes:
+  #     - ./www/Grub:/usr/share/nginx/html:ro
+  #     - ./www/web/nginx.conf:/etc/nginx/nginx.conf:ro
+  #     - ./www/web/conf.d:/etc/nginx/conf.d:ro
+  #   restart: unless-stopped
+
+
+
+  ipxe-control-plane:
+    build:
+      context: ./control_plane
+      dockerfile: Dockerfile
+    image: ipxe-control-plane
+    container_name: ipxe-control-plane
     restart: unless-stopped
+    ports:
+      - "4839:8080"
+    env_file:
+      - ./control_plane/control_plane.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./control_plane/config:/app/config
+      - ./control_plane/state:/app/state
+      - ./dnsmasq:/app/dnsmasq
 
+  
+  ipxe-nginx:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ipxe-cp-webui
+    ports:
+      - "4838:80"
+    volumes:
+      # ── Web UI 静态文件 (cd app && npm run build) ──
+      - ./webui/app/dist:/usr/share/nginx/html:ro
+      # ── 文件浏览器页面 (浏览工具的 HTML/JS 本身) ──
+      - ./webui/deploy/www/browse:/usr/share/nginx/browse:ro
+      # ── iPXE 公开文件目录: ISO, kernel, initrd (被浏览和下载的数据) ──
+      - ./webui/deploy/public:/data:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
       
 
 networks:

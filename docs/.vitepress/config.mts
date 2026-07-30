@@ -2,8 +2,12 @@ import { defineConfig } from 'vitepress'
 
 export default defineConfig({
   // 开启 Clean URLs，去掉 .html 后缀
-  title: 'iPXE-All-Ready',
+  title: 'Docs | iPXE-All-Ready',
   description: 'All is truly All. Ready is truly Ready.',
+  head: [
+    // 如果你使用的是 .ico 格式
+    ['link', { rel: 'icon', type: 'image/png', href: '/logo1.png' }],
+  ],
   cleanUrls: true,
 
 

@@ -1,0 +1,86 @@
+.agents-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.agents-meta {
+  font-size: 12px;
+  color: var(--gray-400);
+}
+
+/* ===== Grid ===== */
+.agents-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+  gap: 16px;
+}
+
+/* ===== Card ===== */
+.agent-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.agent-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.agent-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.agent-props {
+  display: flex;
+  flex-direction: column;
+}
+
+.agent-prop {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 16px;
+  padding: 10px 24px;
+  border-bottom: 1px solid var(--border-light);
+  align-items: baseline;
+}
+
+.agent-prop:last-child {
+  border-bottom: none;
+}
+
+.ap-label {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--gray-500);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.ap-value {
+  font-size: 13px;
+  color: var(--black);
+}
+
+.ap-mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--gray-700);
+  word-break: break-all;
+}
+
+.agent-tag {
+  display: inline-block;
+  font-size: 10px;
+  color: var(--gray-600);
+  border: 1px solid var(--gray-300);
+  padding: 1px 7px;
+  margin-right: 4px;
+  margin-bottom: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}

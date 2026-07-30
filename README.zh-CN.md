@@ -71,13 +71,13 @@
 
 ![架构设计](./assets/%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1.svg)
 
-* **Controller（控制端节点）**：集群的大脑。承载 **Control Plane** 程序，负责 DHCP 身份分配、HTTP 文件分发、iPXE 菜单生成，并以 HTTP 请求调度各 iSCSI Server 上的存储操作。Control Plane 自身不直接操作任何 iSCSI 服务端，也不区分"本机"与"远端"——一切存储操作一律经由 Agent 完成，从而让本机光驱与远端系统盘走同一套调度逻辑。
+* **Controller（控制端节点）**：集群的大脑。承载 **Control Plane** 常驻 HTTP 服务，负责 Worker 生命周期编排、Agent 调度、Worker 存储台账、`dnsmasq` 主机名绑定，以及 iPXE 启动变量的只读动态投影。Control Plane 自身不直接操作任何 iSCSI 服务端，也不接管静态文件分发和菜单生成：HTTP 文件由 nginx 分发，iPXE 菜单保持静态交互，存储操作一律经由 Agent 完成，从而让本机光驱与远端系统盘走同一套调度逻辑。
 * **iSCSI Server（存储节点）**：提供块存储的节点，可与 Controller 同机，也可独立部署到大容量 NAS / SAN。每个节点驻守一个 **API Agent**，接收 Control Plane 的 HTTP 请求，经 `docker.sock` 调度本机的 iSCSI 服务端容器。服务端软件可**异构**：**stgt**（用户态，支持把 ISO 挂成虚拟光驱，对受限环境友好）或 **LIO**（内核态，生产级磁盘）。后端差异封装在 Agent 内部，Control Plane 无需感知。该节点以镜像目录中的文件为**唯一真相**，启动时自动扫描目录、重建 iSCSI 配置，无需额外维护配置文件。
 * **Worker（工作端）**：无状态算力节点，无本地硬盘。通电后经 PXE 获取 IP 与身份，加载 iPXE，挂载 iSCSI 系统盘（安装期加挂虚拟光驱），引导操作系统。
 
 **控制面与数据面分离**
 
-* **控制面流量**是 Control Plane 与 Agent 之间的 HTTP 调度，体量小，只在开通或注销机器时发生。
+* **控制面流量**是 Control Plane 与 Agent 之间的 HTTP 调度，以及 Worker 启动早期向 `/boot-vars` 拉取 per-worker 变量的只读请求，体量小，只在开通、注销或启动参数投影时发生。
 * **数据面流量**是 Worker 与 iSCSI Server 之间的块存储读写，与控制面在物理上分离。
 * **安装介质与系统盘就近放置**：ISO 虚拟光驱靠近 Control Plane（安装介质本就在控制端），由控制端节点的 Agent 用 stgt 挂载；大容量系统盘放在远端 iSCSI Server。Worker 因此连接两个 iSCSI target——控制端的光驱与存储节点的系统盘。
 
@@ -87,16 +87,30 @@
 
 **控制面已落地**
 
-* **分布式调度模型**：Control Plane 只发 HTTP，每台 iSCSI Server 上的 API Agent 接收并操作本地 iSCSI 服务端，控制面与数据面分离。
+* **分布式调度模型**：Control Plane 只发 HTTP，每台 iSCSI Server 上的 API Agent 接收并操作本地 iSCSI 服务端，控制面与数据面分离。新增/删除 Worker 已从手工修改配置收敛为 `POST /workers` 与 `DELETE /workers/{id}` 这类稳定契约。
+* **文件即真相的轻量控制面**：不引入数据库，`config/agents.yml` 记录 Agent 清单，`state/workers.yml` 记录 Worker 存储台账，`dnsmasq/dhcp-hosts.conf` 作为 MAC -> hostname 的唯一真相，`operations.jsonl` 记录控制面操作轨迹。
+* **Worker 生命周期闭环**：创建 Worker 时自动拼接 IQN、选择 disk Agent、调用 Agent 创建空白盘或从母盘克隆、写入 Worker 台账、写入 `dnsmasq` 静态主机名绑定，并通过 `docker.sock` 对 `ipxe-dnsmasq` 发送 HUP 重载配置。
+* **per-worker 启动变量动态注入**：在保留 iPXE 静态菜单交互的前提下，新增 `/boot-vars` 只读端点，由 Control Plane 按 MAC/hostname 查询 inventory，动态返回 `iscsi-server`、`menu-default`、`menu-timeout` 等变量。`menu.ipxe` 零改动，`boot.ipxe.cfg` 只在末尾拉取变量并重算 `base-iscsi`，实现多 iSCSI 存储节点下的 per-worker 启动参数覆盖。
 * **API Agent 的 stgt 后端**：磁盘 LUN 创建（同步生成 `.img` 文件）、ISO 虚拟光驱挂载、目录批量扫描、base IQN 校验，均已跑通验证；并以镜像目录文件为真相、节点启动自动扫描重建，根治 stgt 配置易失。
-* **异构后端设计**：stgt 与 LIO 双后端，其中 LIO 服务端已容器化、并经 Windows 真实客户端连通验证；后端差异封装在 Agent 内，Control Plane 不感知。
+* **异构后端设计**：stgt 与 LIO 双后端均已接入 Agent，其中 LIO 服务端已容器化、Agent LIO 后端已跑通空白盘创建、target 删除与状态查询；后端差异封装在 Agent 内，Control Plane 不感知。
 * **存储性能**：母盘到工作盘的克隆在 btrfs 上以 reflink 秒级完成，实测数据块共享、零额外磁盘占用。
+* **Web 管理界面**：基于 React + Vite 构建的极简黑白工业风 SPA，集成 Control Plane 全部管理能力。
+  * **Dashboard**：Worker / Agent 集群水位总览，最近操作日志摘要。
+  * **Workers 管理**：列表查看、筛选过滤、内联创建表单（空白盘 / 母盘克隆 / Windows ISO 安装期），支持条件字段展示。
+  * **Worker 详情**：台账信息（Identity / Disk / CD-ROM）、实时状态探测（dnsmasq 绑定、disk/cd target 存在性）、启动变量投影（/boot-vars 代码块展示）、安全删除（内联二次确认，可选删除 .img 磁盘文件）。
+  * **Agents 监控**：自适应网格卡片布局，展示后端类型、能力描述、健康状态，支持 Live 探测开关。
+  * **操作日志**：审计流水增量加载，时间戳 + 操作类型 + 状态标记 + 关联 Worker。
+  * **技术栈**：React 18 + React Router 6 (HashRouter) + 纯 CSS 变量驱动主题，零第三方 UI 库依赖。
+  * **部署**：Vite 构建为纯静态文件，由 nginx 容器统一分发；API 代理通过 nginx 转发至 Control Plane，无需额外运行时。
+* **文件浏览器**：集成于同一 nginx 容器，通过 njs 脚本提供 JSON 目录列表 API，展示 `public/` 目录下的 iPXE 引导文件（ISO、kernel、initrd）。
+  * 文件下载端点 `/file/` 专供 iPXE `chain` / `initrd` 指令使用，404 响应为纯文本绝不返回 HTML 页面。
+  * Web UI 与文件浏览器共享同一 nginx 容器（:4838），无额外进程开销。
 
 **控制面推进中**
 
-* **Control Plane 程序**：拼接 IQN、登记 DHCP 身份、调度 Agent、生成 iPXE 菜单的统一编排逻辑。
-* **将 LIO 接入 Agent**（即 LIO 后端驱动），以及 Agent 接口的预共享 token 鉴权。
-* 将 Phase 1 的镜像制作与上述控制面串联为**一键部署脚本**。
+* **CLI 与初步部署体验**：后续将提供薄 CLI，用于初始化配置、检查组件健康、启动 compose，以及作为 Control Plane API 的便捷客户端；日常 Worker 生命周期仍统一走 Control Plane HTTP。
+* **更完整的 reconcile 能力**：对比 `workers.yml`、`dnsmasq/dhcp-hosts.conf` 与 Agent 实际 target 状态，报告并修复台账漂移。
+* 将 Phase 1 的镜像制作、母盘人工封装流程与上述控制面串联为**一键部署脚本**。
 
 我们正在将无数个夜晚踩过的深坑封装为一套**开箱即用、经过严苛验证的完整方案**，因此不急于放出零散的"避坑命令"。
 

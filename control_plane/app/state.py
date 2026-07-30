@@ -1,0 +1,107 @@
+import datetime as _dt
+import json
+import os
+import tempfile
+import threading
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+
+class FileStateStore:
+    def __init__(self, workers_file: Path):
+        self.workers_file = workers_file
+        self._lock = threading.RLock()
+
+    @contextmanager
+    def locked(self):
+        with self._lock:
+            yield
+
+    def load_workers(self) -> dict[str, Any]:
+        data = _load_yaml(self.workers_file, {"workers": {}})
+        workers = data.get("workers")
+        if workers is None:
+            data["workers"] = {}
+        if not isinstance(data["workers"], dict):
+            raise ValueError(f"invalid workers file: {self.workers_file}")
+        return data
+
+    def save_workers(self, data: dict[str, Any]) -> None:
+        if "workers" not in data:
+            data["workers"] = {}
+        _atomic_write_text(self.workers_file, yaml.safe_dump(data, sort_keys=True, allow_unicode=False))
+
+
+class OperationLog:
+    def __init__(self, path: Path):
+        self.path = path
+        self._lock = threading.Lock()
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._next_id = 0
+        if self.path.exists():
+            with self.path.open("r", encoding="utf-8") as f:
+                self._next_id = sum(1 for line in f if line.strip())
+
+    def record(self, op: str, status: str, **extra: Any) -> dict[str, Any]:
+        with self._lock:
+            self._next_id += 1
+            entry = {
+                "id": self._next_id,
+                "ts": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+                "op": op,
+                "status": status,
+            }
+            entry.update(extra)
+            with self.path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            return entry
+
+    def read(self, since: int = 0, limit: int = 1000) -> dict[str, Any]:
+        entries: list[dict[str, Any]] = []
+        if self.path.exists():
+            with self.path.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if entry.get("id", 0) > since:
+                        entries.append(entry)
+                        if len(entries) >= limit:
+                            break
+        return {"next_cursor": entries[-1]["id"] if entries else since, "entries": entries}
+
+
+def _load_yaml(path: Path, default: dict[str, Any]) -> dict[str, Any]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        return dict(default)
+    with path.open("r", encoding="utf-8") as f:
+        loaded = yaml.safe_load(f) or {}
+    if not isinstance(loaded, dict):
+        raise ValueError(f"expected YAML mapping in {path}")
+    return loaded
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_name, path)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+

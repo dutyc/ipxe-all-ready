@@ -1,0 +1,25 @@
+agents:
+  storage-lio-01:
+    base_url: http://host.docker.internal:4840
+    iscsi_server: 192.168.1.5
+    token: ${STORAGE_LIO_01_TOKEN}
+    role:
+      disk: true
+      cd: false
+    tags:
+      - storage
+      - lio
+    enabled: true
+
+  controller-stgt:
+    base_url: http://host.docker.internal:4840
+    iscsi_server: 192.168.1.5
+    token: ${CONTROLLER_STGT_TOKEN}
+    role:
+      disk: false
+      cd: true
+    tags:
+      - controller
+      - stgt
+      - iso
+    enabled: true

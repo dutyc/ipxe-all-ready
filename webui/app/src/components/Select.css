@@ -1,0 +1,26 @@
+.select-wrap {
+  position: relative;
+}
+
+.field-select {
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  padding-right: 36px;
+}
+
+.select-arrow {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 10px;
+  color: var(--gray-400);
+  pointer-events: none;
+  transition: color var(--transition);
+}
+
+.select-wrap:hover .select-arrow {
+  color: var(--gray-600);
+}

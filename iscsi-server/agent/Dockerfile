@@ -1,0 +1,14 @@
+FROM python:3.11-slim
+WORKDIR /app
+
+COPY requirements.txt .
+# pip 走阿里云加速（推断自你换 apt 源的偏好，如不对告诉我换）
+RUN pip install --no-cache-dir \
+        -i https://mirrors.aliyun.com/pypi/simple/ \
+        --trusted-host mirrors.aliyun.com \
+        -r requirements.txt
+
+COPY app ./app
+
+# 前台跑 HTTP 服务，监听 8080
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]

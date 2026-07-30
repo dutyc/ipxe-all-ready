@@ -1,0 +1,15 @@
+.card {
+  background: var(--gray-25);
+  border: 1px solid var(--border);
+  padding: 24px;
+  transition: border-color var(--transition), background var(--transition);
+}
+
+.card-hover {
+  cursor: pointer;
+}
+
+.card-hover:hover {
+  border-color: var(--black);
+  background: var(--white);
+}
