@@ -14,38 +14,6 @@ services:
     restart: unless-stopped
     command: ["--no-daemon", "--log-queries", "--log-dhcp"]    
 
-  # ipxe-iscsi:
-  #   image: wtnb75/stgt@sha256:1b609555f26bb7a2b2a49a093eff8473e196a8cff49acc684345020eb79f813e
-  #   container_name: ipxe-iscsi
-  #   restart: unless-stopped          
-  #   network_mode: host               
-  #   privileged: true                 
-  #   volumes:
-  #     - /etc/target:/etc/target
-  #     - /run/lvm:/run/lvm
-  #     - /lib/modules:/lib/modules
-  #     - /sys/kernel/config:/sys/kernel/config
-  #     - /dev:/dev
-  #     - ./iscsi_img:/home/iscsi_img  # 挂载 iSCSI 存储镜像目录
-  #     - /etc/localtime:/etc/localtime:ro
-  #     - /etc/timezone:/etc/timezone:ro
-  #   cap_add:
-  #     - NET_ADMIN
-  #     - SYS_MODULE
-
-  # ipxe-nginx:
-  #   image: nginx@sha256:54f2a904c251d5a34adf545a72d32515a15e08418dae0266e23be2e18c66fefa    #
-  #   container_name: ipxe-nginx
-  #   ports:
-  #     - "88:80"
-  #   volumes:
-  #     - ./www/Grub:/usr/share/nginx/html:ro
-  #     - ./www/web/nginx.conf:/etc/nginx/nginx.conf:ro
-  #     - ./www/web/conf.d:/etc/nginx/conf.d:ro
-  #   restart: unless-stopped
-
-
-
   ipxe-control-plane:
     build:
       context: ./control_plane
@@ -65,10 +33,9 @@ services:
       - ./control_plane/state:/app/state
       - ./dnsmasq:/app/dnsmasq
 
-  
   ipxe-nginx:
     build:
-      context: .
+      context: ./webui/deploy
       dockerfile: Dockerfile
     container_name: ipxe-cp-webui
     ports:
