@@ -24,9 +24,13 @@
 ## 项目结构
 
 ```text
-Control_Plane/
-├── docker-compose.yml                  # Control Plane compose 入口
-├── docker-compose.control-plane.yml    # Control Plane 独立 compose 示例
+ipxe-all-ready/
+├── docker-compose.yml
+├── package.json
+├── package-lock.json
+├── iscsi-target-gen.sh
+├── LICENSE
+├── README.md
 ├── README.zh-CN.md
 │
 ├── control_plane/                      # 控制平面（核心服务）
@@ -35,32 +39,39 @@ Control_Plane/
 │   ├── control_plane.env
 │   ├── control_plane.env.example
 │   ├── Control_Plane_API_Docs.md
-│   ├── Agent_API_Docs.md
-│   ├── app/                            # FastAPI 源码
-│   │   ├── main.py                     # HTTP API 与 Worker 生命周期编排
-│   │   ├── agent_client.py             # Agent HTTP 客户端
-│   │   ├── scheduler.py                # Agent 选择与能力探测
-│   │   ├── dnsmasq.py                  # dhcp-hosts.conf 管理与 HUP 重载
-│   │   ├── state.py                    # YAML / JSONL 状态文件读写
-│   │   ├── models.py                   # 请求模型
-│   │   └── config.py                   # 环境变量配置
-│   ├── config/                         # Agent 静态配置
-│   │   ├── agents.yml
-│   │   └── agents.yml.example
+│   ├── app/                            # Python 源码
+│   ├── config/                         # 静态配置
 │   └── state/                          # 运行时状态
-│       ├── workers.yml
-│       └── operations.jsonl
 │
-├── dnsmasq/                            # DHCP 静态主机名绑定
+├── dnsmasq/                            # DHCP/TFTP 配置
+│   ├── dnsmasq.conf
 │   └── dhcp-hosts.conf
 │
-└── tftp/                               # iPXE 引导文件
-    ├── boot.ipxe
-    ├── boot.ipxe.cfg
-    ├── menu.ipxe
-    ├── preseed.cfg
-    ├── boot/
-    └── config/
+├── tftp/                               # iPXE 引导文件
+│   ├── boot.ipxe
+│   ├── boot.ipxe.cfg
+│   ├── menu.ipxe
+│   └── preseed.cfg
+│
+├── iscsi-server/                       # iSCSI 存储服务
+│   ├── docker-compose.yml
+│   ├── API_Reference.md
+│   ├── Agent_API_Docs.md
+│   ├── agent/                          # Agent 组件
+│   ├── lio/                            # LIO 内核态实现
+│   └── stgt/                           # STGT 用户态实现
+│
+├── webui/                              # Web 管理面板 (React + Vite)
+│   ├── app/
+│   │   └── src/                        # 前端源码（api, components, pages, i18n, styles）
+│   └── deploy/                         # 部署配置（Nginx）
+│       ├── Dockerfile
+│       ├── nginx/
+│       └── www/
+│
+└── docs/                               # 项目文档（Vitepress）
+    ├── guide/                          # 英文指南
+    └── zh/                             # 中文指南
 ```
 
 ## 📚 官方文档与实战指南

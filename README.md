@@ -24,9 +24,13 @@ Our goal is not just to "get diskless boot working," but to pave the wilderness 
 ## Project Structure
 
 ```text
-Control_Plane/
-├── docker-compose.yml                  # Control Plane compose entrypoint
-├── docker-compose.control-plane.yml    # Standalone Control Plane compose example
+ipxe-all-ready/
+├── docker-compose.yml
+├── package.json
+├── package-lock.json
+├── iscsi-target-gen.sh
+├── LICENSE
+├── README.md
 ├── README.zh-CN.md
 │
 ├── control_plane/                      # Control Plane (core service)
@@ -35,32 +39,39 @@ Control_Plane/
 │   ├── control_plane.env
 │   ├── control_plane.env.example
 │   ├── Control_Plane_API_Docs.md
-│   ├── Agent_API_Docs.md
-│   ├── app/                            # FastAPI source
-│   │   ├── main.py                     # HTTP API & Worker lifecycle orchestration
-│   │   ├── agent_client.py             # Agent HTTP client
-│   │   ├── scheduler.py                # Agent selection & capability probing
-│   │   ├── dnsmasq.py                  # dhcp-hosts.conf management & HUP reload
-│   │   ├── state.py                    # YAML / JSONL state file I/O
-│   │   ├── models.py                   # Request models
-│   │   └── config.py                   # Environment‑variable configuration
-│   ├── config/                         # Agent static configuration
-│   │   ├── agents.yml
-│   │   └── agents.yml.example
+│   ├── app/                            # Python source code
+│   ├── config/                         # Static configuration
 │   └── state/                          # Runtime state
-│       ├── workers.yml
-│       └── operations.jsonl
 │
-├── dnsmasq/                            # DHCP static hostname bindings
+├── dnsmasq/                            # DHCP/TFTP configuration
+│   ├── dnsmasq.conf
 │   └── dhcp-hosts.conf
 │
-└── tftp/                               # iPXE boot files
-    ├── boot.ipxe
-    ├── boot.ipxe.cfg
-    ├── menu.ipxe
-    ├── preseed.cfg
-    ├── boot/
-    └── config/
+├── tftp/                               # iPXE boot files
+│   ├── boot.ipxe
+│   ├── boot.ipxe.cfg
+│   ├── menu.ipxe
+│   └── preseed.cfg
+│
+├── iscsi-server/                       # iSCSI storage service
+│   ├── docker-compose.yml
+│   ├── API_Reference.md
+│   ├── Agent_API_Docs.md
+│   ├── agent/                          # Agent component
+│   ├── lio/                            # LIO kernel-space implementation
+│   └── stgt/                           # STGT user-space implementation
+│
+├── webui/                              # Web admin panel (React + Vite)
+│   ├── app/
+│   │   └── src/                        # Frontend source (api, components, pages, i18n, styles)
+│   └── deploy/                         # Deployment config (Nginx)
+│       ├── Dockerfile
+│       ├── nginx/
+│       └── www/
+│
+└── docs/                               # Project documentation (Vitepress)
+    ├── guide/                          # English guide
+    └── zh/                             # Chinese guide
 ```
 
 ## 📚 Official Documentation & Hands‑on Guides
