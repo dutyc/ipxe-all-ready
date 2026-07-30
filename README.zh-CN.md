@@ -1,5 +1,7 @@
 # IPXE-All-Ready
 
+![iPXE](https://img.shields.io/badge/iPXE-Network%20Boot-111111) ![iSCSI](https://img.shields.io/badge/iSCSI-Diskless%20Storage-0f766e) ![Control Plane](https://img.shields.io/badge/Control%20Plane-FastAPI-2563eb) ![Agent](https://img.shields.io/badge/Agent-STGT%20%2F%20LIO-7c3aed) ![dnsmasq](https://img.shields.io/badge/DHCP-dnsmasq-334155) ![License](https://img.shields.io/badge/License-MIT-green)
+
 [中文版](./README.zh-CN.md) | [English](./README.md)
 
 **IPXE-All-Ready** 旨在构建一套基于纯开源组件（iPXE + iSCSI + OS）的、企业级无状态（Stateless）计算节点部署标准。
@@ -8,6 +10,58 @@
 
 **All 是真的 All，Ready 是真的 Ready。**
 **无盘开源时代，来了。**
+
+## 项目总览
+
+`ipxe-all-ready` 现在已经从单纯的无盘启动验证，演进为一套面向无状态计算节点交付的开源控制面雏形。它把过去分散在手工命令、静态配置和经验判断里的动作，收敛成清晰的组件边界：
+
+- **Control Plane**：Controller 节点上的常驻 HTTP 服务，负责 Worker 生命周期编排、Agent 调度、Worker 存储台账、`dnsmasq` 主机名绑定，以及 `/boot-vars` 启动变量投影。
+- **iSCSI Agent**：部署在每台 iSCSI Server 上的本地执行器，通过 HTTP 接收 Control Plane 调度，再经 `docker.sock` 操作本机 STGT / LIO iSCSI 服务端。
+- **iPXE 静态菜单 + 动态变量注入**：`menu.ipxe` 保持静态交互，`boot.ipxe.cfg` 在启动早期从 Control Plane 拉取 per-worker 变量，解决多 iSCSI 存储节点下的启动参数差异。
+- **文件即真相**：不引入数据库，使用 `agents.yml`、`workers.yml`、`dhcp-hosts.conf`、`operations.jsonl` 承载控制面状态，透明、可 diff、可手工修复。
+- **控制面与数据面分离**：Control Plane 只做调度与台账，Worker 的块存储读写直接走 iSCSI 数据面，不经过控制面。
+
+## 项目结构
+
+```text
+Control_Plane/
+├── docker-compose.yml                  # Control Plane compose 入口
+├── docker-compose.control-plane.yml    # Control Plane 独立 compose 示例
+├── README.zh-CN.md
+│
+├── control_plane/                      # 控制平面（核心服务）
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── control_plane.env
+│   ├── control_plane.env.example
+│   ├── Control_Plane_API_Docs.md
+│   ├── Agent_API_Docs.md
+│   ├── app/                            # FastAPI 源码
+│   │   ├── main.py                     # HTTP API 与 Worker 生命周期编排
+│   │   ├── agent_client.py             # Agent HTTP 客户端
+│   │   ├── scheduler.py                # Agent 选择与能力探测
+│   │   ├── dnsmasq.py                  # dhcp-hosts.conf 管理与 HUP 重载
+│   │   ├── state.py                    # YAML / JSONL 状态文件读写
+│   │   ├── models.py                   # 请求模型
+│   │   └── config.py                   # 环境变量配置
+│   ├── config/                         # Agent 静态配置
+│   │   ├── agents.yml
+│   │   └── agents.yml.example
+│   └── state/                          # 运行时状态
+│       ├── workers.yml
+│       └── operations.jsonl
+│
+├── dnsmasq/                            # DHCP 静态主机名绑定
+│   └── dhcp-hosts.conf
+│
+└── tftp/                               # iPXE 引导文件
+    ├── boot.ipxe
+    ├── boot.ipxe.cfg
+    ├── menu.ipxe
+    ├── preseed.cfg
+    ├── boot/
+    └── config/
+```
 
 ## 📚 官方文档与实战指南
 
