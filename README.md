@@ -192,7 +192,7 @@ If you, too, are ambitious about stateless computing architectures, and if you a
 
 ## License
 
-This project is licensed under the [Apache License 2.0](./blob/main/LICENSE).
+This project is licensed under the [Apache License 2.0](./LICENSE).
 
 ## Star History
 
