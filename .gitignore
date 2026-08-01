@@ -8,7 +8,6 @@ app/node_modules
 docs/.vitepress/dist/
 docs/.vitepress/cache/
 webui/app/node_modules
-webui/app/dist
 
 
 .DS_Store
