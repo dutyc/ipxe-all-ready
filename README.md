@@ -1,6 +1,6 @@
 # IPXE-All-Ready
 
-![iPXE](https://img.shields.io/badge/iPXE-Network%20Boot-111111) ![iSCSI](https://img.shields.io/badge/iSCSI-Diskless%20Storage-0f766e) ![Control Plane](https://img.shields.io/badge/Control%20Plane-FastAPI-2563eb) ![Agent](https://img.shields.io/badge/Agent-STGT%20%2F%20LIO-7c3aed) ![dnsmasq](https://img.shields.io/badge/DHCP-dnsmasq-334155) ![License](https://img.shields.io/badge/License-MIT-green)
+![iPXE](https://img.shields.io/badge/iPXE-Network%20Boot-111111) ![iSCSI](https://img.shields.io/badge/iSCSI-Diskless%20Storage-0f766e) ![Control Plane](https://img.shields.io/badge/Control%20Plane-FastAPI-2563eb) ![Agent](https://img.shields.io/badge/Agent-STGT%20%2F%20LIO-7c3aed) ![dnsmasq](https://img.shields.io/badge/DHCP-dnsmasq-334155) ![License](https://img.shields.io/badge/License-Apache%202.0-green)
 
 [中文版](./README.zh-CN.md) | [English](./README.md)
 
@@ -192,7 +192,7 @@ If you, too, are ambitious about stateless computing architectures, and if you a
 
 ## License
 
-This project is licensed under the MIT License.
+This project is licensed under the [Apache License 2.0](./blob/main/LICENSE).
 
 ## Star History
 
