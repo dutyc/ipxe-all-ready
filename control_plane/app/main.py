@@ -124,7 +124,18 @@ def create_worker(req: CreateWorkerRequest, request: Request):
         _record("create_worker", "started", worker_id=worker_id, client=client_host)
 
         try:
-            disk_agent, disk_caps = agents.select_disk_agent()
+            if req.disk_agent:
+                disk_agent = agents.get(req.disk_agent)
+                if not disk_agent.role_disk:
+                    raise HTTPException(400, f"agent {req.disk_agent} not configured for disk role")
+                client = agents.client(disk_agent)
+                try:
+                    client.healthz()
+                    disk_caps = client.capabilities()
+                except Exception as exc:
+                    raise HTTPException(503, f"agent {req.disk_agent} not reachable: {exc}") from exc
+            else:
+                disk_agent, disk_caps = agents.select_disk_agent()
             disk_iqn = _build_iqn(disk_caps["base_iqn"], worker_id, os_name)
             disk_filename = _build_disk_filename(worker_id, os_name)
             disk_client = agents.client(disk_agent)

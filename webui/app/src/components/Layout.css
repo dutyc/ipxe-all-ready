@@ -95,63 +95,6 @@
   color: var(--gray-300);
 }
 
-/* ===== Token ===== */
-.nav-token {
-  display: flex;
-  align-items: center;
-}
-
-.token-form {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.token-input {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  padding: 5px 10px;
-  border: 1px solid var(--gray-300);
-  background: transparent;
-  color: var(--black);
-  outline: none;
-  width: 160px;
-  transition: border-color var(--transition);
-}
-
-.token-input:focus {
-  border-color: var(--black);
-}
-
-.token-btn {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  padding: 5px 12px;
-  border: 1px solid var(--black);
-  background: transparent;
-  color: var(--black);
-  cursor: pointer;
-  letter-spacing: 0.5px;
-  transition: background var(--transition), color var(--transition);
-}
-
-.token-btn:hover {
-  background: var(--black);
-  color: var(--white);
-}
-
-.token-clear {
-  font-size: 11px;
-  border-color: var(--gray-300);
-  color: var(--gray-500);
-}
-
-.token-clear:hover {
-  background: var(--black);
-  color: var(--white);
-  border-color: var(--black);
-}
-
 /* ===== Main ===== */
 .main {
   flex: 1;

@@ -20,10 +20,11 @@ export default function Operations() {
     try {
       const data = await getOperations(since, 50)
       const newEntries = data.entries || []
+      const reversed = [...newEntries].reverse()
       if (append) {
-        setEntries((prev) => [...prev, ...newEntries])
+        setEntries((prev) => [...reversed, ...prev])
       } else {
-        setEntries(newEntries)
+        setEntries(reversed)
       }
       const nextCursor = data.next_cursor ?? since + newEntries.length
       setCursor(nextCursor)

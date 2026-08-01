@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { getWorkers, createWorker } from '../api/client'
+import { getWorkers, createWorker, getAgents } from '../api/client'
 import { useI18n } from '../i18n'
 import Button from '../components/Button'
 import Input from '../components/Input'
@@ -27,6 +27,7 @@ export default function Workers() {
   const [showCreate, setShowCreate] = useState(false)
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState(null)
+  const [agentsList, setAgentsList] = useState([])
 
   const form = useForm({
     worker_id: '',
@@ -36,6 +37,7 @@ export default function Workers() {
     disk_name: '',
     disk_size: '40G',
     windows_iso: '',
+    disk_agent: '',
   })
 
   const OS_OPTIONS = [
@@ -60,6 +62,26 @@ export default function Workers() {
     }
   }, [])
 
+  const toggleCreate = async () => {
+    const opening = !showCreate
+    setShowCreate(opening)
+    setCreateError(null)
+    if (opening) {
+      try {
+        const agents = await getAgents(false)
+        const diskAgents = (Array.isArray(agents) ? agents : []).filter(
+          (a) => a.enabled && a.role?.disk
+        )
+        setAgentsList(diskAgents)
+        if (diskAgents.length > 0 && !form.values.disk_agent) {
+          form.set('disk_agent', diskAgents[0].id)
+        }
+      } catch {
+        setAgentsList([])
+      }
+    }
+  }
+
   useEffect(() => {
     fetchWorkers()
   }, [fetchWorkers])
@@ -79,6 +101,10 @@ export default function Workers() {
       mac: form.values.mac,
       os: form.values.os,
       disk,
+    }
+
+    if (form.values.disk_agent) {
+      body.disk_agent = form.values.disk_agent
     }
 
     if (form.values.os === 'windows' && form.values.windows_iso.trim()) {
@@ -115,10 +141,7 @@ export default function Workers() {
         <h2 className="page-title">{t('workers.title')}</h2>
         <Button
           variant={showCreate ? 'ghost' : 'primary'}
-          onClick={() => {
-            setShowCreate(!showCreate)
-            setCreateError(null)
-          }}
+          onClick={toggleCreate}
         >
           {showCreate ? t('workers.cancel') : t('workers.create')}
         </Button>
@@ -152,6 +175,18 @@ export default function Workers() {
               onChange={(e) => { form.set('os', e.target.value) }}
               options={OS_OPTIONS}
             />
+            {agentsList.length > 0 && (
+              <Select
+                label={t('workers.diskAgent')}
+                name="disk_agent"
+                value={form.values.disk_agent}
+                onChange={(e) => { form.set('disk_agent', e.target.value) }}
+                options={agentsList.map((a) => ({
+                  value: a.id,
+                  label: `${a.id}${a.iscsi_server ? ` (${a.iscsi_server})` : ''}`,
+                }))}
+              />
+            )}
             <Select
               label={t('workers.diskType')}
               name="disk_type"

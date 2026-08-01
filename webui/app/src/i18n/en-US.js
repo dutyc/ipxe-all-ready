@@ -30,6 +30,7 @@ const en = {
     mac: 'MAC Address',
     macPlaceholder: '00:0c:29:b9:8b:2d',
     os: 'OS',
+    diskAgent: 'Storage Node (iSCSI Server)',
     diskType: 'Disk Type',
     empty: 'Empty (new disk)',
     master: 'Master (clone)',
@@ -102,6 +103,11 @@ const en = {
     yes: 'yes',
     no: 'no',
     unknown: '—',
+    capLabels: {
+      'reflink (FICLONE) -> shutil.copy fallback': 'reflink (FICLONE) -> shutil.copy fallback',
+      'truncate (sparse)': 'truncate (sparse)',
+      'saveconfig (auto-load on start)': 'saveconfig (auto-load on start)',
+    },
   },
   operations: {
     title: 'Operations',

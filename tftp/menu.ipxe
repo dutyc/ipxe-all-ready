@@ -152,7 +152,7 @@ echo sanhook start...
 sanhook --drive 0x80 ${root-path} || goto failed
 sanhook --drive 0x81 ${data-path} || goto failed
 echo set base url starting
-set base-url ${chain-url}/windows/24h2
+set base-url ${chain-url}/install/windows/24h2
 kernel ${base-url}/wimboot
 initrd ${base-url}/boot/bcd bcd
 initrd ${base-url}/boot/boot.sdi boot.sdi
@@ -164,7 +164,7 @@ goto start
 echo Starting Ubuntu installer for ${initiator-iqn}
 set root-path ${base-iscsi}:${hostname}.ubuntu
 cpuid --ext 29 && set arch amd64 || set arch x86
-set base-url ${chain-url}/ubuntu/22.04
+set base-url ${chain-url}/install/ubuntu/22.04
 kernel ${base-url}/netboot/vmlinuz \
     auto=true \
     priority=critical \
@@ -184,7 +184,7 @@ goto start
 echo Starting Debian 12 installer for ${initiator-iqn}
 set root-path ${base-iscsi}:${hostname}.debian
 cpuid --ext 29 && set arch amd64 || set arch x86
-set base-url ${chain-url}/debian/12
+set base-url ${chain-url}/install/debian/12
 kernel ${base-url}/netboot/vmlinuz \
     auto=true \
     priority=critical \
@@ -203,7 +203,7 @@ goto start
 :centos-install
 echo Starting CentOS 7 ${archl} installer for ${initiator-iqn}
 set root-path ${base-iscsi}:${hostname}.centOS
-set base-url ${chain-url}/centos
+set base-url ${chain-url}/install/centos
 set keep-san 1
 sanhook ${root-path} || goto failed
 kernel ${base-url}/images/pxeboot/vmlinuz initrd=initrd.img repo=${base-url}
@@ -214,7 +214,7 @@ goto start
 :esxi-install
 echo Starting ESXi 7 installer for ${initiator-iqn}
 set root-path ${base-iscsi}:${hostname}.esxi
-set base-url ${chain-url}/esxi
+set base-url ${chain-url}/install/esxi
 set keep-san 1
 sanhook ${root-path} || goto failed
 initrd ${base-url}/esxi.iso

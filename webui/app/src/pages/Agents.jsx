@@ -8,6 +8,11 @@ import EmptyState from '../components/EmptyState'
 import './Agents.css'
 
 function AgentCard({ agent, t }) {
+  const capLabel = (key) => {
+    const val = agent.capabilities?.[key]
+    if (!val) return t('agents.unknown')
+    return t('agents.capLabels')[val] || val
+  }
   return (
     <Card className="agent-card">
       <div className="agent-card-header">
@@ -26,8 +31,8 @@ function AgentCard({ agent, t }) {
         <div className="agent-prop">
           <span className="ap-label">{t('agents.iscsiServer')}</span>
           <span className="ap-value ap-mono">
-            {agent.capabilities?.base_iqn
-              ? `${agent.capabilities.base_iqn} (IQN)`
+            {agent.iscsi_server || agent.capabilities?.base_iqn
+              ? `${agent.iscsi_server || agent.capabilities.base_iqn}${agent.iscsi_server && agent.capabilities?.base_iqn ? ` (${agent.capabilities.base_iqn})` : ''}`
               : t('agents.unknown')}
           </span>
         </div>
@@ -41,11 +46,11 @@ function AgentCard({ agent, t }) {
         </div>
         <div className="agent-prop">
           <span className="ap-label">{t('agents.clone')}</span>
-          <span className="ap-value">{agent.capabilities?.clone || t('agents.unknown')}</span>
+          <span className="ap-value">{capLabel('clone')}</span>
         </div>
         <div className="agent-prop">
           <span className="ap-label">{t('agents.emptyDisk')}</span>
-          <span className="ap-value">{agent.capabilities?.empty_disk || t('agents.unknown')}</span>
+          <span className="ap-value">{capLabel('empty_disk')}</span>
         </div>
         {agent.tags && agent.tags.length > 0 && (
           <div className="agent-prop">

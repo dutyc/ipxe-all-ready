@@ -1,6 +1,3 @@
-# ==========================================
-# 1. Node.js 依赖 
-# ==========================================
 node_modules/
 npm-debug.log*
 yarn-debug.log*
@@ -8,15 +5,12 @@ yarn-error.log*
 pnpm-debug.log*
 app/node_modules
 
-# ==========================================
-# 2. VitePress 构建产物与缓存
-# ==========================================
 docs/.vitepress/dist/
 docs/.vitepress/cache/
+webui/app/node_modules
+webui/app/dist
 
-# ==========================================
-# 3. 操作系统与编辑器生成的垃圾文件
-# ==========================================
+
 .DS_Store
 Thumbs.db
 *.swp
@@ -29,9 +23,8 @@ Thumbs.db
 webui/deploy/public/install/debian/12/netboot
 webui/deploy/public/install/windows/24h2/boot
 webui/deploy/public/install/windows/24h2/sources
-# ==========================================
-# 4. 环境变量与本地配置
-# ==========================================
-.env
+
+
 .env.local
 .env.*.local
+webui/app/.env

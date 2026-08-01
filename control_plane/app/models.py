@@ -23,3 +23,4 @@ class CreateWorkerRequest(BaseModel):
     arch: str | None = None
     windows_iso: str | None = None
     boot: BootSpec | None = None
+    disk_agent: str | None = None

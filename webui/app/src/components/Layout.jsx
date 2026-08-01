@@ -1,26 +1,9 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import { hasToken, setToken, clearToken } from '../api/client'
 import { useI18n } from '../i18n'
-import { useState } from 'react'
 import './Layout.css'
 
 export default function Layout() {
   const { t, locale, setLocale } = useI18n()
-  const [tokenInput, setTokenInput] = useState('')
-  const [showToken, setShowToken] = useState(!hasToken())
-
-  const handleSetToken = () => {
-    if (tokenInput.trim()) {
-      setToken(tokenInput.trim())
-      setShowToken(false)
-    }
-  }
-
-  const handleClearToken = () => {
-    clearToken()
-    setTokenInput('')
-    setShowToken(true)
-  }
 
   const NAV_ITEMS = [
     { to: '/', label: t('nav.dashboard'), exact: true },
@@ -63,27 +46,6 @@ export default function Layout() {
               >
                 EN
               </button>
-            </div>
-            <div className="nav-token">
-              {showToken ? (
-                <div className="token-form">
-                  <input
-                    type="password"
-                    className="token-input"
-                    placeholder={t('token.placeholder')}
-                    value={tokenInput}
-                    onChange={(e) => setTokenInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleSetToken()}
-                  />
-                  <button className="token-btn" onClick={handleSetToken}>
-                    {t('token.set')}
-                  </button>
-                </div>
-              ) : (
-                <button className="token-btn token-clear" onClick={handleClearToken}>
-                  {t('token.clear')}
-                </button>
-              )}
             </div>
           </div>
         </div>

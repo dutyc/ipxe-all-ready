@@ -40,7 +40,7 @@ export default function Dashboard() {
           agents: Array.isArray(agents) ? agents.length : 0,
           agentHealthy,
         })
-        setRecentOps(ops.entries || [])
+        setRecentOps((ops.entries || []).slice().reverse())
       } catch (e) {
         if (!cancelled) setError(e.message)
       } finally {

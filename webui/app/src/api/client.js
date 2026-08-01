@@ -1,15 +1,7 @@
 const BASE = '/api/cp';
 
 function getToken() {
-  return localStorage.getItem('cp_token') || '';
-}
-
-export function setToken(token) {
-  localStorage.setItem('cp_token', token);
-}
-
-export function clearToken() {
-  localStorage.removeItem('cp_token');
+  return import.meta.env.VITE_CP_TOKEN || localStorage.getItem('cp_token') || '';
 }
 
 export function hasToken() {
