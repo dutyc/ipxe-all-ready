@@ -17,6 +17,21 @@
 }
 
 /* ===== Card ===== */
+.agent-card-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  transition: transform var(--transition), border-color var(--transition);
+}
+
+.agent-card-link:hover {
+  text-decoration: none;
+}
+
+.agent-card-link:hover .agent-card {
+  border-color: var(--gray-400);
+}
+
 .agent-card {
   padding: 0;
   overflow: hidden;

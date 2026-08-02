@@ -10,6 +10,7 @@ services:
       - ./dnsmasq/dnsmasq.conf:/etc/dnsmasq.conf
       - ./dnsmasq/dhcp-hosts.conf:/etc/dnsmasq.d/dhcp-hosts.conf
       - ./dnsmasq/dnsmasq.leases:/var/lib/misc/dnsmasq.leases
+      - /etc/localtime:/etc/localtime:ro
       - ./tftp:/var/tftp:ro
     restart: unless-stopped
     command: ["--no-daemon", "--log-queries", "--log-dhcp"]    
@@ -31,6 +32,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./control_plane/config:/app/config
       - ./control_plane/state:/app/state
+      - /etc/localtime:/etc/localtime:ro
       - ./dnsmasq:/app/dnsmasq
 
   ipxe-nginx:
@@ -41,6 +43,7 @@ services:
     ports:
       - "4838:80"
     volumes:
+      - /etc/localtime:/etc/localtime:ro
       # ── Web UI 静态文件 (cd app && npm run build) ──
       - ./webui/app/dist:/usr/share/nginx/html:ro
       # ── 文件浏览器页面 (浏览工具的 HTML/JS 本身) ──

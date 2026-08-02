@@ -6,6 +6,13 @@
  * Matches the format expected by browse/index.html
  */
 
+function formatLocal(d) {
+    // 本地时区格式化（跟随容器 /etc/localtime），避免 UTC 显示偏差
+    function p(n) { return (n < 10 ? '0' : '') + n; }
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) +
+        ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+}
+
 function directoryList(r) {
     var fs = require('fs');
     var path = r.uri.replace('/api/browse', '') || '/';
@@ -47,7 +54,7 @@ function directoryList(r) {
                     name: name,
                     type: stat.isDirectory() ? 'directory' : 'file',
                     size: stat.size,
-                    mtime: new Date(stat.mtime).toISOString()
+                    mtime: formatLocal(new Date(stat.mtime))
                 });
             }
         } catch (e) {

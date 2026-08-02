@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { getAgents } from '../api/client'
 import { useI18n } from '../i18n'
 import Card from '../components/Card'
@@ -121,7 +122,9 @@ export default function Agents() {
       ) : (
         <div className="agents-grid">
           {agents.map((agent) => (
-            <AgentCard key={agent.id} agent={agent} t={t} />
+            <Link key={agent.id} to={`/agents/${agent.id}`} className="agent-card-link">
+              <AgentCard agent={agent} t={t} />
+            </Link>
           ))}
         </div>
       )}

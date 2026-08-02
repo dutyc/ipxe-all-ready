@@ -59,6 +59,10 @@ class AgentClient:
     def delete_lun(self, iqn: str, delete_file: bool = False) -> dict[str, Any]:
         return self._request("DELETE", "/lun", params={"iqn": iqn, "delete_file": str(delete_file).lower()})
 
+    def scan(self) -> dict[str, Any]:
+        """触发 Agent 扫描镜像目录，为缺失文件重建 target。"""
+        return self._request("POST", "/lun/scan")
+
     def list_luns(self) -> list[dict[str, Any]]:
         return self._request("GET", "/lun")
 

@@ -4,6 +4,7 @@ import Dashboard from './pages/Dashboard'
 import Workers from './pages/Workers'
 import WorkerDetail from './pages/WorkerDetail'
 import Agents from './pages/Agents'
+import AgentLuns from './pages/AgentLuns'
 import Operations from './pages/Operations'
 
 export default function App() {
@@ -14,6 +15,7 @@ export default function App() {
         <Route path="workers" element={<Workers />} />
         <Route path="workers/:id" element={<WorkerDetail />} />
         <Route path="agents" element={<Agents />} />
+        <Route path="agents/:id" element={<AgentLuns />} />
         <Route path="operations" element={<Operations />} />
       </Route>
     </Routes>

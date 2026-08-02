@@ -50,6 +50,12 @@ export default function Operations() {
     return String(val)
   }
 
+  // 时间戳按浏览器本地时区展示；解析失败时回退原字符串
+  const formatTs = (ts) => {
+    const d = new Date(ts)
+    return isNaN(d.getTime()) ? String(ts) : d.toLocaleString()
+  }
+
   const EXCLUDE_KEYS = ['id', 'ts', 'op', 'status', 'client']
 
   return (
@@ -72,7 +78,7 @@ export default function Operations() {
               <div key={op.id} className="ops-entry">
                 <div className="ops-entry-header">
                   <span className="oe-id">#{op.id}</span>
-                  <span className="oe-ts">{op.ts}</span>
+                  <span className="oe-ts">{formatTs(op.ts)}</span>
                   <span className="oe-op">{op.op}</span>
                   <Badge>{op.status}</Badge>
                   <span className="oe-client">{op.client}</span>

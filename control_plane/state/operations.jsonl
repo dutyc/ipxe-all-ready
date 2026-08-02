@@ -28,3 +28,50 @@
 {"id": 28, "ts": "2026-07-28T07:32:35.593653+00:00", "op": "dnsmasq.hosts.delete", "status": "ok", "worker_id": "worker-01", "hostname": "worker-01", "removed": true}
 {"id": 29, "ts": "2026-07-28T07:32:35.675160+00:00", "op": "dnsmasq.reload", "status": "ok", "worker_id": "worker-01", "result": {"status": "ok"}}
 {"id": 30, "ts": "2026-07-28T07:32:35.675331+00:00", "op": "delete_worker", "status": "succeeded", "worker_id": "worker-01", "client": "172.20.0.1"}
+{"id": 31, "ts": "2026-08-02T03:34:17.380690+00:00", "op": "create_worker", "status": "started", "worker_id": "worker-05", "client": "172.18.0.1"}
+{"id": 32, "ts": "2026-08-02T03:34:18.711145+00:00", "op": "agent.create_disk", "status": "ok", "worker_id": "worker-05", "agent": "storage-lio-01", "iqn": "iqn.2026-07.com.controller:worker-05.ubuntu"}
+{"id": 33, "ts": "2026-08-02T03:34:18.714657+00:00", "op": "workers.write", "status": "ok", "worker_id": "worker-05"}
+{"id": 34, "ts": "2026-08-02T03:34:18.716194+00:00", "op": "dnsmasq.hosts.write", "status": "ok", "worker_id": "worker-05", "hostname": "worker-05", "mac": "00:0c:29:b9:8b:2d"}
+{"id": 35, "ts": "2026-08-02T03:34:18.793860+00:00", "op": "create_worker", "status": "failed", "worker_id": "worker-05", "client": "172.18.0.1", "error": "dnsmasq reload failed rc=1: killall: dnsmasq: no process killed"}
+{"id": 36, "ts": "2026-08-02T03:42:16.128822+00:00", "op": "delete_worker", "status": "started", "worker_id": "worker-05", "client": "172.19.0.1", "delete_disk": true}
+{"id": 37, "ts": "2026-08-02T03:42:17.160813+00:00", "op": "agent.delete_disk", "status": "ok", "worker_id": "worker-05", "agent": "storage-lio-01", "iqn": "iqn.2026-07.com.controller:worker-05.ubuntu", "delete_file": true}
+{"id": 38, "ts": "2026-08-02T03:42:17.162850+00:00", "op": "workers.delete", "status": "ok", "worker_id": "worker-05"}
+{"id": 39, "ts": "2026-08-02T03:42:17.164347+00:00", "op": "dnsmasq.hosts.delete", "status": "ok", "worker_id": "worker-05", "hostname": "worker-05", "removed": true}
+{"id": 40, "ts": "2026-08-02T03:42:17.236867+00:00", "op": "delete_worker", "status": "failed", "worker_id": "worker-05", "client": "172.19.0.1", "error": "dnsmasq reload failed rc=1: killall: dnsmasq: no process killed"}
+{"id": 41, "ts": "2026-08-02T11:52:40.906954+08:00", "op": "create_worker", "status": "started", "worker_id": "worker-02", "client": "172.19.0.1"}
+{"id": 42, "ts": "2026-08-02T11:52:40.909133+08:00", "op": "workers.write", "status": "ok", "worker_id": "worker-02"}
+{"id": 43, "ts": "2026-08-02T11:52:40.910416+08:00", "op": "dnsmasq.hosts.write", "status": "ok", "worker_id": "worker-02", "hostname": "worker-02", "mac": "00:0c:29:b9:8b:2d"}
+{"id": 44, "ts": "2026-08-02T11:52:40.978047+08:00", "op": "dnsmasq.reload", "status": "ok", "worker_id": "worker-02", "result": {"status": "ok"}}
+{"id": 45, "ts": "2026-08-02T11:52:40.978229+08:00", "op": "create_worker", "status": "succeeded", "worker_id": "worker-02", "client": "172.19.0.1"}
+{"id": 46, "ts": "2026-08-02T11:53:13.139093+08:00", "op": "worker.disk.create", "status": "started", "worker_id": "worker-02", "client": "172.19.0.1"}
+{"id": 47, "ts": "2026-08-02T11:53:14.797579+08:00", "op": "agent.create_disk", "status": "ok", "worker_id": "worker-02", "agent": "storage-lio-01", "iqn": "iqn.2026-07.com.controller:worker-02.ubuntu"}
+{"id": 48, "ts": "2026-08-02T11:53:14.799584+08:00", "op": "workers.disk.write", "status": "ok", "worker_id": "worker-02", "iqn": "iqn.2026-07.com.controller:worker-02.ubuntu"}
+{"id": 49, "ts": "2026-08-02T11:53:14.799770+08:00", "op": "worker.disk.create", "status": "succeeded", "worker_id": "worker-02", "client": "172.19.0.1"}
+{"id": 50, "ts": "2026-08-02T12:02:01.815027+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 0}
+{"id": 51, "ts": "2026-08-02T12:05:26.553791+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 0}
+{"id": 52, "ts": "2026-08-02T12:05:58.257696+08:00", "op": "delete_worker", "status": "started", "worker_id": "worker-02", "client": "172.18.0.1", "delete_disk": true}
+{"id": 53, "ts": "2026-08-02T12:05:58.676697+08:00", "op": "agent.delete_disk", "status": "ok", "worker_id": "worker-02", "agent": "storage-lio-01", "iqn": "iqn.2026-07.com.controller:worker-02.ubuntu", "delete_file": true}
+{"id": 54, "ts": "2026-08-02T12:05:58.678939+08:00", "op": "workers.delete", "status": "ok", "worker_id": "worker-02"}
+{"id": 55, "ts": "2026-08-02T12:05:58.680455+08:00", "op": "dnsmasq.hosts.delete", "status": "ok", "worker_id": "worker-02", "hostname": "worker-02", "removed": true}
+{"id": 56, "ts": "2026-08-02T12:05:58.756257+08:00", "op": "dnsmasq.reload", "status": "ok", "worker_id": "worker-02", "result": {"status": "ok"}}
+{"id": 57, "ts": "2026-08-02T12:05:58.756462+08:00", "op": "delete_worker", "status": "succeeded", "worker_id": "worker-02", "client": "172.18.0.1"}
+{"id": 58, "ts": "2026-08-02T12:06:57.043067+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 0}
+{"id": 59, "ts": "2026-08-02T12:07:20.310135+08:00", "op": "create_worker", "status": "started", "worker_id": "worker-03", "client": "172.18.0.1"}
+{"id": 60, "ts": "2026-08-02T12:07:20.312360+08:00", "op": "workers.write", "status": "ok", "worker_id": "worker-03"}
+{"id": 61, "ts": "2026-08-02T12:07:20.313862+08:00", "op": "dnsmasq.hosts.write", "status": "ok", "worker_id": "worker-03", "hostname": "worker-03", "mac": "00:0c:29:b9:8b:2d"}
+{"id": 62, "ts": "2026-08-02T12:07:20.383715+08:00", "op": "dnsmasq.reload", "status": "ok", "worker_id": "worker-03", "result": {"status": "ok"}}
+{"id": 63, "ts": "2026-08-02T12:07:20.384226+08:00", "op": "create_worker", "status": "succeeded", "worker_id": "worker-03", "client": "172.18.0.1"}
+{"id": 64, "ts": "2026-08-02T12:07:32.906710+08:00", "op": "worker.disk.create", "status": "started", "worker_id": "worker-03", "client": "172.18.0.1"}
+{"id": 65, "ts": "2026-08-02T12:07:34.431017+08:00", "op": "agent.create_disk", "status": "ok", "worker_id": "worker-03", "agent": "storage-lio-01", "iqn": "iqn.2026-07.com.controller:worker-03.ubuntu"}
+{"id": 66, "ts": "2026-08-02T12:07:34.433602+08:00", "op": "workers.disk.write", "status": "ok", "worker_id": "worker-03", "iqn": "iqn.2026-07.com.controller:worker-03.ubuntu"}
+{"id": 67, "ts": "2026-08-02T12:07:34.433880+08:00", "op": "worker.disk.create", "status": "succeeded", "worker_id": "worker-03", "client": "172.18.0.1"}
+{"id": 68, "ts": "2026-08-02T12:07:56.192065+08:00", "op": "worker.disk.create", "status": "started", "worker_id": "worker-03", "client": "172.18.0.1"}
+{"id": 69, "ts": "2026-08-02T12:07:57.662541+08:00", "op": "agent.create_disk", "status": "ok", "worker_id": "worker-03", "agent": "storage-lio-01", "iqn": "iqn.2026-07.com.controller:worker-03.debian"}
+{"id": 70, "ts": "2026-08-02T12:07:57.665596+08:00", "op": "workers.disk.write", "status": "ok", "worker_id": "worker-03", "iqn": "iqn.2026-07.com.controller:worker-03.debian"}
+{"id": 71, "ts": "2026-08-02T12:07:57.665907+08:00", "op": "worker.disk.create", "status": "succeeded", "worker_id": "worker-03", "client": "172.18.0.1"}
+{"id": 72, "ts": "2026-08-02T12:08:08.687028+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 2}
+{"id": 73, "ts": "2026-08-02T12:18:49.884208+08:00", "op": "create_worker", "status": "started", "worker_id": "worker-02", "client": "172.18.0.1"}
+{"id": 74, "ts": "2026-08-02T12:18:49.888102+08:00", "op": "workers.write", "status": "ok", "worker_id": "worker-02"}
+{"id": 75, "ts": "2026-08-02T12:18:49.889870+08:00", "op": "dnsmasq.hosts.write", "status": "ok", "worker_id": "worker-02", "hostname": "worker-02", "mac": "00:0c:29:b9:8b:2f"}
+{"id": 76, "ts": "2026-08-02T12:18:49.968152+08:00", "op": "dnsmasq.reload", "status": "ok", "worker_id": "worker-02", "result": {"status": "ok"}}
+{"id": 77, "ts": "2026-08-02T12:18:49.968567+08:00", "op": "create_worker", "status": "succeeded", "worker_id": "worker-02", "client": "172.18.0.1"}

@@ -5,6 +5,12 @@ yarn-error.log*
 pnpm-debug.log*
 app/node_modules
 
+# Python 虚拟环境
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
 docs/.vitepress/dist/
 docs/.vitepress/cache/
 webui/app/node_modules
@@ -15,6 +21,8 @@ Thumbs.db
 *.swp
 *.swo
 *~
+.stfolder/
+.stignore
 .idea/
 .vscode/
 *.sublime-project

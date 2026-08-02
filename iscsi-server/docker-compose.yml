@@ -8,6 +8,7 @@ services:
   #   restart: unless-stopped
   #   network_mode: host
   #   volumes:
+  #     - /etc/localtime:/etc/localtime:ro
   #     - ./iscsi_img:/home/iscsi_img
 
 
@@ -22,6 +23,7 @@ services:
     privileged: true
     volumes:
       - /sys/kernel/config:/sys/kernel/config
+      - /etc/localtime:/etc/localtime:ro
       - /lib/modules:/lib/modules:ro
       - /pool1/iscsi_img:/home/iscsi_img
       - ./lio/etc/target:/etc/rtslib-fb-target  
@@ -47,5 +49,6 @@ services:
     env_file: .env    
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock   # 用来 exec 进 stgt 容器
-      - ./iscsi_img:/home/iscsi_img            #请修改为实际存储img硬盘的路径
+      - /etc/localtime:/etc/localtime:ro
+      - /pool1/iscsi_img:/home/iscsi_img            #请修改为实际存储img硬盘的路径
       - ./agent/logs:/var/log/ipxe-agent

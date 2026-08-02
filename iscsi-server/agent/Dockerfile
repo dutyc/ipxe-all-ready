@@ -1,4 +1,10 @@
 FROM python:3.11-slim
+
+# 时区数据：日志时间戳跟随 TZ 环境变量（/etc/localtime 挂载失效时的兜底）
+RUN apt-get update && apt-get install -y --no-install-recommends tzdata \
+    && rm -rf /var/lib/apt/lists/*
+ENV TZ=Asia/Shanghai
+
 WORKDIR /app
 
 COPY requirements.txt .

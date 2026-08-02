@@ -20,6 +20,8 @@ class Settings:
     dnsmasq_reload: bool = _bool_env("IPXE_CP_DNSMASQ_RELOAD", True)
     default_arch: str = os.getenv("IPXE_CP_DEFAULT_ARCH", "x86_64")
     boot_menu_timeout: int = int(os.getenv("IPXE_CP_BOOT_MENU_TIMEOUT", "5000"))
+    auto_register: bool = _bool_env("IPXE_CP_AUTO_REGISTER", True)
+    auto_boot_timeout: int = int(os.getenv("IPXE_CP_AUTO_BOOT_TIMEOUT", "1"))
     agent_timeout: float = float(os.getenv("IPXE_CP_AGENT_TIMEOUT", "10"))
     control_token: str = os.getenv("IPXE_CP_TOKEN", "")
 

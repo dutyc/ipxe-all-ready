@@ -42,7 +42,14 @@ async function request(path, options = {}) {
     let detail = '';
     try {
       const err = await res.json();
-      detail = err.detail || err.error || err.message || JSON.stringify(err);
+      if (Array.isArray(err.detail)) {
+        // FastAPI 422: detail 是字段校验错误数组
+        detail = err.detail
+          .map((d) => `${(d.loc || []).slice(1).join('.')}: ${d.msg}`)
+          .join('; ');
+      } else {
+        detail = err.detail || err.error || err.message || JSON.stringify(err);
+      }
     } catch {
       detail = res.statusText;
     }
@@ -69,6 +76,30 @@ export function getAgents(live = true) {
   return request('/agents', { params: { live } });
 }
 
+// ===== Agent LUNs =====
+export function getAgentLuns(agentId) {
+  return request(`/agents/${agentId}/luns`);
+}
+
+export function createAgentDiskLun(agentId, data) {
+  return request(`/agents/${agentId}/luns/disk`, { method: 'POST', body: data });
+}
+
+export function createAgentCdLun(agentId, data) {
+  return request(`/agents/${agentId}/luns/cd`, { method: 'POST', body: data });
+}
+
+export function deleteAgentLun(agentId, iqn, deleteFile = false) {
+  return request(`/agents/${agentId}/luns`, {
+    method: 'DELETE',
+    params: { iqn, delete_file: deleteFile },
+  });
+}
+
+export function scanAgentLuns(agentId) {
+  return request(`/agents/${agentId}/luns/scan`, { method: 'POST' });
+}
+
 // ===== Workers =====
 export function createWorker(data) {
   return request('/workers', { method: 'POST', body: data });
@@ -80,6 +111,15 @@ export function getWorkers() {
 
 export function getWorker(workerId) {
   return request(`/workers/${workerId}`);
+}
+
+export function createWorkerDisk(workerId, data) {
+  return request(`/workers/${workerId}/luns/disk`, { method: 'POST', body: data });
+}
+
+export function setWorkerDefaultBoot(workerId, data) {
+  // os / menu_default / menu_timeout 可设可清；传 null 清除对应项
+  return request(`/workers/${workerId}/default-os`, { method: 'PUT', body: data });
 }
 
 export function getWorkerStatus(workerId) {

@@ -126,7 +126,8 @@ class OperationLog:
         with self.lock:
             self.next_id += 1
             entry = {"id": self.next_id,
-                     "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                     # 跟随容器时区（/etc/localtime 挂载或 TZ 环境变量），输出带偏移的本地时间
+                     "ts": datetime.datetime.now().astimezone().isoformat(),
                      "op": op, "req": req, "result": result, "client": client}
             entry.update(extra)
             with open(self.path, "a", encoding="utf-8") as f:

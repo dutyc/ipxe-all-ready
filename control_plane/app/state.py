@@ -50,7 +50,8 @@ class OperationLog:
             self._next_id += 1
             entry = {
                 "id": self._next_id,
-                "ts": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+                # 跟随容器时区（/etc/localtime 挂载或 TZ 环境变量），输出带偏移的本地时间
+                "ts": _dt.datetime.now().astimezone().isoformat(),
                 "op": op,
                 "status": status,
             }
