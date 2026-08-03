@@ -5,7 +5,7 @@ export default defineConfig({
   title: 'iPXE-All-Ready',
   description: 'All is truly All. Ready is truly Ready.',
   head: [
-    ['link', { rel: 'icon', type: 'image/png', href: '/logo1.png' }],
+    ['link', { rel: 'icon', type: 'image/png', href: '/logo.png' }],
   ],
   cleanUrls: true,
 

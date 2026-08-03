@@ -15,9 +15,9 @@ Windows 无盘启动依赖 iPXE 写入的 iBFT(iSCSI Boot Firmware Table):启动
 
 | Windows 版本 | 验证状态 |
 |---|---|
-| Windows 11 23H2 | ✅ 已验证 |
-| Windows 11 24H2 | ✅ 已验证 |
-| Windows 11 25H2 | ✅ 已验证 |
+| Windows 11 23H2 | 已验证 |
+| Windows 11 24H2 | 已验证 |
+| Windows 11 25H2 | 已验证 |
 
 不同版本通过**选择不同母盘**来区分,无需修改任何代码或配置。
 

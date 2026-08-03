@@ -1,16 +1,181 @@
-# Environment Setup
+# Environment Deployment
 
-> **Status: English translation in progress — this page is a structural placeholder.**
-> The complete Chinese version is authoritative for now: [项目环境部署](https://ipxe.lecreate.asia/zh/guide/quick-deploy/environment-deploy)
+> **This document covers: environment deployment · quick start.**
+> Deploy the Controller (Control Plane) + storage node (Agent + iSCSI backend) in one go — universal across all platforms.
+> Once the environment is ready, refer to *Windows Diskless Quick Deployment* / *Debian-family Diskless Quick Deployment* for golden-image creation and cloning.
 
-One-time deployment of the Controller (control plane) and storage nodes (Agent + iSCSI backend), platform-independent. Once the environment is ready, proceed to the master-image walkthroughs.
+## Deployment Topology: Two Compose Files
 
-## Structure
+This project consists of **two independent Compose files** — they are **not a single unit**:
 
-- **Deployment topology** — the two compose files: root `docker-compose.yml` (Controller) + `iscsi-server/docker-compose.yml` (storage node), not one unit
-- **Step 1: Deploy the Controller** — clone, dnsmasq subnet, TFTP firmware, optional API token, startup & verification
-- **Step 2: Deploy a storage node** — backend choice (stgt / LIO), `.env` (the `IPXE_IQN_BASE` contract), `agents.yml` registration, startup & verification
-- **Step 3: Deployment checklist** — ports 67/69, 4839, 4838, 4840, 3260
+```
+Controller Node — root docker-compose.yml (Control Plane)
+├── ipxe-dnsmasq          DHCP / TFTP (host network, ports 67/69)
+├── ipxe-control-plane    Control Plane API (4839), Worker lifecycle orchestration
+└── ipxe-cp-webui         WebUI + file distribution (4838)
+
+Storage Node — iscsi-server/docker-compose.yml (Data Plane, can be co-located with Controller)
+├── ipxe-iscsi            iSCSI backend (3260, host network, choose stgt or LIO)
+└── ipxe-agent            Agent API (4840), receives Control Plane scheduling, operates local backend
+```
+
+Key concepts:
+
+* **One Agent corresponds to one iSCSI backend; they are a single unit** — the Agent operates the local backend container via `docker.sock`.  
+  However many storage nodes you deploy, that’s how many Agents there are. The Control Plane schedules across them using the `agents.yml` inventory.
+* **Single-node / multi-node deployment**: When Workers are few and I/O pressure is low, the storage node can be co-located with the Controller (one Agent).  
+  When there are many Workers and you need iSCSI SAN performance, split storage across multiple machines based on server I/O resources (one Agent per machine).  
+  The Control Plane automatically schedules disk creation across multiple Agents using `role.disk`, avoiding a single-point storage bottleneck.
 
 ---
-*This page will be translated in full. Until then, the Chinese version linked above is authoritative.*
+
+## Step 1: Deploy the Controller (Control Plane)
+
+### 1.1 Preparation
+
+On the Controller node (Debian / Ubuntu with Docker):
+
+```bash
+git clone https://github.com/dutyc/ipxe-all-ready.git
+cd ipxe-all-ready
+mkdir -p /pool1/iscsi_img        # Image directory (stores disk files; path can be customised)
+```
+
+### 1.2 Modify the dnsmasq Subnet
+
+Edit `dnsmasq/dnsmasq.conf` and adjust according to your actual network environment:
+
+```conf
+interface=ens33                                  # Real NIC name
+dhcp-range=192.168.80.50,192.168.80.100,255.255.255.0,12h   # Address pool (match your subnet)
+dhcp-option=3,192.168.80.2                       # Gateway
+dhcp-option=6,223.5.5.5                          # DNS
+```
+
+### 1.3 Extract TFTP Firmware
+
+Extract the downloaded `tftp.zip` into the `tftp/` directory to obtain the firmware required for iPXE boot:
+
+```
+tftp/
+├── boot.ipxe / boot.ipxe.cfg / menu.ipxe   # Provided by the project (scripts)
+├── undionly.kpxe        # BIOS boot firmware
+├── snponly.efi          # UEFI boot firmware
+└── wimboot / memtest and other tool firmware
+```
+
+`dnsmasq.conf` is already configured to distribute firmware based on architecture detection: UEFI → `snponly.efi`, BIOS → `undionly.kpxe`, second iPXE request → `boot.ipxe`.
+
+### 1.4 Configure API Token (optional; boot works without it)
+
+**Control Plane** (`control_plane/control_plane.env`):
+
+```env
+# Leave empty = all API endpoints are open (only /healthz is always accessible)
+IPXE_CP_TOKEN=your-token
+```
+
+**WebUI** (`webui/app/.env`, **must match the value above**, otherwise the WebUI API calls will be rejected):
+
+```env
+VITE_CP_TOKEN=your-token
+```
+
+> Note: `VITE_` variables are injected at build time. After modification you need to rebuild the WebUI: `cd webui/app && npm install && npm run build`.  
+> If you skip this section (leave the Token empty), no rebuild is necessary.
+
+### 1.5 Start the Controller
+
+```bash
+docker compose up -d
+```
+
+### 1.6 Verification
+
+```bash
+curl http://localhost:4839/healthz        # Control Plane
+# Open http://<Controller IP>:4838 in a browser  # WebUI
+```
+
+---
+
+## Step 2: Deploy the Storage Node (Agent + iSCSI Backend)
+
+> Perform this section once on each storage node; if co-located with the Controller, just run it locally.
+
+### 2.1 Choose the Backend Type
+
+Edit `iscsi-server/docker-compose.yml` and **choose one** backend service block to enable (the container is named `ipxe-iscsi` in both cases; you cannot enable both simultaneously):
+
+| Backend | Location | Characteristics |
+|---|---|---|
+| `stgt` | Uncomment the `ipxe-stgt` service block and comment out the `ipxe-lio` block | User-space, supports mounting ISO as a virtual optical drive (`role.cd`), friendly to constrained environments |
+| `lio` | Uncomment the `ipxe-lio` service block and comment out the `ipxe-stgt` block | Kernel-space, production-grade disk performance (recommended for system disks) |
+
+### 2.2 Configure `.env`
+
+Edit `iscsi-server/.env`:
+
+```env
+IPXE_ISCSI_CONTAINER=ipxe-iscsi
+IPXE_DISK_DIR=/home/iscsi_img              # Disk directory inside the container (maps to host /pool1/iscsi_img)
+IPXE_IQN_BASE=iqn.2026-07.com.controller   # Must match the base-iqn in tftp/boot.ipxe.cfg!
+IPXE_BACKEND=lio                           # Must match the choice in 2.1 (stgt / lio)
+IPXE_AGENT_TOKEN=<generate a token>        # Generate: openssl rand -hex 32
+TZ=Asia/Shanghai
+```
+
+> **IQN consistency is the boot contract**: `IPXE_IQN_BASE` must match the `base-iqn` inside `tftp/boot.ipxe.cfg`,  
+> otherwise iPXE will be unable to locate the Target using `${base-iqn}:${hostname}.windows`.
+
+### 2.3 Register the Agent
+
+In the Controller’s `control_plane/config/agents.yml`, register this node (one entry per node):
+
+```yaml
+agents:
+  storage-lio-01:                  # Agent ID (unique)
+    base_url: http://host.docker.internal:4840   # Co-located with Controller; for remote deployment use http://<storage-node-IP>:4840
+    iscsi_server: 192.168.80.3     # The address Workers will actually use to connect to iSCSI (this node’s IP)
+    token: <same as IPXE_AGENT_TOKEN>
+    role:
+      disk: true                   # Disk capability (LIO does not support ISO optical drive; cd must be false)
+      cd: false
+    tags:
+      - storage
+      - lio
+    enabled: true
+```
+
+Multi-node deployment: repeat 2.1–2.2 on each storage node and append a record in `agents.yml` (with a different Agent ID).
+
+### 2.4 Start the Storage Node
+
+```bash
+cd iscsi-server
+docker compose up -d
+```
+
+### 2.5 Verification
+
+```bash
+curl http://localhost:4840/healthz            # Agent liveness
+# WebUI → Agents page, confirm the Agent status is online (live)
+```
+
+---
+
+## Step 3: Deployment Checklist
+
+| Service | Port | Verification |
+|---|---|---|
+| dnsmasq (DHCP/TFTP) | 67/69/UDP | Worker obtains an IP and loads iPXE on boot |
+| Control Plane | 4839 | `curl http://localhost:4839/healthz` |
+| WebUI | 4838 | Accessible in a browser |
+| iSCSI Agent | 4840 | `curl http://localhost:4840/healthz`; Agent appears online on the WebUI Agents page |
+| iSCSI Backend | 3260 | After creating a disk in the WebUI, the target appears on the Workers page |
+
+Once the environment is ready, proceed to golden-image creation and diskless rollout ↓
+
+* **Windows**: *Windows Diskless Quick Deployment (Golden-Image Clone)*
+* **Debian-family**: *Debian-family Diskless Quick Deployment (Golden-Image Clone)*
