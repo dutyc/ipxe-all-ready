@@ -114,8 +114,8 @@ echo (for installing Windows)
 
 # 1. Network and variable configuration
 set netX/gateway ${iscsi-server}
-set root-path ${base-iscsi}:${hostname}.Windows
-set data-path ${base-iscsi}:${hostname}.Windows.iso
+set root-path iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.Windows
+set data-path iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.Windows.iso
 set keep-san 1
 
 # 2. Attach iSCSI storage
@@ -137,7 +137,7 @@ goto start
 ### Core Logic and Variable Passing Analysis
 
 1. **Variable assembly and IQN mapping**
-   The variables `${base-iscsi}` and `${hostname}` used in the script are the base variables obtained via DHCP and assembled in `boot.ipxe`. Here they are further combined into a full iSCSI URI, ensuring that iPXE can precisely request the corresponding LUNs created by the automated script in Section 2.3.
+   The variables `${iscsi-sep}`, `${base-iqn}` and `${hostname}` used in the script are the base variables obtained via DHCP and assembled in `boot.ipxe` (`iscsi-sep` is the iSCSI root separator, injected by the Control Plane `/boot-vars` endpoint per backend type, falling back to the static value in `boot.ipxe.cfg`). Here they are further combined into a full iSCSI URI, ensuring that iPXE can precisely request the corresponding LUNs created by the automated script in Section 2.3.
 2. **Gateway setting (`set netX/gateway`)**
    Inside the PE environment, Windows may not correctly obtain the default route. Forcing the gateway to the iSCSI Server’s IP ensures that network traffic in the PE environment is routed correctly, preventing the iSCSI session from dropping.
 3. **Keeping SAN connections alive (`set keep-san 1`)**

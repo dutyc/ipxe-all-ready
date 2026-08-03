@@ -76,6 +76,14 @@ export function getAgents(live = true) {
   return request('/agents', { params: { live } });
 }
 
+export function createAgent(data) {
+  return request('/agents', { method: 'POST', body: data });
+}
+
+export function probeAgent(data) {
+  return request('/agents/probe', { method: 'POST', body: data });
+}
+
 // ===== Agent LUNs =====
 export function getAgentLuns(agentId) {
   return request(`/agents/${agentId}/luns`);
@@ -117,6 +125,21 @@ export function createWorkerDisk(workerId, data) {
   return request(`/workers/${workerId}/luns/disk`, { method: 'POST', body: data });
 }
 
+export function batchCreateWorkerDisks(data) {
+  // 批量创建：{ type, os, name|size, targets: [{worker_id, agent}] }
+  return request('/workers/luns/disk/batch', { method: 'POST', body: data });
+}
+
+export function deleteWorkerDisk(workerId, os, deleteFile = false, ignoreMissing = false) {
+  return request(`/workers/${workerId}/luns/disk/${encodeURIComponent(os)}`, {
+    method: 'DELETE',
+    params: {
+      delete_file: deleteFile,
+      ignore_missing_target: ignoreMissing,
+    },
+  });
+}
+
 export function setWorkerDefaultBoot(workerId, data) {
   // os / menu_default / menu_timeout 可设可清；传 null 清除对应项
   return request(`/workers/${workerId}/default-os`, { method: 'PUT', body: data });
@@ -130,6 +153,17 @@ export function deleteWorker(workerId, deleteDisk = false, ignoreMissing = false
   return request(`/workers/${workerId}`, {
     method: 'DELETE',
     params: {
+      delete_disk: deleteDisk,
+      ignore_missing_target: ignoreMissing,
+    },
+  });
+}
+
+export function batchDeleteWorkers(workerIds, deleteDisk = false, ignoreMissing = true) {
+  return request('/workers/delete/batch', {
+    method: 'POST',
+    body: {
+      worker_ids: workerIds,
       delete_disk: deleteDisk,
       ignore_missing_target: ignoreMissing,
     },

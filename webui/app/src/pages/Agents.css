@@ -9,6 +9,46 @@
   color: var(--gray-400);
 }
 
+/* ===== Add Agent form ===== */
+.agent-role-checks {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.agent-role-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--black);
+  cursor: pointer;
+}
+
+.agent-role-check input {
+  margin: 0;
+  cursor: pointer;
+}
+
+.probe-result {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px dashed var(--gray-300);
+}
+
+.probe-result-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.probe-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
 /* ===== Grid ===== */
 .agents-grid {
   display: grid;

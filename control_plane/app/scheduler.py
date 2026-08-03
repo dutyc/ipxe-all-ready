@@ -47,6 +47,40 @@ class AgentRegistry:
                 return agent
         raise KeyError(agent_id)
 
+    def add(
+        self,
+        agent_id: str,
+        base_url: str,
+        token: str = "",
+        *,
+        role_disk: bool = False,
+        role_cd: bool = False,
+        iscsi_server: str | None = None,
+        enabled: bool = True,
+        tags: tuple[str, ...] = (),
+    ) -> None:
+        """注册新 Agent：写入 agents.yml（重复 id 由调用方先行校验）。"""
+        self.agents_file.parent.mkdir(parents=True, exist_ok=True)
+        if self.agents_file.exists():
+            with self.agents_file.open("r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+        else:
+            data = {}
+        agents_data = data.get("agents")
+        if not isinstance(agents_data, dict):
+            agents_data = {}
+            data["agents"] = agents_data
+        agents_data[agent_id] = {
+            "base_url": base_url,
+            "token": token,
+            "role": {"disk": role_disk, "cd": role_cd},
+            "iscsi_server": iscsi_server or "",
+            "tags": list(tags),
+            "enabled": enabled,
+        }
+        with self.agents_file.open("w", encoding="utf-8") as f:
+            yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
+
     def client(self, agent: AgentConfig) -> AgentClient:
         return AgentClient(agent, self.timeout)
 

@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class BootSpec(BaseModel):
@@ -25,6 +25,54 @@ class CreateWorkerDiskRequest(BaseModel):
     name: str | None = None
     size: str | None = None
     disk_agent: str | None = None
+
+
+class AgentRoleRequest(BaseModel):
+    """Agent 角色：disk=可建系统盘（存储节点），cd=可挂载 ISO（光驱节点）。"""
+    disk: bool = False
+    cd: bool = False
+
+
+class ProbeAgentRequest(BaseModel):
+    """探测 Agent 并自动推导注册参数（预览，不写任何文件）。"""
+    base_url: str
+    token: str = ""
+
+
+class CreateAgentRequest(BaseModel):
+    """注册新 Agent 到 agents.yml。token 支持 ${ENV} 占位（Control Plane 读取时展开）；
+    tags 自由标签（如 storage/lio/stgt），仅作展示。"""
+    id: str
+    base_url: str
+    token: str = ""
+    iscsi_server: str | None = None
+    role: AgentRoleRequest = Field(default_factory=AgentRoleRequest)
+    tags: list[str] = Field(default_factory=list)
+    enabled: bool = True
+
+
+class BatchDiskTarget(BaseModel):
+    """批量创建时单个 Worker 的存储节点分配（agent 必填：前端接管/拖拽产生）。"""
+    worker_id: str
+    agent: str
+
+
+class BatchDeleteWorkersRequest(BaseModel):
+    """批量删除 Worker：移除 dnsmasq 绑定与系统盘 target。
+    delete_disk=true 时连系统盘 .img 一并删除；ignore_missing_target=true 容忍 target 已缺失。"""
+    worker_ids: list[str]
+    delete_disk: bool = False
+    ignore_missing_target: bool = False
+
+
+class BatchCreateWorkerDiskRequest(BaseModel):
+    """批量创建系统盘：同一套盘参数应用到 targets 指定的多个 Worker，
+    每个 Worker 使用各自分配的存储节点（agent）。同一 os 至多一块，重复自动跳过。"""
+    type: Literal["master", "empty"]
+    os: str
+    name: str | None = None
+    size: str | None = None
+    targets: list[BatchDiskTarget]
 
 
 class SetWorkerDefaultBootRequest(BaseModel):

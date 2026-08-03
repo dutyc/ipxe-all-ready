@@ -6,6 +6,7 @@ import {
   deleteWorker,
   bootVars,
   createWorkerDisk,
+  deleteWorkerDisk,
   setWorkerDefaultBoot,
   getAgents,
 } from '../api/client'
@@ -45,6 +46,7 @@ export default function WorkerDetail() {
   const [diskForm, setDiskForm] = useState({ os: 'ubuntu', type: 'empty', name: '', size: '40G', disk_agent: '' })
   const [creatingDisk, setCreatingDisk] = useState(false)
   const [diskCreateError, setDiskCreateError] = useState(null)
+  const [deletingDisk, setDeletingDisk] = useState(null)
   const [bootForm, setBootForm] = useState({ os: '', menu_default: '', menu_timeout: '', clear_timeout: false })
   const [savingBoot, setSavingBoot] = useState(false)
   const [bootSaveError, setBootSaveError] = useState(null)
@@ -74,6 +76,7 @@ export default function WorkerDetail() {
       const lines = ['#!ipxe', `# boot vars for ${(worker && worker.hostname) || id}`]
       if (bv.base_iqn) lines.push(`set base-iqn ${bv.base_iqn}`)
       if (bv.iscsi_server) lines.push(`set iscsi-server ${bv.iscsi_server}`)
+      if (bv.iscsi_sep) lines.push(`set iscsi-sep ${bv.iscsi_sep}`)
       if (bv.menu_default) lines.push(`set menu-default ${bv.menu_default}`)
       if (bv.menu_timeout !== undefined) lines.push(`set menu-timeout ${bv.menu_timeout}`)
       return lines.join('\n')
@@ -149,6 +152,32 @@ export default function WorkerDetail() {
       navigate('/workers')
     } catch (e) {
       alert(e.message)
+    }
+  }
+
+  // 删除单个系统盘后刷新台账与默认启动表单（default_os / menu_default 可能被联动清除）
+  const reloadWorkerAndBoot = async () => {
+    const w = await getWorker(id)
+    const bv = await bootVars({ hostname: id, format: 'json' }).catch(() => null)
+    setWorker(w)
+    setBootForm({
+      os: w.default_os || '',
+      menu_default: w.boot?.menu_default || w.boot?.['menu-default'] || '',
+      menu_timeout: w.boot?.menu_timeout ?? w.boot?.['menu-timeout'] ?? '',
+      clear_timeout: false,
+    })
+    setBootVarsCode(buildBootVarsCode(bv, w))
+  }
+
+  const handleDeleteDisk = async (os, extra) => {
+    setDeletingDisk(os)
+    try {
+      await deleteWorkerDisk(id, os, extra.delete_file, extra.ignore_missing)
+      await reloadWorkerAndBoot()
+    } catch (e) {
+      alert(e.message)
+    } finally {
+      setDeletingDisk(null)
     }
   }
 
@@ -339,6 +368,21 @@ export default function WorkerDetail() {
                   }
                 />
               )}
+              <div className="disk-card-actions">
+                <ConfirmAction
+                  trigger={
+                    <Button variant="danger" disabled={deletingDisk !== null}>
+                      {deletingDisk === d.os ? t('workerDetail.deletingDisk') : t('workerDetail.deleteSystemDisk')}
+                    </Button>
+                  }
+                  message={t('workerDetail.deleteDiskConfirm', { id, os: d.os })}
+                  onConfirm={(extra) => handleDeleteDisk(d.os, extra)}
+                  extraFields={[
+                    { name: 'delete_file', label: t('workerDetail.deleteDisk') },
+                    { name: 'ignore_missing', label: t('workerDetail.ignoreMissing') },
+                  ]}
+                />
+              </div>
             </Card>
           ))}
         </>

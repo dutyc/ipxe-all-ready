@@ -68,6 +68,14 @@
   color: var(--gray-700);
 }
 
+/* ===== Disk card actions (删除系统盘) ===== */
+.disk-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 24px;
+  border-top: 1px solid var(--border-light);
+}
+
 /* ===== Create System Disk Form (与 Workers 一致) ===== */
 .create-form {
   background: var(--gray-25);

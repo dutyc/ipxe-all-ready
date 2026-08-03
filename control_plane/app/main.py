@@ -3,18 +3,23 @@ import hmac
 import logging
 import re
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 
-from .agent_client import AgentAPIError
+from .agent_client import AgentAPIError, AgentClient, AgentConfig
 from .config import settings
 from .dnsmasq import DnsmasqHosts, normalize_mac
 from .models import (
+    BatchCreateWorkerDiskRequest,
+    BatchDeleteWorkersRequest,
+    CreateAgentRequest,
     CreateCdLunRequest,
     CreateDiskLunRequest,
     CreateWorkerDiskRequest,
     CreateWorkerRequest,
+    ProbeAgentRequest,
     SetWorkerDefaultBootRequest,
 )
 from .scheduler import AgentRegistry
@@ -75,6 +80,85 @@ def boot_vars(
 @app.get("/agents", dependencies=[Depends(verify_control_token)])
 def list_agents(live: bool = True):
     return agents.list_public(live=live)
+
+
+@app.post("/agents", status_code=201, dependencies=[Depends(verify_control_token)])
+def create_agent(req: CreateAgentRequest, request: Request):
+    """注册新 Agent：写入 agents.yml（重复 id 返回 409）。
+    base_url 须 http(s):// 开头；token 支持 ${ENV} 占位（读取时展开）；
+    role 决定磁盘/光驱角色；iscsi_server 为数据面地址（缺省用 base_url 主机名）。"""
+    agent_id = req.id.strip().lower()
+    if not WORKER_ID_RE.match(agent_id):  # Agent id 与 worker id 同一命名规则
+        raise HTTPException(400, f"invalid agent id: {req.id}")
+    base_url = req.base_url.strip().rstrip("/")
+    if not base_url.startswith(("http://", "https://")):
+        raise HTTPException(400, "base_url must start with http:// or https://")
+    iscsi_server = req.iscsi_server.strip() if req.iscsi_server else None
+    try:
+        agents.get(agent_id)
+        raise HTTPException(409, f"agent already exists: {agent_id}")
+    except KeyError:
+        pass
+
+    with store.locked():
+        agents.add(
+            agent_id,
+            base_url,
+            req.token.strip(),
+            role_disk=req.role.disk,
+            role_cd=req.role.cd,
+            iscsi_server=iscsi_server,
+            enabled=req.enabled,
+            tags=tuple(t.strip() for t in req.tags if t.strip()),
+        )
+    _record("agent.register", "ok", agent=agent_id, client=_client_host(request))
+    return agents.get(agent_id).public_dict()
+
+
+@app.post("/agents/probe", dependencies=[Depends(verify_control_token)])
+def probe_agent(req: ProbeAgentRequest, request: Request):
+    """探测 Agent：调 /healthz + /capabilities，自动推导注册参数预览（不写任何文件）。
+    推导规则：role.disk 恒真（Agent 即存储节点）、role.cd 取 capabilities.cd；
+    tags = [storage, backend]（lio/stgt，供 /boot-vars 连接符推导）；
+    iscsi_server 缺省回退 base_url 主机名。"""
+    base_url = req.base_url.strip().rstrip("/")
+    if not base_url.startswith(("http://", "https://")):
+        raise HTTPException(400, "base_url must start with http:// or https://")
+
+    # 临时 AgentConfig 探测（不落盘，不进入注册表）
+    probe_cfg = AgentConfig(
+        id="_probe",
+        base_url=base_url,
+        token=req.token.strip(),
+        role_disk=True,
+        role_cd=False,
+    )
+    client = AgentClient(probe_cfg, agents.timeout)
+    try:
+        client.healthz()
+    except Exception as exc:
+        _record("agent.probe", "failed", agent=base_url, client=_client_host(request), error=str(exc))
+        raise HTTPException(502, f"agent unreachable: {exc}") from exc
+    try:
+        caps = client.capabilities()
+    except AgentAPIError as exc:
+        _record("agent.probe", "failed", agent=base_url, client=_client_host(request), error=exc.detail)
+        raise HTTPException(502, {"agent": base_url, "error": exc.detail}) from exc
+
+    backend = str(caps.get("backend", "stgt")).lower()
+    _record("agent.probe", "ok", agent=base_url, client=_client_host(request), backend=backend)
+    return {
+        "base_url": base_url,
+        "role": {"disk": True, "cd": bool(caps.get("cd", False))},
+        "tags": ["storage", backend],
+        "iscsi_server": urlparse(base_url).hostname or base_url,
+        "enabled": True,
+        "backend": backend,
+        "base_iqn": caps.get("base_iqn", ""),
+        "clone": caps.get("clone", ""),
+        "empty_disk": caps.get("empty_disk", ""),
+        "persistent": caps.get("persistent", ""),
+    }
 
 
 @app.get("/agents/{agent_id}/luns", dependencies=[Depends(verify_control_token)])
@@ -344,6 +428,153 @@ def create_worker_disk(worker_id: str, req: CreateWorkerDiskRequest, request: Re
             raise HTTPException(500, str(exc)) from exc
 
 
+@app.post("/workers/luns/disk/batch", dependencies=[Depends(verify_control_token)])
+def batch_create_worker_disks(req: BatchCreateWorkerDiskRequest, request: Request):
+    """批量给多个 Worker 创建系统盘：每个 target 指定 worker + 存储节点（agent，须已分配）。
+    与单盘一致：master 走母盘克隆，empty 建空白盘；同一 os 至多一块，已存在则自动跳过（不算失败）。
+    创建成功的 Worker 自动将 default_os 设为本次批量系统（批量部署直接进入默认启动）。
+    逐项独立执行，单项失败不影响其余；返回 succeeded / skipped / failed 汇总。"""
+    os_name = _canonical_os(req.os)
+    if os_name not in OS_ITEMS:
+        raise HTTPException(400, f"os must be one of {sorted(OS_ITEMS)}: {os_name}")
+    _validate_disk(req.type, req.name, req.size)
+    if not req.targets:
+        raise HTTPException(400, "targets must not be empty")
+
+    client_host = _client_host(request)
+    succeeded: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+
+    with store.locked():
+        data = store.load_workers()
+        for target in req.targets:
+            worker_id = _canonical_id(target.worker_id)
+            record = data["workers"].get(worker_id)
+            if not record:
+                failed.append({"worker_id": worker_id, "error": f"worker not found: {worker_id}"})
+                continue
+            if _find_disk_by_os(record, os_name):
+                skipped.append({"worker_id": worker_id, "reason": f"already has a {os_name} system disk"})
+                continue
+
+            _record("worker.disk.create", "started", worker_id=worker_id, client=client_host)
+            try:
+                disk_agent = agents.get(target.agent)
+                if not disk_agent:
+                    raise HTTPException(400, f"agent not found: {target.agent}")
+                if not disk_agent.role_disk:
+                    raise HTTPException(400, f"agent {target.agent} not configured for disk role")
+                client = agents.client(disk_agent)
+                try:
+                    client.healthz()
+                    disk_caps = client.capabilities()
+                except Exception as exc:
+                    raise HTTPException(503, f"agent {target.agent} not reachable: {exc}") from exc
+
+                disk_iqn = _build_iqn(disk_caps["base_iqn"], worker_id, os_name)
+                disk_filename = _build_disk_filename(worker_id, os_name)
+                disk_client = agents.client(disk_agent)
+                if req.type == "master":
+                    disk_result = disk_client.create_disk(disk_iqn, disk_filename, master=req.name)
+                else:
+                    disk_result = disk_client.create_disk(disk_iqn, disk_filename, size=req.size)
+                disk_record = {
+                    "agent": disk_agent.id,
+                    "iqn": disk_result.get("iqn", disk_iqn),
+                    "filename": disk_filename,
+                    "backing": disk_result.get("backing"),
+                    "os": os_name,
+                    "source": _disk_source(req.type, req.name, req.size),
+                }
+                _record("agent.create_disk", "ok", worker_id=worker_id, agent=disk_agent.id, iqn=disk_record["iqn"])
+
+                _add_worker_disk(record, disk_record)
+                if record.get("state") == "registered":
+                    record["state"] = "ready"
+                # 批量部署约定：创建成功即设为默认启动系统（单盘接口不自动设置）
+                record["default_os"] = os_name
+                store.save_workers(data)
+                _record("workers.disk.write", "ok", worker_id=worker_id, iqn=disk_record["iqn"])
+                _record(
+                    "worker.boot.set",
+                    "ok",
+                    worker_id=worker_id,
+                    client=client_host,
+                    changes=f"default_os:{os_name}",
+                )
+                _record("worker.disk.create", "succeeded", worker_id=worker_id, client=client_host)
+                succeeded.append({"worker_id": worker_id, "agent": disk_agent.id, "iqn": disk_record["iqn"]})
+            except Exception as exc:
+                detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+                if isinstance(detail, dict):
+                    detail = detail.get("error") or str(detail)
+                _record("worker.disk.create", "failed", worker_id=worker_id, client=client_host, error=str(detail))
+                failed.append({"worker_id": worker_id, "agent": target.agent, "error": str(detail)})
+
+    return {"succeeded": succeeded, "skipped": skipped, "failed": failed}
+
+
+@app.delete("/workers/{worker_id}/luns/disk/{os_name}", dependencies=[Depends(verify_control_token)])
+def delete_worker_disk(
+    worker_id: str,
+    os_name: str,
+    request: Request,
+    delete_file: bool = Query(False, description="Delete the disk backing .img as well."),
+    ignore_missing_target: bool = Query(False, description="Ignore 404 from Agent while deleting the target."),
+):
+    """删除 Worker 的单个系统盘：可保留或删除 .img 文件；
+    被删系统若为默认启动，联动清除 default_os 与同名 menu_default；无盘时状态回退 registered。"""
+    worker_id = _canonical_id(worker_id)
+    os_name = _canonical_os(os_name)
+    with store.locked():
+        data = store.load_workers()
+        record = data["workers"].get(worker_id)
+        if not record:
+            raise HTTPException(404, f"worker not found: {worker_id}")
+        disk = _find_disk_by_os(record, os_name)
+        if not disk:
+            raise HTTPException(404, f"worker {worker_id} has no {os_name} system disk")
+
+        client_host = _client_host(request)
+        _record("worker.disk.delete", "started", worker_id=worker_id, client=client_host, os=os_name)
+
+        try:
+            _delete_target(disk, delete_file=delete_file, ignore_missing=ignore_missing_target)
+            _record("agent.delete_disk", "ok", worker_id=worker_id, agent=disk["agent"],
+                    iqn=disk["iqn"], delete_file=delete_file)
+
+            disks = record.get("disks")
+            if disks is not None:
+                disks[:] = [d for d in disks if d is not disk]
+            else:
+                record.pop("disk", None)  # 旧台账单盘字段
+
+            # 联动：被删系统正是默认启动时清除 default_os 与同名 menu_default
+            if str(record.get("default_os", "")).lower() == os_name:
+                record.pop("default_os", None)
+            boot = record.get("boot") or {}
+            if str(boot.get("menu_default", "")).lower() == os_name:
+                boot.pop("menu_default", None)
+                if not boot:
+                    record.pop("boot", None)
+
+            # 无盘时状态回退 registered，等待重新建盘
+            if not _worker_disks(record) and record.get("state") == "ready":
+                record["state"] = "registered"
+
+            store.save_workers(data)
+            _record("workers.disk.delete", "ok", worker_id=worker_id, os=os_name)
+            _record("worker.disk.delete", "succeeded", worker_id=worker_id, client=client_host)
+            return _enrich_worker(worker_id, record)
+        except AgentAPIError as exc:
+            _record("worker.disk.delete", "failed", worker_id=worker_id, client=client_host, error=exc.detail)
+            raise HTTPException(exc.status_code, {"agent": exc.agent_id, "error": exc.detail}) from exc
+        except Exception as exc:
+            _record("worker.disk.delete", "failed", worker_id=worker_id, client=client_host, error=str(exc))
+            raise HTTPException(500, str(exc)) from exc
+
+
 @app.put("/workers/{worker_id}/default-os", dependencies=[Depends(verify_control_token)])
 def set_worker_default_boot(worker_id: str, req: SetWorkerDefaultBootRequest, request: Request):
     """设置 Worker 默认启动配置：os=默认系统（须与已挂系统盘一致）；
@@ -480,6 +711,65 @@ def delete_worker(
             raise HTTPException(500, str(exc)) from exc
 
 
+@app.post("/workers/delete/batch", dependencies=[Depends(verify_control_token)])
+def batch_delete_workers(req: BatchDeleteWorkersRequest, request: Request):
+    """批量删除 Worker：逐项独立执行（单项失败不影响其余），返回 succeeded / failed 汇总。
+    每项：删 CD/系统盘 target（delete_disk 控制是否连 .img）、移台账、移除 dnsmasq 绑定；
+    全部成功项统一保存台账、统一 reload 一次 dnsmasq。"""
+    if not req.worker_ids:
+        raise HTTPException(400, "worker_ids must not be empty")
+
+    client_host = _client_host(request)
+    succeeded: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+
+    with store.locked():
+        data = store.load_workers()
+        removed_hostnames: list[str] = []
+        for raw_id in req.worker_ids:
+            worker_id = _canonical_id(raw_id)
+            record = data["workers"].get(worker_id)
+            if not record:
+                failed.append({"worker_id": worker_id, "error": f"worker not found: {worker_id}"})
+                continue
+
+            _record("delete_worker", "started", worker_id=worker_id, client=client_host,
+                    delete_disk=req.delete_disk)
+            try:
+                if record.get("cd"):
+                    _delete_target(record["cd"], delete_file=False, ignore_missing=req.ignore_missing_target)
+                    _record("agent.delete_cd", "ok", worker_id=worker_id,
+                            agent=record["cd"]["agent"], iqn=record["cd"]["iqn"])
+                for disk in _worker_disks(record):
+                    _delete_target(disk, delete_file=req.delete_disk, ignore_missing=req.ignore_missing_target)
+                    _record("agent.delete_disk", "ok", worker_id=worker_id,
+                            agent=disk["agent"], iqn=disk["iqn"], delete_file=req.delete_disk)
+
+                hostname = record["hostname"]
+                del data["workers"][worker_id]
+                _record("workers.delete", "ok", worker_id=worker_id)
+                removed_hostnames.append(hostname)
+                _record("delete_worker", "succeeded", worker_id=worker_id, client=client_host)
+                succeeded.append({"worker_id": worker_id, "hostname": hostname})
+            except Exception as exc:
+                detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+                if isinstance(detail, dict):
+                    detail = detail.get("error") or str(detail)
+                _record("delete_worker", "failed", worker_id=worker_id,
+                        client=client_host, error=str(detail))
+                failed.append({"worker_id": worker_id, "error": str(detail)})
+
+        if succeeded:
+            store.save_workers(data)
+            for hostname in removed_hostnames:
+                removed = dnsmasq.remove_hostname(hostname)
+                _record("dnsmasq.hosts.delete", "ok", hostname=hostname, removed=removed)
+            dnsmasq_result = dnsmasq.reload()
+            _record("dnsmasq.reload", "ok", batch=len(removed_hostnames), result=dnsmasq_result)
+
+    return {"succeeded": succeeded, "failed": failed}
+
+
 @app.get("/operations", dependencies=[Depends(verify_control_token)])
 def get_operations(since: int = 0, limit: int = 1000):
     return operations.read(since=since, limit=limit)
@@ -548,9 +838,37 @@ def _boot_vars_payload(mac: str | None, hostname: str | None) -> dict[str, Any]:
             iscsi_server = agents.iscsi_server_for(agent_id)
         except Exception:
             return {}
+        backend = _backend_for(agent_id)
+        # 只投影 iSCSI root 连接符（差异点），root-path 拼装由 iPXE 侧完成：
+        # stgt 需 `:::1:`（lun 占位 1），LIO 需 `::::`（空占位）
         payload["base_iqn"] = base_iqn
         payload["iscsi_server"] = iscsi_server
+        payload["iscsi_sep"] = ":::1:" if backend == "stgt" else "::::"
     return payload
+
+
+def _backend_for(agent_id: str) -> str:
+    """返回 Agent 的 iSCSI 后端类型（stgt | lio）。
+
+    优先读配置 tags 标记（离线零成本），未标记时查询 /capabilities
+    （Agent 自报），查询失败默认 stgt 以保持既有格式兼容。
+    """
+    try:
+        agent = agents.get(agent_id)
+    except KeyError:
+        return "stgt"
+    tags = {str(t).strip().lower() for t in agent.tags}
+    if "lio" in tags:
+        return "lio"
+    if "stgt" in tags:
+        return "stgt"
+    try:
+        backend = str(agents.client(agent).capabilities().get("backend", "")).lower()
+        if backend in {"stgt", "lio"}:
+            return backend
+    except Exception:
+        pass
+    return "stgt"
 
 
 AUTO_HOSTNAME_RE = re.compile(r"^worker-(\d+)$")
@@ -629,6 +947,8 @@ def _boot_vars_ipxe(payload: dict[str, Any]) -> str:
         lines.append(f"set base-iqn {payload['base_iqn']}")
     if payload.get("iscsi_server"):
         lines.append(f"set iscsi-server {payload['iscsi_server']}")
+    if payload.get("iscsi_sep"):
+        lines.append(f"set iscsi-sep {payload['iscsi_sep']}")
     lines.extend(
         [
             f"set menu-default {payload['menu_default']}",
@@ -650,6 +970,8 @@ def _boot_vars_json(payload: dict[str, Any]) -> dict[str, Any]:
         result["base_iqn"] = payload["base_iqn"]
     if payload.get("iscsi_server"):
         result["iscsi_server"] = payload["iscsi_server"]
+    if payload.get("iscsi_sep"):
+        result["iscsi_sep"] = payload["iscsi_sep"]
     return result
 
 

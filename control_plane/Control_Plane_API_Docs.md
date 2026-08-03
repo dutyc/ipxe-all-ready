@@ -93,6 +93,8 @@ curl -s "$BASE_URL/workers" \
 | `GET` | `/healthz` | 健康检查 |
 | `GET` | `/boot-vars` | iPXE 启动变量动态注入，不鉴权 |
 | `GET` | `/agents` | 查询 Agent 列表与能力 |
+| `POST` | `/agents` | 注册新 Agent（写入 agents.yml，重复 id 返回 409） |
+| `POST` | `/agents/probe` | 探测 Agent 并自动推导注册参数（预览，不写文件） |
 | `GET` | `/agents/{agent_id}/luns` | 列出指定 Agent 上的 iSCSI target/LUN |
 | `POST` | `/agents/{agent_id}/luns/disk` | 在指定 Agent 上创建磁盘 LUN（母盘克隆/空白盘） |
 | `POST` | `/agents/{agent_id}/luns/cd` | 在指定 Agent 上创建 CD（ISO 虚拟光驱）LUN |
@@ -100,11 +102,14 @@ curl -s "$BASE_URL/workers" \
 | `POST` | `/agents/{agent_id}/luns/scan` | 触发指定 Agent 扫描镜像目录重建 target |
 | `POST` | `/workers` | 注册 Worker 身份（hostname + MAC 绑定） |
 | `POST` | `/workers/{worker_id}/luns/disk` | 给指定 Worker 创建系统盘 LUN |
+| `POST` | `/workers/luns/disk/batch` | 批量给多个 Worker 创建系统盘（每项指定存储节点） |
+| `DELETE` | `/workers/{worker_id}/luns/disk/{os}` | 删除 Worker 单个系统盘（保留/删除 .img 文件） |
 | `PUT` | `/workers/{worker_id}/default-os` | 设置 Worker 默认启动配置（系统 / 菜单项 / 超时） |
 | `GET` | `/workers` | 列出 Worker |
 | `GET` | `/workers/{worker_id}` | 查询单个 Worker |
 | `GET` | `/workers/{worker_id}/status` | 查询 Worker 台账与实时状态 |
 | `DELETE` | `/workers/{worker_id}` | 删除 Worker |
+| `POST` | `/workers/delete/batch` | 批量删除 Worker（逐项独立，成功/失败汇总） |
 | `GET` | `/operations` | 读取操作日志 |
 
 ---
@@ -155,6 +160,7 @@ Control Plane 会根据 `mac` 或 `hostname` 查：
 |---|---|
 | `base_iqn` | `workers.yml` 中该 Worker 默认启动盘（`default_os` 对应的盘，未设时取第一块）的 `iqn` 去掉最后一个 `:` 后的前缀；Worker 无系统盘时**不返回**（iPXE 沿用 `boot.ipxe.cfg` 静态默认值） |
 | `iscsi_server` | 默认启动盘（同上选盘规则）的 `agent` -> `agents.yml` 中该 Agent 的 `iscsi_server`；无系统盘时不返回 |
+| `iscsi_sep` | iSCSI root **连接符**（`${iscsi-server}` 与 `${base-iqn}` 之间的分隔字段），root-path 拼装由 iPXE 侧完成。**按 Agent 后端类型生成**：stgt 后端为 `:::1:`（lun 占位 1），LIO 后端为 `::::`（空占位）；后端类型优先读 `agents.yml` 该 Agent 的 `tags`（含 `lio` / `stgt` 标记），未标记时查询 Agent `/capabilities` 的 `backend` 字段，查询失败默认 stgt 格式；无系统盘时不返回 |
 | `menu_default` | 推导链：`workers.yml` 的 `default_os`（建盘后单独设置）> `boot.menu_default`（显式配置）> `reboot`（未配置时循环重启等待） |
 | `menu_timeout` | 已配置默认启动时：`boot.menu_timeout` > `IPXE_CP_BOOT_MENU_TIMEOUT`（默认 5000）；处于 `reboot` 循环时：固定用 `IPXE_CP_AUTO_BOOT_TIMEOUT`（默认 1）。单位均为毫秒 |
 
@@ -233,6 +239,7 @@ curl -s "$BASE_URL/boot-vars?mac=000c29b98b2d&hostname=worker-01"
 # boot vars for worker-01
 set base-iqn iqn.2026-07.com.controller
 set iscsi-server 192.168.80.3
+set iscsi-sep :::1:
 set menu-default ubuntu
 set menu-timeout 5000
 ```
@@ -265,6 +272,7 @@ curl -s "$BASE_URL/boot-vars?mac=000c29b98b2d&hostname=worker-01&format=json"
 {
   "base_iqn": "iqn.2026-07.com.controller",
   "iscsi_server": "192.168.80.3",
+  "iscsi_sep": ":::1:",
   "menu_default": "ubuntu",
   "menu_timeout": 5000
 }
@@ -293,13 +301,14 @@ curl -s "$BASE_URL/boot-vars?mac=000c29b98b2d&hostname=worker-01&format=json"
 chain --autofree http://${controller_ip}:4839/boot-vars?mac=${mac}&hostname=${hostname} || goto vars-done
 # chain 失败（端点不可达）时静默跳过，沿用本文件顶部的静态默认值；
 # 成功后返回的 base-iqn / iscsi-server 可能覆盖静态默认，需重建派生变量
-set base-iscsi iscsi:${iscsi-server}:::1:${base-iqn}
+# isset 守卫：/boot-vars 已下发按后端生成的 iscsi-sep（stgt `:::1:` / LIO `::::`）时不覆盖
+isset ${iscsi-sep} || set iscsi-sep :::1:
 isset ${hostname} && set initiator-iqn ${base-iqn}:${hostname} || set initiator-iqn ${base-iqn}:${mac}
 
 :vars-done
 ```
 
-`menu.ipxe` 不需要修改。
+`menu.ipxe` 各系统项与安装项用 `${iscsi-sep}` 插入 root-path（如 `set root-path iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.windows`），`iscsi:` 协议头与拼装结构保持静态，仅连接符由后端投影。
 
 ### Agent 数据面地址
 
@@ -372,6 +381,120 @@ curl -s "$BASE_URL/agents?live=false" \
   }
 ]
 ```
+
+---
+
+## 6.1 POST /agents
+
+### 说明
+
+注册新 Agent：写入 `config/agents.yml`，注册后立即生效（建盘/挂载调度即会纳入该 Agent）。同一 `id` 重复注册返回 `409`。
+
+**推荐流程**：先在 WebUI（或 `POST /agents/probe`，见 6.2）填写 API 地址并探测，自动获取角色 / 标签 / 数据面地址等参数，确认后调用本接口完成注册；也可直接全参数提交。
+
+### 请求体字段
+
+| 字段 | 必填 | 说明 |
+|---|---:|---|
+| `id` | 是 | Agent 编号。自动转小写，规则同 worker id（字母、数字、点、下划线、短横线） |
+| `base_url` | 是 | Agent 控制面 API 地址，须以 `http://` 或 `https://` 开头，末尾 `/` 自动去除 |
+| `token` | 否 | Agent 鉴权 Token，支持 `${ENV}` 环境变量占位（Control Plane 读取时展开）；无鉴权 Agent 可留空 |
+| `iscsi_server` | 否 | iSCSI 数据面地址（业务网段 IP）。缺省时回退为 `base_url` 的主机名 |
+| `role` | 否 | 角色：`disk`=可建系统盘（存储节点），`cd`=可挂载 ISO（光驱节点）；默认 `{disk: false, cd: false}` |
+| `tags` | 否 | 自由标签数组（如 `storage`/`lio`/`stgt`），展示用；`lio`/`stgt` 标记同时参与 `/boot-vars` 连接符推导 |
+| `enabled` | 否 | 是否启用；默认 `true` |
+
+### curl
+
+```bash
+curl -s -X POST "$BASE_URL/agents" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "storage-stgt-02",
+    "base_url": "http://host.docker.internal:4840",
+    "token": "${STORAGE_STGT_02_TOKEN}",
+    "iscsi_server": "192.168.1.6",
+    "role": {"disk": true, "cd": false},
+    "tags": ["storage", "stgt"],
+    "enabled": true
+  }'
+```
+
+### 成功返回（201）
+
+```json
+{
+  "id": "storage-stgt-02",
+  "base_url": "http://host.docker.internal:4840",
+  "iscsi_server": "192.168.1.6",
+  "role": {"disk": true, "cd": false},
+  "enabled": true,
+  "tags": ["storage", "stgt"]
+}
+```
+
+### 错误返回
+
+| 状态码 | 场景 |
+|---|---|
+| `400` | `id` 格式非法 / `base_url` 非 http(s) 开头 |
+| `409` | Agent `id` 已存在 |
+
+---
+
+## 6.2 POST /agents/probe
+
+### 说明
+
+探测 Agent 并自动推导注册参数（**只读预览，不写任何文件**）：调用 Agent `/healthz`（无鉴权）+ `/capabilities`（Bearer token），按以下规则推导：
+
+| 参数 | 推导规则 |
+|---|---|
+| `role.disk` | 恒为 `true`（Agent 即 iSCSI 存储节点） |
+| `role.cd` | 取 `capabilities.cd` |
+| `tags` | `["storage", backend]`（`backend` 为 lio / stgt，同时供 `/boot-vars` 连接符推导） |
+| `iscsi_server` | 缺省回退 `base_url` 主机名 |
+
+### 请求体字段
+
+| 字段 | 必填 | 说明 |
+|---|---:|---|
+| `base_url` | 是 | Agent 控制面 API 地址，须以 `http://` 或 `https://` 开头 |
+| `token` | 否 | Agent 鉴权 Token；Agent 配置了 `IPXE_AGENT_TOKEN` 时必填（Agent 不回显自身 token，无法自动获取） |
+
+### curl
+
+```bash
+curl -s -X POST "$BASE_URL/agents/probe" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"base_url": "http://host.docker.internal:4840", "token": "${STORAGE_STGT_02_TOKEN}"}'
+```
+
+### 成功返回
+
+```json
+{
+  "base_url": "http://host.docker.internal:4840",
+  "role": {"disk": true, "cd": false},
+  "tags": ["storage", "stgt"],
+  "iscsi_server": "host.docker.internal",
+  "enabled": true,
+  "backend": "stgt",
+  "base_iqn": "iqn.2026-07.com.controller",
+  "clone": "reflink (FICLONE) -> shutil.copy fallback",
+  "empty_disk": "truncate (sparse)",
+  "persistent": "auto-scan on startup"
+}
+```
+
+### 错误返回
+
+| 状态码 | 场景 |
+|---|---|
+| `400` | `base_url` 非 http(s) 开头 |
+| `502` | Agent 不可达（`/healthz` 失败）或 `/capabilities` 调用失败（如 token 错误） |
 
 ---
 
@@ -573,6 +696,57 @@ curl -s -X POST "$BASE_URL/workers/worker-00/luns/disk" \
 }
 ```
 
+### 7.1.3 批量创建系统盘（POST /workers/luns/disk/batch）
+
+批量部署场景：同一套盘参数应用到多个 Worker，每个 Worker 使用各自分配的存储节点（`targets[].agent` 必填——由 WebUI 的「接管所选 Worker」或拖拽指定产生，不存在默认公共分配）。
+
+与单盘一致：`master` 走母盘克隆、`empty` 建空白盘；同一 `os` 至多一块，已存在则**自动跳过**（不算失败）。**创建成功的 Worker 自动将 `default_os` 设为本次批量系统**——批量部署直接进入默认启动，无需再调 `PUT /workers/{worker_id}/default-os`（单盘接口不自动设置）。逐项独立执行，单项失败不影响其余，返回 `succeeded` / `skipped` / `failed` 汇总。
+
+#### 请求体字段
+
+| 字段 | 必填 | 说明 |
+|---|---:|---|
+| `type` | 是 | `master` 或 `empty` |
+| `os` | 是 | 该系统盘对应的系统（同一批次所有 Worker 相同，决定 IQN 后缀与文件名） |
+| `name` | 条件必填 | 当 `type=master` 时必填。表示母盘文件名 |
+| `size` | 条件必填 | 当 `type=empty` 时必填。表示空白盘大小，如 `40G` |
+| `targets` | 是 | 数组，每项 `{worker_id, agent}`：Worker 编号 + 该 Worker 已分配的存储节点 |
+
+#### curl
+
+```bash
+curl -s -X POST "$BASE_URL/workers/luns/disk/batch" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "master",
+    "os": "ubuntu",
+    "name": "_tpl_ubuntu_2204.img",
+    "targets": [
+      { "worker_id": "worker-01", "agent": "storage-lio-01" },
+      { "worker_id": "worker-02", "agent": "storage-lio-01" },
+      { "worker_id": "worker-03", "agent": "storage-stgt-01" }
+    ]
+  }'
+```
+
+#### 返回示例
+
+```json
+{
+  "succeeded": [
+    { "worker_id": "worker-01", "agent": "storage-lio-01", "iqn": "iqn.2026-07.com.controller:worker-01.ubuntu" },
+    { "worker_id": "worker-03", "agent": "storage-stgt-01", "iqn": "iqn.2026-07.com.controller:worker-03.ubuntu" }
+  ],
+  "skipped": [
+    { "worker_id": "worker-02", "reason": "already has a ubuntu system disk" }
+  ],
+  "failed": [
+    { "worker_id": "worker-04", "agent": "storage-lio-01", "error": "worker not found: worker-04" }
+  ]
+}
+```
+
 ---
 
 ## 7.2 Windows 安装期：身份注册 + ISO + 系统盘
@@ -739,6 +913,53 @@ curl -s -X PUT "$BASE_URL/workers/worker-01/default-os" \
 | `401` | 缺少 Token 或 Token 错误 |
 | `404` | Worker 不存在 |
 | `409` | 设置 `os` 时 Worker 还没有系统盘 |
+
+---
+
+## 7.4 DELETE /workers/{worker_id}/luns/disk/{os}
+
+### 说明
+
+删除指定 Worker 的单个系统盘（按系统名，`os` 不区分大小写）。Control Plane 会：
+
+1. 校验 Worker 存在且已挂载该系统盘（不存在时返回 `404`）
+2. 调用该盘所在 Agent 删除 iSCSI target
+3. 从 `state/workers.yml` 的 `disks` 数组中移除该盘记录
+4. 联动清理：被删系统若为默认启动系统（`default_os`），一并清除 `default_os` 与同名的 `boot.menu_default`（防止 iPXE 启动到已删除的系统盘）
+5. 删完最后一块盘时 `state` 由 `ready` 回退 `registered`（等待重新建盘）
+
+### Query 参数
+
+| 参数 | 默认 | 说明 |
+|---|---:|---|
+| `delete_file` | `false` | 是否同时删除 backing `.img` 文件。`false` 仅删除 target（.img 保留，可重新挂载） |
+| `ignore_missing_target` | `false` | 目标在 Agent 上已不存在时是否忽略 404，继续完成台账删除 |
+
+### 示例：删除系统盘但保留 .img
+
+```bash
+curl -s -X DELETE "$BASE_URL/workers/worker-01/luns/disk/ubuntu" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### 示例：删除系统盘并同时删除 .img 文件
+
+```bash
+curl -s -X DELETE "$BASE_URL/workers/worker-01/luns/disk/ubuntu?delete_file=true" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### 成功返回
+
+返回该 Worker 的完整台账（`disks` 已不含被删系统盘；若为默认系统，`default_os`/`boot.menu_default` 已被清除；无盘时 `state=registered`）。
+
+### 常见错误
+
+| HTTP 状态码 | 常见原因 |
+|---:|---|
+| `400` | `os` 非法 |
+| `401` | 缺少 Token 或 Token 错误 |
+| `404` | Worker 不存在，或该 Worker 没有此系统盘 |
 
 ---
 
@@ -940,6 +1161,48 @@ curl -s -X DELETE "$BASE_URL/workers/worker-01?delete_disk=true&ignore_missing_t
   "deleted": "worker-01",
   "delete_disk": false,
   "dnsmasq_removed": true
+}
+```
+
+---
+
+## 11.1 POST /workers/delete/batch
+
+### 说明
+
+批量删除 Worker。每项独立执行，**单项失败不影响其余**，返回 `succeeded` / `failed` 汇总；每个 Worker 的处理与 11 节单删一致（删 CD/系统盘 target → 移台账 → 移除 dnsmasq 绑定），全部成功项统一保存台账并**只 reload 一次** dnsmasq。不存在的 Worker 计入 `failed`（`worker not found`）。
+
+### 请求体字段
+
+| 字段 | 必填 | 默认值 | 说明 |
+|---|---:|---|---|
+| `worker_ids` | 是 | — | 要删除的 Worker 编号数组 |
+| `delete_disk` | 否 | `false` | 是否连 backing `.img` 文件一起删除 |
+| `ignore_missing_target` | 否 | `false` | 删除时若 Agent 返回 `404 iqn not found`，是否忽略继续执行 |
+
+### curl
+
+```bash
+curl -s -X POST "$BASE_URL/workers/delete/batch" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "worker_ids": ["worker-01", "worker-02"],
+    "delete_disk": false,
+    "ignore_missing_target": true
+  }'
+```
+
+### 成功返回示例
+
+```json
+{
+  "succeeded": [
+    {"worker_id": "worker-01", "hostname": "worker-01"}
+  ],
+  "failed": [
+    {"worker_id": "worker-03", "error": "worker not found: worker-03"}
+  ]
 }
 ```
 

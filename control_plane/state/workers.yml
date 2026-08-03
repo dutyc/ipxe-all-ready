@@ -1,16 +1,1 @@
-workers:
-  worker-01:
-    arch: x86_64
-    cd: null
-    default_os: debian
-    disks:
-    - agent: storage-lio-01
-      backing: /home/iscsi_img/worker-01.debian.img
-      filename: worker-01.debian.img
-      iqn: iqn.2026-07.com.controller:worker-01.debian
-      os: debian
-      source:
-        name: _tpl_debian_12.img
-        type: master
-    hostname: worker-01
-    state: ready
+workers: {}

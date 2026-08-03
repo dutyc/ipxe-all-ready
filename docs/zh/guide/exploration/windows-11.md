@@ -114,8 +114,8 @@ echo (for installing Windows)
 
 # 1. 网络与变量配置
 set netX/gateway ${iscsi-server}
-set root-path ${base-iscsi}:${hostname}.Windows
-set data-path ${base-iscsi}:${hostname}.Windows.iso
+set root-path iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.Windows
+set data-path iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.Windows.iso
 set keep-san 1
 
 # 2. 挂载 iSCSI 存储
@@ -137,7 +137,7 @@ goto start
 ### 核心逻辑与变量传递解析
 
 1. **变量拼接与 IQN 映射**
-   脚本中的 `${base-iscsi}` 和 `${hostname}` 是在 `boot.ipxe` 中通过 DHCP 获取并拼接的基础变量。在此处，它们被进一步组装为完整的 iSCSI URI，确保 iPXE 能够精准请求到 2.3 节中自动化脚本创建的对应 LUN。
+   脚本中的 `${iscsi-sep}`、`${base-iqn}` 和 `${hostname}` 是在 `boot.ipxe` 中通过 DHCP 获取并拼接的基础变量（`iscsi-sep` 是 iSCSI root 连接符，由 Control Plane `/boot-vars` 按后端类型下发，兜底为 `boot.ipxe.cfg` 静态值）。在此处，它们被进一步组装为完整的 iSCSI URI，确保 iPXE 能够精准请求到 2.3 节中自动化脚本创建的对应 LUN。
 2. **网关设置 (`set netX/gateway`)**
    在 PE 环境下，Windows 可能无法正确获取默认路由。将网关强制设置为 iSCSI Server 的 IP，可以确保 PE 环境中的网络流量能够正确路由，避免 iSCSI 会话断开。
 3. **维持 SAN 连接 (`set keep-san 1`)**

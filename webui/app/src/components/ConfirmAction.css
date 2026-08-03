@@ -1,12 +1,24 @@
+.confirm-wrap {
+  position: relative;
+  display: inline-block;
+}
+
 .confirm-trigger {
   cursor: pointer;
 }
 
 .confirm-box {
-  margin-top: 12px;
-  padding: 20px;
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  width: 300px;
+  max-width: calc(100vw - 48px);
+  padding: 18px 20px;
   background: var(--gray-25);
   border: 1px solid var(--border);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
+  text-align: left;
 }
 
 .confirm-msg {

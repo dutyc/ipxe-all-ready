@@ -24,7 +24,7 @@
 
 ### per-worker 启动变量动态注入
 
-在保留 iPXE 静态菜单交互的前提下，`/boot-vars` 端点按 MAC/hostname 查询 inventory，动态返回 `iscsi-server`、`menu-default`、`menu-timeout` 等变量；未配置默认启动时返回 `reboot` 短超时循环。`menu.ipxe` 零改动，`boot.ipxe.cfg` 只在末尾拉取变量并重算 `base-iscsi`。
+在保留 iPXE 静态菜单交互的前提下，`/boot-vars` 端点按 MAC/hostname 查询 inventory，动态返回 `iscsi-server`、`iscsi-sep`、`menu-default`、`menu-timeout` 等变量；其中 `iscsi-sep` 是 iSCSI root 的**连接符**（`${iscsi-server}` 与 `${base-iqn}` 之间的分隔字段），按系统盘所在 Agent 的后端类型生成（stgt `:::1:` / LIO `::::`），root-path 拼装（`iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.<os>`）由 `menu.ipxe` 静态完成，仅差异连接符由后端投影；未配置默认启动时返回 `reboot` 短超时循环。`boot.ipxe.cfg` 只在末尾拉取变量，并用 `isset` 守卫重算 `iscsi-sep` 兜底值（不覆盖已下发的 LIO 格式）。
 
 ### Agent LUN 直管
 

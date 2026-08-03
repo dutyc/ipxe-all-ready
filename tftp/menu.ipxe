@@ -69,33 +69,33 @@ goto start
 :windows
 echo Booting Windows from iSCSI for ${initiator-iqn}
 set netX/gateway ${iscsi-server}
-set root-path iscsi:${iscsi-server}:::1:${base-iqn}:${hostname}.windows
+set root-path iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.windows
 set keep-san 1
 sanboot ${root-path} || goto failed
 goto start
 
 :ubuntu
 echo Booting Debian from iSCSI for ${initiator-iqn}
-set root-path iscsi:${iscsi-server}:::1:${base-iqn}:${hostname}.ubuntu
+set root-path iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.ubuntu
 sanboot --keep --drive 0x80 ${root-path} || goto failed
 goto start
 
 :debian
 echo Booting Debian from iSCSI for ${initiator-iqn}
-set root-path iscsi:${iscsi-server}:::1:${base-iqn}:${hostname}.debian
+set root-path iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.debian
 sanboot --keep --drive 0x80 ${root-path} || goto failed
 goto start
 
 :centos
 echo Booting CentOS from iSCSI for ${initiator-iqn}
-set root-path ${base-iscsi}:${hostname}.centos
+set root-path iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.centos
 set keep-san 1
 sanboot ${root-path} || goto failed
 goto start
 
 :esxi
 echo Booting ESXi from iSCSI for ${initiator-iqn}
-set root-path ${base-iscsi}:${hostname}.esxi
+set root-path iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.esxi
 set keep-san 1
 sanboot ${root-path} || goto failed
 goto start
@@ -145,8 +145,8 @@ choose --timeout ${submenu-timeout} --default ${submenu-default} selected && got
 echo Booting Windows PE ${arch} installer for ${initiator-iqn}
 echo (for installing Windows)
 set netX/gateway ${iscsi-server}
-set root-path ${base-iscsi}:${hostname}.windows
-set data-path ${base-iscsi}:${hostname}.windows.iso
+set root-path iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.windows
+set data-path iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.windows.iso
 set keep-san 1
 echo sanhook start...
 sanhook --drive 0x80 ${root-path} || goto failed
@@ -162,7 +162,7 @@ goto start
 
 :ubuntu-install
 echo Starting Ubuntu installer for ${initiator-iqn}
-set root-path ${base-iscsi}:${hostname}.ubuntu
+set root-path iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.ubuntu
 cpuid --ext 29 && set arch amd64 || set arch x86
 set base-url ${chain-url}/install/ubuntu/22.04
 kernel ${base-url}/netboot/vmlinuz \
@@ -182,7 +182,7 @@ goto start
 
 :debian-install
 echo Starting Debian 12 installer for ${initiator-iqn}
-set root-path ${base-iscsi}:${hostname}.debian
+set root-path iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.debian
 cpuid --ext 29 && set arch amd64 || set arch x86
 set base-url ${chain-url}/install/debian/12
 kernel ${base-url}/netboot/vmlinuz \
@@ -202,7 +202,7 @@ goto start
 
 :centos-install
 echo Starting CentOS 7 ${archl} installer for ${initiator-iqn}
-set root-path ${base-iscsi}:${hostname}.centOS
+set root-path iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.centOS
 set base-url ${chain-url}/install/centos
 set keep-san 1
 sanhook ${root-path} || goto failed
@@ -213,7 +213,7 @@ goto start
 
 :esxi-install
 echo Starting ESXi 7 installer for ${initiator-iqn}
-set root-path ${base-iscsi}:${hostname}.esxi
+set root-path iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.esxi
 set base-url ${chain-url}/install/esxi
 set keep-san 1
 sanhook ${root-path} || goto failed
