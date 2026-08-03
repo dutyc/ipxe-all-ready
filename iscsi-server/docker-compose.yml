@@ -9,7 +9,7 @@ services:
   #   network_mode: host
   #   volumes:
   #     - /etc/localtime:/etc/localtime:ro
-  #     - ./iscsi_img:/home/iscsi_img
+  #     - /pool1/iscsi_img:/home/iscsi_img
 
 
   ipxe-iscsi:

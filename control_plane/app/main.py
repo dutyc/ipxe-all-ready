@@ -95,7 +95,10 @@ def create_agent_disk_lun(agent_id: str, req: CreateDiskLunRequest, request: Req
     """在指定 Agent 上创建磁盘 LUN：传 master 走母盘克隆，传 size 建空白盘。"""
     if not req.master and not req.size:
         raise HTTPException(400, "need master (clone) or size (empty disk)")
-    client = _agent_client_or_404(agent_id)
+    agent = _agent_or_404(agent_id)
+    if not agent.role_disk:
+        raise HTTPException(400, f"agent {agent_id} not configured for disk role")
+    client = agents.client(agent)
     try:
         result = client.create_disk(req.iqn, req.filename or "", master=req.master, size=req.size)
     except AgentAPIError as exc:
@@ -109,7 +112,10 @@ def create_agent_disk_lun(agent_id: str, req: CreateDiskLunRequest, request: Req
 @app.post("/agents/{agent_id}/luns/cd", status_code=201, dependencies=[Depends(verify_control_token)])
 def create_agent_cd_lun(agent_id: str, req: CreateCdLunRequest, request: Request):
     """在指定 Agent 上创建 CD（ISO 虚拟光驱）LUN，仅 stgt 后端支持。"""
-    client = _agent_client_or_404(agent_id)
+    agent = _agent_or_404(agent_id)
+    if not agent.role_cd:
+        raise HTTPException(400, f"agent {agent_id} not configured for cd role (LIO backend does not support ISO)")
+    client = agents.client(agent)
     try:
         result = client.create_cd(req.iso, req.iqn or "")
     except AgentAPIError as exc:
@@ -158,12 +164,15 @@ def scan_agent_luns(agent_id: str, request: Request):
     return result
 
 
-def _agent_client_or_404(agent_id: str):
+def _agent_or_404(agent_id: str):
     try:
-        agent = agents.get(agent_id)
+        return agents.get(agent_id)
     except KeyError:
         raise HTTPException(404, f"agent not found: {agent_id}") from None
-    return agents.client(agent)
+
+
+def _agent_client_or_404(agent_id: str):
+    return agents.client(_agent_or_404(agent_id))
 
 
 @app.get("/workers", dependencies=[Depends(verify_control_token)])
@@ -555,7 +564,8 @@ def _next_auto_hostname(workers: dict[str, Any]) -> str:
         if hostname:
             used.add(hostname)
     used.update(binding.hostname for binding in dnsmasq.list_bindings())
-    max_num = -1
+    # 编号从 01 开始：初始 0，取已用最大序号 +1
+    max_num = 0
     for name in used:
         m = AUTO_HOSTNAME_RE.match(name)
         if m:

@@ -39,6 +39,12 @@
   white-space: nowrap;
 }
 
+.luns-hint {
+  font-size: 11px;
+  color: var(--gray-400);
+  white-space: nowrap;
+}
+
 /* ===== Create Form (与 Workers 一致) ===== */
 .create-form {
   background: var(--gray-25);

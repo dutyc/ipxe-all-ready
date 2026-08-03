@@ -1,6 +1,6 @@
 import './Button.css'
 
-export default function Button({ children, onClick, variant = 'primary', className = '', disabled, type = 'button', style }) {
+export default function Button({ children, onClick, variant = 'primary', className = '', disabled, type = 'button', style, ...rest }) {
   return (
     <button
       type={type}
@@ -8,6 +8,7 @@ export default function Button({ children, onClick, variant = 'primary', classNa
       onClick={onClick}
       disabled={disabled}
       style={style}
+      {...rest}
     >
       {children}
     </button>

@@ -134,6 +134,8 @@ const en = {
     scanning: 'Scanning...',
     createDisk: '+ Create Disk',
     createCd: '+ Create CD (ISO)',
+    cdUnsupported: 'LIO backend does not support ISO CD-ROMs',
+    diskUnsupported: 'Disk role not enabled for this backend',
     newDisk: 'New Disk LUN',
     newCd: 'New CD (ISO) LUN',
     iqnLabel: 'IQN',

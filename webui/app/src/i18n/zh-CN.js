@@ -134,6 +134,8 @@ const zh = {
     scanning: '扫描中...',
     createDisk: '+ 创建磁盘',
     createCd: '+ 创建光驱 (ISO)',
+    cdUnsupported: 'LIO 后端不支持 ISO 光驱',
+    diskUnsupported: '该后端未启用磁盘角色',
     newDisk: '创建磁盘 LUN',
     newCd: '创建 CD (ISO) LUN',
     iqnLabel: 'IQN',

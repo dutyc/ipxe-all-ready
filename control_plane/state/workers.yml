@@ -1,29 +1,16 @@
 workers:
-  worker-02:
+  worker-01:
     arch: x86_64
     cd: null
-    disks: []
-    hostname: worker-02
-    state: registered
-  worker-03:
-    arch: x86_64
-    cd: null
+    default_os: debian
     disks:
     - agent: storage-lio-01
-      backing: /home/iscsi_img/worker-03.ubuntu.img
-      filename: worker-03.ubuntu.img
-      iqn: iqn.2026-07.com.controller:worker-03.ubuntu
-      os: ubuntu
-      source:
-        size: 5G
-        type: empty
-    - agent: storage-lio-01
-      backing: /home/iscsi_img/worker-03.debian.img
-      filename: worker-03.debian.img
-      iqn: iqn.2026-07.com.controller:worker-03.debian
+      backing: /home/iscsi_img/worker-01.debian.img
+      filename: worker-01.debian.img
+      iqn: iqn.2026-07.com.controller:worker-01.debian
       os: debian
       source:
-        size: 5G
-        type: empty
-    hostname: worker-03
+        name: _tpl_debian_12.img
+        type: master
+    hostname: worker-01
     state: ready

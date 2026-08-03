@@ -169,6 +169,11 @@ export default function AgentLuns() {
   if (error) return <p className="page-error">{error}</p>
   if (!agent) return <EmptyState message={t('agentLuns.notFound')} />
 
+  // 后端角色能力：role.cd 为 false（如 LIO）不支持 ISO 光驱；无 role 配置时兼容旧数据默认允许
+  const role = agent.role || {}
+  const cdSupported = role.cd !== false
+  const diskSupported = role.disk !== false
+
   return (
     <div>
       <div className="detail-nav">
@@ -194,6 +199,8 @@ export default function AgentLuns() {
           </Button>
           <Button
             variant={showCdForm ? 'ghost' : 'secondary'}
+            disabled={!cdSupported}
+            title={cdSupported ? undefined : t('agentLuns.cdUnsupported')}
             onClick={() => {
               setShowCdForm(!showCdForm)
               setShowDiskForm(false)
@@ -202,8 +209,13 @@ export default function AgentLuns() {
           >
             {showCdForm ? t('agentLuns.cancel') : t('agentLuns.createCd')}
           </Button>
+          {!cdSupported && (
+            <span className="luns-hint">{t('agentLuns.cdUnsupported')}</span>
+          )}
           <Button
             variant={showDiskForm ? 'ghost' : 'primary'}
+            disabled={!diskSupported}
+            title={diskSupported ? undefined : t('agentLuns.diskUnsupported')}
             onClick={() => {
               setShowDiskForm(!showDiskForm)
               setShowCdForm(false)
@@ -212,10 +224,13 @@ export default function AgentLuns() {
           >
             {showDiskForm ? t('agentLuns.cancel') : t('agentLuns.createDisk')}
           </Button>
+          {!diskSupported && (
+            <span className="luns-hint">{t('agentLuns.diskUnsupported')}</span>
+          )}
         </div>
       </div>
 
-      {showDiskForm && (
+      {diskSupported && showDiskForm && (
         <form className="create-form" onSubmit={handleCreateDisk}>
           <div className="create-form-title">{t('agentLuns.newDisk')}</div>
           <div className="create-form-grid">
@@ -264,7 +279,7 @@ export default function AgentLuns() {
         </form>
       )}
 
-      {showCdForm && (
+      {cdSupported && showCdForm && (
         <form className="create-form" onSubmit={handleCreateCd}>
           <div className="create-form-title">{t('agentLuns.newCd')}</div>
           <div className="create-form-grid">

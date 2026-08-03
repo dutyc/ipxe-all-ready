@@ -156,7 +156,7 @@ Control Plane 会根据 `mac` 或 `hostname` 查：
 | `base_iqn` | `workers.yml` 中该 Worker 默认启动盘（`default_os` 对应的盘，未设时取第一块）的 `iqn` 去掉最后一个 `:` 后的前缀；Worker 无系统盘时**不返回**（iPXE 沿用 `boot.ipxe.cfg` 静态默认值） |
 | `iscsi_server` | 默认启动盘（同上选盘规则）的 `agent` -> `agents.yml` 中该 Agent 的 `iscsi_server`；无系统盘时不返回 |
 | `menu_default` | 推导链：`workers.yml` 的 `default_os`（建盘后单独设置）> `boot.menu_default`（显式配置）> `reboot`（未配置时循环重启等待） |
-| `menu_timeout` | 已配置默认启动时：`boot.menu_timeout` > `IPXE_CP_BOOT_MENU_TIMEOUT`；处于 `reboot` 循环时：固定用 `IPXE_CP_AUTO_BOOT_TIMEOUT`（默认 1 秒） |
+| `menu_timeout` | 已配置默认启动时：`boot.menu_timeout` > `IPXE_CP_BOOT_MENU_TIMEOUT`（默认 5000）；处于 `reboot` 循环时：固定用 `IPXE_CP_AUTO_BOOT_TIMEOUT`（默认 1）。单位均为毫秒 |
 
 查找 Worker 的规则（**hostname 优先**）：
 
@@ -189,7 +189,7 @@ os=windows -> menu_default=windows
 
 新 Worker 开机时没有 hostname，iPXE 会带 `mac` 请求 `/boot-vars`。若该 MAC 未绑定，Control Plane 自动完成登记：
 
-1. 按顺序生成 hostname（扫描台账 + dhcp 绑定中 `worker-N` 的最大序号 +1，格式 `worker-%02d`，如 `worker-00`、`worker-01`）
+1. 按顺序生成 hostname（扫描台账 + dhcp 绑定中 `worker-N` 的最大序号 +1，格式 `worker-%02d`，编号从 `worker-01` 开始）
 2. 写入 `workers.yml`（`state=registered`，无系统盘）并绑定 `dnsmasq/dhcp-hosts.conf`（MAC -> hostname），触发 dnsmasq reload
 3. 返回 `menu-default=reboot` + 短超时，让机器立即重启
 4. 重启后 dnsmasq 下发 hostname，后续请求用 hostname 表明身份；在管理员创建系统盘并设置 `default_os` 之前，一直返回 `reboot` 循环重启
@@ -200,7 +200,7 @@ os=windows -> menu_default=windows
 | 变量 | 默认 | 说明 |
 |---|---:|---|
 | `IPXE_CP_AUTO_REGISTER` | `true` | 关闭后新 MAC 不再自动注册（返回空脚本） |
-| `IPXE_CP_AUTO_BOOT_TIMEOUT` | `1` | reboot 循环的菜单超时（秒） |
+| `IPXE_CP_AUTO_BOOT_TIMEOUT` | `1` | reboot 循环的菜单超时（毫秒） |
 
 自动注册全程有操作日志（`auto_register`），失败会回滚台账并返回空脚本，下次请求重试，不影响 iPXE 引导。
 
@@ -208,15 +208,17 @@ os=windows -> menu_default=windows
 
 | 参数 | 必填 | 默认值 | 说明 |
 |---|---:|---|---|
-| `mac` | 否 | 无 | MAC 地址。支持 iPXE 的 `mac:hexraw` 格式，如 `000c29b98b2d`，也支持 `00:0c:29:b9:8b:2d` |
+| `mac` | 否 | 无 | MAC 地址。后端自动剥离 `:` / `-` / `.` 后归一化，带冒号（`00:0c:29:b9:8b:2d`）与 `mac:hexraw`（`000c29b98b2d`）格式都支持 |
 | `hostname` | 否 | 无 | 主机名，如 `worker-01` |
 | `format` | 否 | `ipxe` | `ipxe` 或 `json` |
 
 `mac` 和 `hostname` 至少建议传一个。iPXE 端推荐两个都传：
 
 ```text
-/boot-vars?mac=${mac:hexraw}&hostname=${hostname}
+/boot-vars?mac=${mac}&hostname=${hostname}
 ```
+
+> **注意**：规范上 `${mac:hexraw}` 与 `${mac}` 等价（后端统一归一化），但部分真实 iPXE 固件对 `hexraw` 修饰符展开异常（可能为空），实测必须使用带冒号的 `${mac}`——请勿改回 `hexraw`。
 
 ### iPXE 格式 curl
 
@@ -230,7 +232,7 @@ curl -s "$BASE_URL/boot-vars?mac=000c29b98b2d&hostname=worker-01"
 #!ipxe
 # boot vars for worker-01
 set base-iqn iqn.2026-07.com.controller
-set iscsi-server 192.168.1.5
+set iscsi-server 192.168.80.3
 set menu-default ubuntu
 set menu-timeout 5000
 ```
@@ -239,7 +241,7 @@ set menu-timeout 5000
 
 ```ipxe
 #!ipxe
-# boot vars for worker-00
+# boot vars for worker-01
 set menu-default reboot
 set menu-timeout 1
 ```
@@ -262,7 +264,7 @@ curl -s "$BASE_URL/boot-vars?mac=000c29b98b2d&hostname=worker-01&format=json"
 ```json
 {
   "base_iqn": "iqn.2026-07.com.controller",
-  "iscsi_server": "192.168.1.5",
+  "iscsi_server": "192.168.80.3",
   "menu_default": "ubuntu",
   "menu_timeout": 5000
 }
@@ -288,7 +290,9 @@ curl -s "$BASE_URL/boot-vars?mac=000c29b98b2d&hostname=worker-01&format=json"
 `tftp/boot.ipxe.cfg` 末尾会拉取该端点：
 
 ```ipxe
-chain --autofree http://${controller_ip}:4839/boot-vars?mac=${mac:hexraw}&hostname=${hostname} || goto vars-done
+chain --autofree http://${controller_ip}:4839/boot-vars?mac=${mac}&hostname=${hostname} || goto vars-done
+# chain 失败（端点不可达）时静默跳过，沿用本文件顶部的静态默认值；
+# 成功后返回的 base-iqn / iscsi-server 可能覆盖静态默认，需重建派生变量
 set base-iscsi iscsi:${iscsi-server}:::1:${base-iqn}
 isset ${hostname} && set initiator-iqn ${base-iqn}:${hostname} || set initiator-iqn ${base-iqn}:${mac}
 
@@ -305,7 +309,7 @@ isset ${hostname} && set initiator-iqn ${base-iqn}:${hostname} || set initiator-
 agents:
   storage-lio-01:
     base_url: http://host.docker.internal:4840
-    iscsi_server: 192.168.1.5
+    iscsi_server: 192.168.80.3
 ```
 
 如果没有配置 `iscsi_server`，Control Plane 会退回使用 `base_url` 的 host 部分；但当 `base_url` 是 `host.docker.internal` 时，这个值不适合给物理 Worker 使用。
@@ -1156,7 +1160,7 @@ curl -s "$BASE_URL/agents/storage-lio-01/luns" \
 
 ### 14.2 POST /agents/{agent_id}/luns/disk
 
-在指定 Agent 上创建磁盘 LUN。传 `master` 走母盘克隆（优先 btrfs reflink 秒级），传 `size` 建空白盘（sparse）。
+在指定 Agent 上创建磁盘 LUN。传 `master` 走母盘克隆（优先 btrfs reflink 秒级），传 `size` 建空白盘（sparse）。Agent 未配置 `role.disk` 时返回 `400 agent ... not configured for disk role`。
 
 #### Path 参数
 
@@ -1207,7 +1211,7 @@ curl -s -X POST "$BASE_URL/agents/storage-lio-01/luns/disk" \
 
 ### 14.3 POST /agents/{agent_id}/luns/cd
 
-在指定 Agent 上创建 CD（ISO 虚拟光驱）LUN。仅 stgt 后端支持（LIO 会返回 `400 lio backend does not support cd`）。
+在指定 Agent 上创建 CD（ISO 虚拟光驱）LUN。仅 `role.cd` 为 true 的 Agent 支持；未配置 cd 角色（如 LIO）时返回 `400 agent ... not configured for cd role`，后端能力限制由 Agent 透传。
 
 #### 请求体字段
 
@@ -1310,6 +1314,7 @@ curl -s -X POST "$BASE_URL/agents/storage-lio-01/luns/scan" \
 - Windows ISO 特例
 - dnsmasq 主机名绑定
 - Worker 与操作轨迹查询
+- 多系统盘（一个 Worker 可挂载多个系统的系统盘，同一系统至多一个，由 `os` 区分、`default_os` 决定默认启动）
 
 当前版本还没有做：
 
@@ -1318,7 +1323,6 @@ curl -s -X POST "$BASE_URL/agents/storage-lio-01/luns/scan" \
 - 自动 IP 管理
 - 自动母盘生命周期管理
 - 定时 reconcile
-- 多系统盘（一个 Worker 挂载多个系统盘 LUN，`/luns/` 命名空间已按盘位预留）
 - 数据盘挂载（`/luns/data` 命名空间已预留）
 ---
 

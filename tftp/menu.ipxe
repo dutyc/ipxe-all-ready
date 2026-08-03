@@ -69,7 +69,7 @@ goto start
 :windows
 echo Booting Windows from iSCSI for ${initiator-iqn}
 set netX/gateway ${iscsi-server}
-set root-path ${base-iscsi}:${hostname}.windows
+set root-path iscsi:${iscsi-server}:::1:${base-iqn}:${hostname}.windows
 set keep-san 1
 sanboot ${root-path} || goto failed
 goto start
@@ -88,7 +88,7 @@ goto start
 
 :centos
 echo Booting CentOS from iSCSI for ${initiator-iqn}
-set root-path ${base-iscsi}:${hostname}.centOS
+set root-path ${base-iscsi}:${hostname}.centos
 set keep-san 1
 sanboot ${root-path} || goto failed
 goto start

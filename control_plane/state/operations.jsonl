@@ -75,3 +75,156 @@
 {"id": 75, "ts": "2026-08-02T12:18:49.889870+08:00", "op": "dnsmasq.hosts.write", "status": "ok", "worker_id": "worker-02", "hostname": "worker-02", "mac": "00:0c:29:b9:8b:2f"}
 {"id": 76, "ts": "2026-08-02T12:18:49.968152+08:00", "op": "dnsmasq.reload", "status": "ok", "worker_id": "worker-02", "result": {"status": "ok"}}
 {"id": 77, "ts": "2026-08-02T12:18:49.968567+08:00", "op": "create_worker", "status": "succeeded", "worker_id": "worker-02", "client": "172.18.0.1"}
+{"id": 78, "ts": "2026-08-02T13:30:19.584301+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 2}
+{"id": 79, "ts": "2026-08-02T13:34:08.926163+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 2}
+{"id": 80, "ts": "2026-08-02T13:38:01.861946+08:00", "op": "lun.create_disk", "status": "failed", "agent": "lio-01", "client": "testclient", "iqn": "iqn.a:b", "error": ""}
+{"id": 81, "ts": "2026-08-02T13:49:09.075742+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 2}
+{"id": 82, "ts": "2026-08-02T13:52:24.481672+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "192.168.80.1", "count": 2}
+{"id": 83, "ts": "2026-08-02T13:52:24.725251+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "192.168.80.1", "count": 2}
+{"id": 84, "ts": "2026-08-02T13:54:27.102899+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 2}
+{"id": 85, "ts": "2026-08-02T13:55:35.411627+08:00", "op": "worker.boot.set", "status": "ok", "worker_id": "worker-03", "client": "172.18.0.1", "changes": "default_os:ubuntu"}
+{"id": 86, "ts": "2026-08-02T14:43:09.788445+08:00", "op": "delete_worker", "status": "started", "worker_id": "worker-03", "client": "172.18.0.1", "delete_disk": true}
+{"id": 87, "ts": "2026-08-02T14:43:10.964360+08:00", "op": "agent.delete_disk", "status": "ok", "worker_id": "worker-03", "agent": "storage-lio-01", "iqn": "iqn.2026-07.com.controller:worker-03.ubuntu", "delete_file": true}
+{"id": 88, "ts": "2026-08-02T14:43:12.139017+08:00", "op": "agent.delete_disk", "status": "ok", "worker_id": "worker-03", "agent": "storage-lio-01", "iqn": "iqn.2026-07.com.controller:worker-03.debian", "delete_file": true}
+{"id": 89, "ts": "2026-08-02T14:43:12.141883+08:00", "op": "workers.delete", "status": "ok", "worker_id": "worker-03"}
+{"id": 90, "ts": "2026-08-02T14:43:12.143545+08:00", "op": "dnsmasq.hosts.delete", "status": "ok", "worker_id": "worker-03", "hostname": "worker-03", "removed": true}
+{"id": 91, "ts": "2026-08-02T14:43:12.222695+08:00", "op": "dnsmasq.reload", "status": "ok", "worker_id": "worker-03", "result": {"status": "ok"}}
+{"id": 92, "ts": "2026-08-02T14:43:12.224410+08:00", "op": "delete_worker", "status": "succeeded", "worker_id": "worker-03", "client": "172.18.0.1"}
+{"id": 93, "ts": "2026-08-02T14:43:22.124850+08:00", "op": "delete_worker", "status": "started", "worker_id": "worker-02", "client": "172.18.0.1", "delete_disk": true}
+{"id": 94, "ts": "2026-08-02T14:43:22.126545+08:00", "op": "workers.delete", "status": "ok", "worker_id": "worker-02"}
+{"id": 95, "ts": "2026-08-02T14:43:22.127717+08:00", "op": "dnsmasq.hosts.delete", "status": "ok", "worker_id": "worker-02", "hostname": "worker-02", "removed": true}
+{"id": 96, "ts": "2026-08-02T14:43:22.192298+08:00", "op": "dnsmasq.reload", "status": "ok", "worker_id": "worker-02", "result": {"status": "ok"}}
+{"id": 97, "ts": "2026-08-02T14:43:22.192521+08:00", "op": "delete_worker", "status": "succeeded", "worker_id": "worker-02", "client": "172.18.0.1"}
+{"id": 98, "ts": "2026-08-02T14:43:25.246430+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 0}
+{"id": 99, "ts": "2026-08-02T14:54:25.263041+08:00", "op": "auto_register", "status": "ok", "worker_id": "worker-00", "hostname": "worker-00", "mac": "52:54:00:aa:bb:cc"}
+{"id": 100, "ts": "2026-08-02T15:12:19.572356+08:00", "op": "auto_register", "status": "ok", "worker_id": "worker-00", "hostname": "worker-00", "mac": "00:0c:29:b9:8b:2d"}
+{"id": 101, "ts": "2026-08-02T16:32:16.776178+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 0}
+{"id": 102, "ts": "2026-08-02T16:33:24.713876+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 0}
+{"id": 103, "ts": "2026-08-02T16:34:13.494224+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 0}
+{"id": 104, "ts": "2026-08-02T19:01:42.287455+08:00", "op": "worker.disk.create", "status": "started", "worker_id": "worker-01", "client": "172.18.0.1"}
+{"id": 105, "ts": "2026-08-02T19:01:44.724975+08:00", "op": "agent.create_disk", "status": "ok", "worker_id": "worker-01", "agent": "storage-lio-01", "iqn": "iqn.2026-07.com.controller:worker-01.debian"}
+{"id": 106, "ts": "2026-08-02T19:01:44.742812+08:00", "op": "workers.disk.write", "status": "ok", "worker_id": "worker-01", "iqn": "iqn.2026-07.com.controller:worker-01.debian"}
+{"id": 107, "ts": "2026-08-02T19:01:44.743203+08:00", "op": "worker.disk.create", "status": "succeeded", "worker_id": "worker-01", "client": "172.18.0.1"}
+{"id": 108, "ts": "2026-08-02T19:02:20.274210+08:00", "op": "worker.boot.set", "status": "ok", "worker_id": "worker-01", "client": "172.18.0.1", "changes": "default_os:debian"}
+{"id": 109, "ts": "2026-08-02T19:23:16.997458+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 0}
+{"id": 110, "ts": "2026-08-02T19:23:21.712970+08:00", "op": "lun.scan", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "created": 1, "skipped": 0}
+{"id": 111, "ts": "2026-08-02T19:23:24.052668+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 1}
+{"id": 112, "ts": "2026-08-02T19:37:45.387590+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 1}
+{"id": 113, "ts": "2026-08-02T19:38:27.441165+08:00", "op": "lun.delete", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "iqn": "iqn.2026-07.com.controller:worker-01.debian", "delete_file": false}
+{"id": 114, "ts": "2026-08-02T19:38:27.721500+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 0}
+{"id": 115, "ts": "2026-08-02T19:38:32.684864+08:00", "op": "lun.scan", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "created": 1, "skipped": 0}
+{"id": 116, "ts": "2026-08-02T19:38:38.743264+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 1}
+{"id": 117, "ts": "2026-08-02T19:45:27.067709+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 1}
+{"id": 118, "ts": "2026-08-02T19:45:31.341114+08:00", "op": "lun.delete", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "iqn": "iqn.2026-07.com.controller:worker-01.debian", "delete_file": false}
+{"id": 119, "ts": "2026-08-02T19:45:31.567625+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 0}
+{"id": 120, "ts": "2026-08-02T19:55:28.354772+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 0}
+{"id": 121, "ts": "2026-08-02T19:55:32.882314+08:00", "op": "lun.scan", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "created": 1, "skipped": 0}
+{"id": 122, "ts": "2026-08-02T19:55:35.371817+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 1}
+{"id": 123, "ts": "2026-08-02T20:26:33.075199+08:00", "op": "lun.list", "status": "ok", "agent": "storage-stgt-01", "client": "172.18.0.1", "count": 1}
+{"id": 124, "ts": "2026-08-02T20:26:47.382589+08:00", "op": "lun.delete", "status": "ok", "agent": "storage-stgt-01", "client": "172.18.0.1", "iqn": "iqn.2026-07.com.controller:worker-01.debian", "delete_file": false}
+{"id": 125, "ts": "2026-08-02T20:26:47.468302+08:00", "op": "lun.list", "status": "ok", "agent": "storage-stgt-01", "client": "172.18.0.1", "count": 0}
+{"id": 126, "ts": "2026-08-02T20:26:49.612575+08:00", "op": "lun.list", "status": "ok", "agent": "storage-stgt-01", "client": "172.18.0.1", "count": 0}
+{"id": 127, "ts": "2026-08-02T20:26:51.809302+08:00", "op": "lun.scan", "status": "ok", "agent": "storage-stgt-01", "client": "172.18.0.1", "created": 1, "skipped": 0}
+{"id": 128, "ts": "2026-08-02T20:26:53.139745+08:00", "op": "lun.list", "status": "ok", "agent": "storage-stgt-01", "client": "172.18.0.1", "count": 1}
+{"id": 129, "ts": "2026-08-02T20:27:27.251075+08:00", "op": "worker.boot.set", "status": "ok", "worker_id": "worker-01", "client": "172.18.0.1", "changes": "default_os:debian"}
+{"id": 130, "ts": "2026-08-02T20:27:44.299719+08:00", "op": "lun.list", "status": "ok", "agent": "storage-stgt-01", "client": "172.18.0.1", "count": 1}
+{"id": 131, "ts": "2026-08-02T20:27:49.615803+08:00", "op": "lun.delete", "status": "ok", "agent": "storage-stgt-01", "client": "172.18.0.1", "iqn": "iqn.2026-07.com.controller:worker-01.debian", "delete_file": false}
+{"id": 132, "ts": "2026-08-02T20:27:49.693650+08:00", "op": "lun.list", "status": "ok", "agent": "storage-stgt-01", "client": "172.18.0.1", "count": 0}
+{"id": 133, "ts": "2026-08-02T20:29:36.772360+08:00", "op": "delete_worker", "status": "started", "worker_id": "worker-01", "client": "172.18.0.1", "delete_disk": false}
+{"id": 134, "ts": "2026-08-02T20:29:36.774244+08:00", "op": "delete_worker", "status": "failed", "worker_id": "worker-01", "client": "172.18.0.1", "error": "'storage-lio-01'"}
+{"id": 135, "ts": "2026-08-02T20:29:50.435768+08:00", "op": "delete_worker", "status": "started", "worker_id": "worker-01", "client": "172.18.0.1", "delete_disk": false}
+{"id": 136, "ts": "2026-08-02T20:29:50.437129+08:00", "op": "delete_worker", "status": "failed", "worker_id": "worker-01", "client": "172.18.0.1", "error": "'storage-lio-01'"}
+{"id": 137, "ts": "2026-08-02T20:48:07.283096+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 1}
+{"id": 138, "ts": "2026-08-02T20:48:11.980322+08:00", "op": "lun.delete", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "iqn": "iqn.2026-07.com.controller:worker-01.debian", "delete_file": false}
+{"id": 139, "ts": "2026-08-02T20:48:12.281471+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 0}
+{"id": 140, "ts": "2026-08-02T20:48:13.972057+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 0}
+{"id": 141, "ts": "2026-08-02T20:48:19.749063+08:00", "op": "delete_worker", "status": "started", "worker_id": "worker-01", "client": "172.18.0.1", "delete_disk": false}
+{"id": 142, "ts": "2026-08-02T20:48:20.164292+08:00", "op": "delete_worker", "status": "failed", "worker_id": "worker-01", "client": "172.18.0.1", "error": "iqn not found: iqn.2026-07.com.controller:worker-01.debian"}
+{"id": 143, "ts": "2026-08-02T20:49:56.064343+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 0}
+{"id": 144, "ts": "2026-08-02T20:49:59.089132+08:00", "op": "lun.scan", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "created": 0, "skipped": 0}
+{"id": 145, "ts": "2026-08-02T20:50:01.243880+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 0}
+{"id": 146, "ts": "2026-08-02T20:50:34.407992+08:00", "op": "delete_worker", "status": "started", "worker_id": "worker-01", "client": "172.18.0.1", "delete_disk": false}
+{"id": 147, "ts": "2026-08-02T20:50:34.840018+08:00", "op": "delete_worker", "status": "failed", "worker_id": "worker-01", "client": "172.18.0.1", "error": "iqn not found: iqn.2026-07.com.controller:worker-01.debian"}
+{"id": 148, "ts": "2026-08-02T20:51:31.700827+08:00", "op": "delete_worker", "status": "started", "worker_id": "worker-01", "client": "172.18.0.1", "delete_disk": false}
+{"id": 149, "ts": "2026-08-02T20:51:32.111624+08:00", "op": "agent.delete_disk", "status": "ok", "worker_id": "worker-01", "agent": "storage-lio-01", "iqn": "iqn.2026-07.com.controller:worker-01.debian", "delete_file": false}
+{"id": 150, "ts": "2026-08-02T20:51:32.113919+08:00", "op": "workers.delete", "status": "ok", "worker_id": "worker-01"}
+{"id": 151, "ts": "2026-08-02T20:51:32.115737+08:00", "op": "dnsmasq.hosts.delete", "status": "ok", "worker_id": "worker-01", "hostname": "worker-01", "removed": true}
+{"id": 152, "ts": "2026-08-02T20:51:32.192081+08:00", "op": "dnsmasq.reload", "status": "ok", "worker_id": "worker-01", "result": {"status": "ok"}}
+{"id": 153, "ts": "2026-08-02T20:51:32.192514+08:00", "op": "delete_worker", "status": "succeeded", "worker_id": "worker-01", "client": "172.18.0.1"}
+{"id": 154, "ts": "2026-08-02T20:51:35.874164+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 0}
+{"id": 155, "ts": "2026-08-02T20:51:39.258353+08:00", "op": "lun.scan", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "created": 0, "skipped": 0}
+{"id": 156, "ts": "2026-08-02T20:51:41.085447+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 0}
+{"id": 157, "ts": "2026-08-02T21:00:42.466763+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 0}
+{"id": 158, "ts": "2026-08-02T22:22:52.143309+08:00", "op": "auto_register", "status": "ok", "worker_id": "worker-01", "hostname": "worker-01", "mac": "00:0c:29:b9:8b:2d"}
+{"id": 159, "ts": "2026-08-02T22:23:11.587259+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 0}
+{"id": 160, "ts": "2026-08-02T22:24:30.025576+08:00", "op": "worker.disk.create", "status": "started", "worker_id": "worker-01", "client": "172.18.0.1"}
+{"id": 161, "ts": "2026-08-02T22:24:31.402726+08:00", "op": "agent.create_disk", "status": "ok", "worker_id": "worker-01", "agent": "storage-lio-01", "iqn": "iqn.2026-07.com.controller:worker-01.windows"}
+{"id": 162, "ts": "2026-08-02T22:24:31.405487+08:00", "op": "workers.disk.write", "status": "ok", "worker_id": "worker-01", "iqn": "iqn.2026-07.com.controller:worker-01.windows"}
+{"id": 163, "ts": "2026-08-02T22:24:31.405681+08:00", "op": "worker.disk.create", "status": "succeeded", "worker_id": "worker-01", "client": "172.18.0.1"}
+{"id": 164, "ts": "2026-08-02T22:24:40.096628+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 1}
+{"id": 165, "ts": "2026-08-02T22:25:42.385844+08:00", "op": "lun.delete", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "iqn": "iqn.2026-07.com.controller:worker-01.windows", "delete_file": false}
+{"id": 166, "ts": "2026-08-02T22:25:42.600198+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 0}
+{"id": 167, "ts": "2026-08-02T22:26:14.199430+08:00", "op": "lun.scan", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "created": 1, "skipped": 0}
+{"id": 168, "ts": "2026-08-02T22:26:16.357191+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 1}
+{"id": 169, "ts": "2026-08-02T22:26:32.246752+08:00", "op": "worker.boot.set", "status": "ok", "worker_id": "worker-01", "client": "172.18.0.1", "changes": "default_os:windows"}
+{"id": 170, "ts": "2026-08-02T22:44:01.743060+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 1}
+{"id": 171, "ts": "2026-08-02T23:04:17.402459+08:00", "op": "delete_worker", "status": "started", "worker_id": "worker-01", "client": "172.18.0.1", "delete_disk": false}
+{"id": 172, "ts": "2026-08-02T23:04:18.544758+08:00", "op": "agent.delete_disk", "status": "ok", "worker_id": "worker-01", "agent": "storage-lio-01", "iqn": "iqn.2026-07.com.controller:worker-01.windows", "delete_file": false}
+{"id": 173, "ts": "2026-08-02T23:04:18.575641+08:00", "op": "workers.delete", "status": "ok", "worker_id": "worker-01"}
+{"id": 174, "ts": "2026-08-02T23:04:18.577952+08:00", "op": "dnsmasq.hosts.delete", "status": "ok", "worker_id": "worker-01", "hostname": "worker-01", "removed": true}
+{"id": 175, "ts": "2026-08-02T23:04:18.922371+08:00", "op": "dnsmasq.reload", "status": "ok", "worker_id": "worker-01", "result": {"status": "ok"}}
+{"id": 176, "ts": "2026-08-02T23:04:18.922693+08:00", "op": "delete_worker", "status": "succeeded", "worker_id": "worker-01", "client": "172.18.0.1"}
+{"id": 177, "ts": "2026-08-02T23:04:58.885942+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 0}
+{"id": 178, "ts": "2026-08-02T23:05:04.720936+08:00", "op": "auto_register", "status": "ok", "worker_id": "worker-01", "hostname": "worker-01", "mac": "00:0c:29:b9:8b:2d"}
+{"id": 179, "ts": "2026-08-02T23:05:24.290120+08:00", "op": "worker.disk.create", "status": "started", "worker_id": "worker-01", "client": "172.18.0.1"}
+{"id": 180, "ts": "2026-08-02T23:05:26.266050+08:00", "op": "agent.create_disk", "status": "ok", "worker_id": "worker-01", "agent": "storage-lio-01", "iqn": "iqn.2026-07.com.controller:worker-01.windows"}
+{"id": 181, "ts": "2026-08-02T23:05:26.269562+08:00", "op": "workers.disk.write", "status": "ok", "worker_id": "worker-01", "iqn": "iqn.2026-07.com.controller:worker-01.windows"}
+{"id": 182, "ts": "2026-08-02T23:05:26.269766+08:00", "op": "worker.disk.create", "status": "succeeded", "worker_id": "worker-01", "client": "172.18.0.1"}
+{"id": 183, "ts": "2026-08-02T23:05:34.588534+08:00", "op": "worker.boot.set", "status": "ok", "worker_id": "worker-01", "client": "172.18.0.1", "changes": "default_os:windows"}
+{"id": 184, "ts": "2026-08-03T12:29:46.548362+08:00", "op": "delete_worker", "status": "started", "worker_id": "worker-01", "client": "172.18.0.1", "delete_disk": true}
+{"id": 185, "ts": "2026-08-03T12:29:46.723677+08:00", "op": "delete_worker", "status": "failed", "worker_id": "worker-01", "client": "172.18.0.1", "error": "cmd failed rc=255: g-io-error-quark: Could not connect: Connection refused (39)"}
+{"id": 186, "ts": "2026-08-03T12:30:02.490167+08:00", "op": "delete_worker", "status": "started", "worker_id": "worker-01", "client": "172.18.0.1", "delete_disk": true}
+{"id": 187, "ts": "2026-08-03T12:30:02.672134+08:00", "op": "delete_worker", "status": "failed", "worker_id": "worker-01", "client": "172.18.0.1", "error": "cmd failed rc=255: g-io-error-quark: Could not connect: Connection refused (39)"}
+{"id": 188, "ts": "2026-08-03T12:30:09.802589+08:00", "op": "delete_worker", "status": "started", "worker_id": "worker-01", "client": "172.18.0.1", "delete_disk": false}
+{"id": 189, "ts": "2026-08-03T12:30:09.975431+08:00", "op": "delete_worker", "status": "failed", "worker_id": "worker-01", "client": "172.18.0.1", "error": "cmd failed rc=255: g-io-error-quark: Could not connect: Connection refused (39)"}
+{"id": 190, "ts": "2026-08-03T12:30:44.724630+08:00", "op": "delete_worker", "status": "started", "worker_id": "worker-01", "client": "172.18.0.1", "delete_disk": false}
+{"id": 191, "ts": "2026-08-03T12:30:44.892166+08:00", "op": "delete_worker", "status": "failed", "worker_id": "worker-01", "client": "172.18.0.1", "error": "cmd failed rc=255: g-io-error-quark: Could not connect: Connection refused (39)"}
+{"id": 192, "ts": "2026-08-03T12:30:50.893978+08:00", "op": "delete_worker", "status": "started", "worker_id": "worker-01", "client": "172.18.0.1", "delete_disk": false}
+{"id": 193, "ts": "2026-08-03T12:30:51.081689+08:00", "op": "delete_worker", "status": "failed", "worker_id": "worker-01", "client": "172.18.0.1", "error": "cmd failed rc=255: g-io-error-quark: Could not connect: Connection refused (39)"}
+{"id": 194, "ts": "2026-08-03T12:31:01.119007+08:00", "op": "lun.list", "status": "failed", "agent": "storage-lio-01", "client": "172.18.0.1", "error": "cmd failed rc=255: g-io-error-quark: Could not connect: Connection refused (39)"}
+{"id": 195, "ts": "2026-08-03T12:31:02.962028+08:00", "op": "lun.list", "status": "failed", "agent": "storage-lio-01", "client": "172.18.0.1", "error": "cmd failed rc=255: g-io-error-quark: Could not connect: Connection refused (39)"}
+{"id": 196, "ts": "2026-08-03T12:31:03.547055+08:00", "op": "lun.list", "status": "failed", "agent": "storage-lio-01", "client": "172.18.0.1", "error": "cmd failed rc=255: g-io-error-quark: Could not connect: Connection refused (39)"}
+{"id": 197, "ts": "2026-08-03T12:31:52.570799+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 0}
+{"id": 198, "ts": "2026-08-03T12:32:01.585447+08:00", "op": "delete_worker", "status": "started", "worker_id": "worker-01", "client": "172.18.0.1", "delete_disk": false}
+{"id": 199, "ts": "2026-08-03T12:32:01.945857+08:00", "op": "delete_worker", "status": "failed", "worker_id": "worker-01", "client": "172.18.0.1", "error": "iqn not found: iqn.2026-07.com.controller:worker-01.windows"}
+{"id": 200, "ts": "2026-08-03T12:32:06.720115+08:00", "op": "delete_worker", "status": "started", "worker_id": "worker-01", "client": "172.18.0.1", "delete_disk": false}
+{"id": 201, "ts": "2026-08-03T12:32:07.090224+08:00", "op": "agent.delete_disk", "status": "ok", "worker_id": "worker-01", "agent": "storage-lio-01", "iqn": "iqn.2026-07.com.controller:worker-01.windows", "delete_file": false}
+{"id": 202, "ts": "2026-08-03T12:32:07.092769+08:00", "op": "workers.delete", "status": "ok", "worker_id": "worker-01"}
+{"id": 203, "ts": "2026-08-03T12:32:07.093987+08:00", "op": "dnsmasq.hosts.delete", "status": "ok", "worker_id": "worker-01", "hostname": "worker-01", "removed": true}
+{"id": 204, "ts": "2026-08-03T12:32:07.163422+08:00", "op": "dnsmasq.reload", "status": "ok", "worker_id": "worker-01", "result": {"status": "ok"}}
+{"id": 205, "ts": "2026-08-03T12:32:07.164048+08:00", "op": "delete_worker", "status": "succeeded", "worker_id": "worker-01", "client": "172.18.0.1"}
+{"id": 206, "ts": "2026-08-03T12:32:10.591403+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 0}
+{"id": 207, "ts": "2026-08-03T12:32:14.640814+08:00", "op": "lun.scan", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "created": 1, "skipped": 0}
+{"id": 208, "ts": "2026-08-03T12:32:16.483616+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 1}
+{"id": 209, "ts": "2026-08-03T12:32:23.125213+08:00", "op": "lun.delete", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "iqn": "iqn.2026-07.com.controller:worker-01.windows", "delete_file": true}
+{"id": 210, "ts": "2026-08-03T12:32:23.344566+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 0}
+{"id": 211, "ts": "2026-08-03T12:33:25.536275+08:00", "op": "auto_register", "status": "ok", "worker_id": "worker-01", "hostname": "worker-01", "mac": "00:0c:29:b9:8b:2d"}
+{"id": 212, "ts": "2026-08-03T13:15:44.980696+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 0}
+{"id": 213, "ts": "2026-08-03T13:16:27.326340+08:00", "op": "worker.disk.create", "status": "started", "worker_id": "worker-01", "client": "172.18.0.1"}
+{"id": 214, "ts": "2026-08-03T13:16:28.868398+08:00", "op": "agent.create_disk", "status": "ok", "worker_id": "worker-01", "agent": "storage-lio-01", "iqn": "iqn.2026-07.com.controller:worker-01.debian"}
+{"id": 215, "ts": "2026-08-03T13:16:28.887256+08:00", "op": "workers.disk.write", "status": "ok", "worker_id": "worker-01", "iqn": "iqn.2026-07.com.controller:worker-01.debian"}
+{"id": 216, "ts": "2026-08-03T13:16:28.887388+08:00", "op": "worker.disk.create", "status": "succeeded", "worker_id": "worker-01", "client": "172.18.0.1"}
+{"id": 217, "ts": "2026-08-03T13:16:36.336235+08:00", "op": "worker.boot.set", "status": "ok", "worker_id": "worker-01", "client": "172.18.0.1", "changes": "default_os:debian"}
+{"id": 218, "ts": "2026-08-03T13:18:50.604993+08:00", "op": "lun.list", "status": "ok", "agent": "storage-lio-01", "client": "172.18.0.1", "count": 1}
+{"id": 219, "ts": "2026-08-03T13:27:56.596691+08:00", "op": "delete_worker", "status": "started", "worker_id": "worker-01", "client": "172.18.0.1", "delete_disk": true}
+{"id": 220, "ts": "2026-08-03T13:27:57.745967+08:00", "op": "agent.delete_disk", "status": "ok", "worker_id": "worker-01", "agent": "storage-lio-01", "iqn": "iqn.2026-07.com.controller:worker-01.debian", "delete_file": true}
+{"id": 221, "ts": "2026-08-03T13:27:57.749939+08:00", "op": "workers.delete", "status": "ok", "worker_id": "worker-01"}
+{"id": 222, "ts": "2026-08-03T13:27:57.751578+08:00", "op": "dnsmasq.hosts.delete", "status": "ok", "worker_id": "worker-01", "hostname": "worker-01", "removed": true}
+{"id": 223, "ts": "2026-08-03T13:27:57.955706+08:00", "op": "dnsmasq.reload", "status": "ok", "worker_id": "worker-01", "result": {"status": "ok"}}
+{"id": 224, "ts": "2026-08-03T13:27:57.955877+08:00", "op": "delete_worker", "status": "succeeded", "worker_id": "worker-01", "client": "172.18.0.1"}
+{"id": 225, "ts": "2026-08-03T13:28:18.880458+08:00", "op": "auto_register", "status": "ok", "worker_id": "worker-01", "hostname": "worker-01", "mac": "00:0c:29:b9:8b:2d"}
+{"id": 226, "ts": "2026-08-03T13:31:25.347798+08:00", "op": "worker.disk.create", "status": "started", "worker_id": "worker-01", "client": "172.18.0.1"}
+{"id": 227, "ts": "2026-08-03T13:31:26.796563+08:00", "op": "agent.create_disk", "status": "ok", "worker_id": "worker-01", "agent": "storage-lio-01", "iqn": "iqn.2026-07.com.controller:worker-01.debian"}
+{"id": 228, "ts": "2026-08-03T13:31:26.799007+08:00", "op": "workers.disk.write", "status": "ok", "worker_id": "worker-01", "iqn": "iqn.2026-07.com.controller:worker-01.debian"}
+{"id": 229, "ts": "2026-08-03T13:31:26.799337+08:00", "op": "worker.disk.create", "status": "succeeded", "worker_id": "worker-01", "client": "172.18.0.1"}
+{"id": 230, "ts": "2026-08-03T13:31:32.832139+08:00", "op": "worker.boot.set", "status": "ok", "worker_id": "worker-01", "client": "172.18.0.1", "changes": "default_os:debian"}

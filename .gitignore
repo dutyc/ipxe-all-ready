@@ -11,6 +11,9 @@ venv/
 __pycache__/
 *.py[cod]
 
+# 第三方参考源码（如 open-iscsi）
+thirdparty/
+
 docs/.vitepress/dist/
 docs/.vitepress/cache/
 webui/app/node_modules
