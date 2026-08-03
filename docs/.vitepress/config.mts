@@ -2,10 +2,9 @@ import { defineConfig } from 'vitepress'
 
 export default defineConfig({
   // 开启 Clean URLs，去掉 .html 后缀
-  title: 'Docs | iPXE-All-Ready',
+  title: 'iPXE-All-Ready',
   description: 'All is truly All. Ready is truly Ready.',
   head: [
-    // 如果你使用的是 .ico 格式
     ['link', { rel: 'icon', type: 'image/png', href: '/logo1.png' }],
   ],
   cleanUrls: true,
@@ -18,15 +17,30 @@ export default defineConfig({
       themeConfig: {
         nav: [
           { text: 'Home', link: '/' },
-          { text: 'Guide', link: '/guide/preface' } // 导航栏默认指向指南的第一页(前言)
+          { text: 'Exploration', link: '/guide/preface' },
+          { text: 'Quick Deploy', link: '/guide/quick-deploy/environment-deploy' } // 导航栏指向各专栏首页
         ],
         sidebar: [
           {
-            text: 'Guide',
+            text: 'Exploration',
+            collapsed: false,
             items: [
-              { text: 'Preface', link: '/guide/preface' }, // 新增前言链接
+              { text: 'Foreword', link: '/guide/preface' },
               { text: 'Ch1: Architecture & Core Link', link: '/guide/architecture' },
-              { text: 'Ch2: Windows 11 E2E Deployment', link: '/guide/windows-11' }
+              { text: 'Ch2: Windows 11 E2E Deployment', link: '/guide/windows-11' },
+              { text: 'Ch3: Debian 12 Diskless Deployment', link: '/guide/debian-12' },
+              { text: 'Ch4: Debian-family iBFT Boot', link: '/guide/debian-12-ibft' },
+              { text: 'Control Plane Capabilities', link: '/guide/control-plane' },
+              { text: 'Barriers We Have Broken Through', link: '/guide/barriers' },
+            ]
+          },
+          {
+            text: 'Quick Deploy',
+            collapsed: false,
+            items: [
+              { text: 'Environment Setup', link: '/guide/quick-deploy/environment-deploy' },
+              { text: 'Windows Master Image (Clone)', link: '/guide/quick-deploy/windows-quick-deploy' },
+              { text: 'Debian-family Master Image (Clone)', link: '/guide/quick-deploy/debian-quick-deploy' },
             ]
           }
         ]
@@ -39,16 +53,30 @@ export default defineConfig({
       themeConfig: {
         nav: [
           { text: '首页', link: '/zh/' },
-          { text: '实战指南', link: '/zh/guide/preface' } // 导航栏默认指向指南的第一页(前言)
+          { text: '原理探索', link: '/zh/guide/preface' },
+          { text: '快速部署', link: '/zh/guide/quick-deploy/environment-deploy' } // 导航栏默认指向原理探索专栏首页(前言)
         ],
         sidebar: [
           {
-            text: '实战指南',
+            text: '原理探索',
+            collapsed: false,
             items: [
-              { text: '前言', link: '/zh/guide/preface' }, 
-              { text: '第一章：架构设计与核心链路', link: '/zh/guide/architecture' },
-              { text: '第二章: Windows 11 24H2 无盘系统全流程实战', link: '/zh/guide/windows-11' },
-              { text: '第三章：Debian 12 无盘部署全流程', link: '/zh/guide/debian-12' },
+              { text: '前言', link: '/zh/guide/preface' },
+              { text: '第一章：架构设计与核心链路', link: '/zh/guide/exploration/architecture' },
+              { text: '第二章: Windows 11 24H2 无盘系统全流程实战', link: '/zh/guide/exploration/windows-11' },
+              { text: '第三章：Debian 12 无盘部署全流程', link: '/zh/guide/exploration/debian-12' },
+              { text: '第四章：Debian 系 iBFT 无盘启动', link: '/zh/guide/exploration/debian-12-ibft' },
+              { text: '控制面能力详解', link: '/zh/guide/exploration/control-plane' },
+              { text: '我们已经攻克的壁垒', link: '/zh/guide/exploration/barriers' },
+            ]
+          },
+          {
+            text: '快速部署',
+            collapsed: false,
+            items: [
+              { text: '项目环境部署', link: '/zh/guide/quick-deploy/environment-deploy' },
+              { text: 'Windows 无盘快速部署（母盘克隆）', link: '/zh/guide/quick-deploy/windows-quick-deploy' },
+              { text: 'Debian 系无盘快速部署（母盘克隆）', link: '/zh/guide/quick-deploy/debian-quick-deploy' },
             ]
           }
         ]
