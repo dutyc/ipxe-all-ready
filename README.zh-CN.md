@@ -36,8 +36,18 @@ git clone https://github.com/dutyc/ipxe-all-ready
 cd ipxe-all-ready
 
 # 1. 修改 dnsmasq/dnsmasq.conf：网卡名、网段、网关
-# 2. 配置 control_plane/control_plane.env（从 .example 复制）
+# 2. 准备控制面配置（仓库只跟踪 *.env.example 模板，含完整注释）：
+cp control_plane/control_plane.env.example control_plane/control_plane.env
+#    - 可选：设置 IPXE_CP_TOKEN 开启 API 鉴权（与 WebUI 的 VITE_CP_TOKEN 保持一致）
 docker compose up -d
+
+# 3. （可选）Web 管理界面构建：自定义鉴权 Token 时
+#    cp webui/app/.env.example webui/app/.env，再 cd webui/app && npm run build
+
+# 4. （可选）存储节点：在存储机器上部署 iscsi-server 目录
+#    cp iscsi-server/.env.example iscsi-server/.env
+#    填写 IPXE_AGENT_TOKEN（须与控制面 agents.yml 中该节点的 token 一致）
+#    docker compose -f iscsi-server/docker-compose.yml up -d
 ```
 
 * Web 管理界面：`http://<controller-ip>:4838`
@@ -83,7 +93,7 @@ Worker 镜像交付请阅读下方快速部署文档。
 
 **语法可以让 AI 搞定，但架构理解必须由人脑完成**。如果一份 PR 背后的设计逻辑不能被贡献者清晰阐述，我们会拒绝合并。不理解架构时，提个 Issue 或 Idea 比提交 PR 更有价值——Issue 是信号，不会污染代码库；PR 是方案，需要深刻。
 
-这不是对工具的拒绝，而是对项目长期质量的承诺。欢迎每一位愿意理解架构的同行者，也感谢每一位提供真实使用反馈的用户。
+欢迎每一位愿意理解架构的同行者，也感谢每一位提供真实使用反馈的用户。
 
 ## License
 

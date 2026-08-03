@@ -1,5 +1,7 @@
 services:
 
+  # ── DHCP / TFTP / 引导文件服务 ──
+  # 全链路 host 网络直通：DHCP 应答、iPXE 脚本（tftp/ 挂载）、TFTP 引导文件
   ipxe-dnsmasq:
     image: jpillora/dnsmasq@sha256:98b69ad825942089fb7c4b9153e3c5af0205eda3a103c691e30b1a13fd912830
     container_name: ipxe-dnsmasq
@@ -15,6 +17,9 @@ services:
     restart: unless-stopped
     command: ["--no-daemon", "--log-queries", "--log-dhcp"]    
 
+  # ── 控制面（Control Plane）──
+  # Worker 生命周期编排 / Agent 调度 / 台账 / dnsmasq 绑定 / 启动变量投影
+  # 配置来源：control_plane/control_plane.env（从 .env.example 复制后修改）
   ipxe-control-plane:
     build:
       context: ./control_plane
@@ -35,6 +40,8 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - ./dnsmasq:/app/dnsmasq
 
+  # ── Web 管理界面 + 文件浏览（nginx）──
+  # 静态资源由 webui/app 构建产物挂载；public/ 为 iPXE 公开文件（ISO/kernel/initrd）
   ipxe-nginx:
     build:
       context: ./webui/deploy
@@ -53,8 +60,3 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
-      
-
-networks:
-  ipxe:
-    driver: bridge  # 定义 ipxe 网络

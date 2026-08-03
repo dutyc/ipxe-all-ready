@@ -16,6 +16,20 @@
 
 ### 新增
 
+- **首个发行版（v0.1.0）发布准备 — 环境配置与注释收尾**：
+  - `iscsi-server/.env` 与 `control_plane/config/agents.yml`（含真实部署 token）解除 git 跟踪并加入 `.gitignore`，仓库只保留 `*.example` 模板
+  - 新增 `webui/app/.env.example`（VITE_CP_TOKEN 构建期变量说明）
+  - `control_plane.env(.example)` / `iscsi-server/.env(.example)` 补齐分组注释（文件路径、dnsmasq 联动、启动行为、Token 同步说明）
+  - `control_plane/config/agents.yml.example` 补齐字段注释（base_url / iscsi_server / token 占位 / role / tags / enabled）
+  - 根 `docker-compose.yml`：各服务补齐职责注释，移除无人引用的误导性 `networks.ipxe` 段；`iscsi-server/docker-compose.yml` 补齐后端与 Agent 注释、清理行尾空格
+  - `iscsi-server/agent/Dockerfile` 移除开发期对话遗留注释，改为规范说明
+  - README（中英）快速开始补全配置步骤：`cp *.env.example` 准备流程、API 鉴权 Token 同步、存储节点独立部署指引
+  - 文档收敛：删除冗余的 `iscsi-server/Agent_API_Docs.md`，保留更全面的 `API_Reference.md`（补入 Token 常量时间比对细节）
+- Control Plane：`POST /workers/delete/batch` — 批量删除 Worker（请求体 `worker_ids` + `delete_disk` / `ignore_missing_target`）：每项独立执行（单项失败不影响其余，不存在的计入 failed），返回 `succeeded`/`failed` 汇总；成功项统一保存台账、统一 reload 一次 dnsmasq（优于逐删逐 reload）；审计逐项 `delete_worker`
+- WebUI Workers 页新增独立「批量删除 Worker」模式（与批量创建互斥）：工具栏独立按钮进入/退出，勾选后左侧栏确认删除（含「同时删除 .img」/「忽略缺失 target」选项，与详情页一致）→ 结果汇总展示，成功后清空勾选并刷新
+- Control Plane：`POST /agents/probe` — 探测 Agent 并自动推导注册参数（预览，不写文件）：调 `/healthz` + `/capabilities`，推导 `role`（disk 恒真 + cd 取 capabilities）/ `tags`（storage + backend）/ `iscsi_server`（回退 base_url 主机名），返回 backend / base_iqn / clone 等能力供确认；Agent 不可达或 token 错误返回 502，审计记录 `agent.probe`
+- Control Plane：`POST /agents` — 注册新 Agent 写入 `agents.yml`，注册后立即生效；请求体含 `id` / `base_url`（须 http(s)://） / `token`（支持 `${ENV}` 占位）/ `iscsi_server` / `role`（disk/cd）/ `tags` / `enabled`；重复 id 返回 409，审计记录 `agent.register`；`AgentRegistry` 新增 `add()`（yaml 写回保持 `agents:` 顶层结构）
+- WebUI Agents 页新增「+ 添加 Agent」入口（两步流程）：填 Agent ID / API 地址 / Token 点「探测」→ 后端自动获取后端类型 / 角色 / 标签 / 数据面地址等参数并在预览区展示（可修改，含只读能力标签）→ 点「添加」完成注册并刷新列表；地址变更后旧探测结果自动失效
 - Control Plane：`POST /workers/{worker_id}/luns/disk` —— 给指定 Worker 创建系统盘 LUN（母盘克隆 / 空白盘），端点位于 `/luns/` 命名空间，为数据盘（`/luns/data`）与多系统盘预留
 - Control Plane：`PUT /workers/{worker_id}/default-os` —— 设置 Worker 默认启动配置，三个字段可设可清、可组合（详见下方"变更"）
 - Control Plane：`GET/POST/DELETE /agents/{agent_id}/luns` 与 `POST /agents/{agent_id}/luns/scan` —— Agent iSCSI LUN/target 直管（列出 / 创建磁盘 / 创建 CD / 删除 / 扫描）
@@ -98,6 +112,30 @@
 
 ## 2026-08-03
 
+### 新增
+
+- Control Plane：`DELETE /workers/{worker_id}/luns/disk/{os}` —— 删除 Worker 的单个系统盘（iSCSI target）：`delete_file` 参数控制是否同时删除 backing `.img` 文件（`false` 仅删 target、文件保留可重新挂载），`ignore_missing_target` 在 Agent 侧 target 已不存在时忽略 404 继续完成台账清理；操作日志新增 `worker.disk.delete`（started/succeeded/failed）
+- WebUI：Worker 详情页「系统盘」每张磁盘卡片新增**删除系统盘**按钮——ConfirmAction 确认弹窗（可勾选「同时删除 .img 磁盘文件」与「忽略已不存在的 Target」），删除中按钮禁用并显示「删除中...」，成功后自动刷新台账与启动变量
+- Control Plane：`/boot-vars` 新增 `iscsi_sep` 字段——iSCSI root **连接符**（`${iscsi-server}` 与 `${base-iqn}` 之间的分隔字段），**按系统盘所在 Agent 的后端类型生成**：stgt 后端为 `:::1:`（lun 占位 1），LIO 后端为 `::::`（空占位，解决 LIO 后端 iSCSI 连接参数不兼容问题）；只投影差异连接符本身，root-path 拼装（`iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.<os>`）由 iPXE 侧静态完成；后端类型优先读 `agents.yml` 该 Agent 的 `tags`（含 `lio`/`stgt` 标记，离线零成本），未标记时查询 Agent `/capabilities` 的 `backend` 字段（Agent 自报），查询失败默认 stgt 格式兼容
+
 ### 变更
 
 - **文档：README 全面入口式重构（对齐 Docker/K8S 风格），控制面详解与攻坚记录迁入文档站**——README.md / README.zh-CN.md 精简为入口式结构（定位 → 架构三角色 → 核心能力 6 条 → 快速开始（clone + compose up + 端口）→ 官方文档链接 → 路线图（指向 ROADMAP.md）→ 参与贡献 → License → Star History），删除原「控制面能力详解」「我们已经攻克的壁垒」「详细项目结构」全文；文档站新增《控制面能力详解》（中英：设计原则 + 核心能力 8 项 + WebUI 能力 + 文件浏览器）与《我们已经攻克的壁垒》（中英：Linux 引导链 / Ubuntu / Windows 分组 9 条），VitePress 侧边栏注册（中英 Exploration 分组）；参与贡献章节新增 AI 辅助开发态度声明（不反对 AI 生成代码——项目本身由 Qwen/Codex/DeepSeek 协同完成，但贡献者必须自行理解整体架构：控制面/数据面分离、iPXE 引导链、动态变量传递链、文件即真相、iSCSI 会话保活；无法清晰阐述设计逻辑的 PR 拒绝合并，鼓励先提 Issue/Idea）
+- **文档：`Control_Plane_API_Docs.md` 同步系统盘删除接口**——接口概览表新增 `DELETE /workers/{worker_id}/luns/disk/{os}` 条目，新增 7.4 章节（参数说明 + 保留 .img / 同时删除 .img 两个 curl 示例）
+- **iPXE 脚本使用 `${iscsi-sep}` 变量**：`menu.ipxe` 全部系统项与安装项的 root-path 改为 `iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.<os>`（原 `base-iscsi` 移除）；`boot.ipxe.cfg` 兜底值改为 `set iscsi-sep :::1:` + chain 后 `isset ${iscsi-sep} || ...` 守卫（不覆盖 `/boot-vars` 已下发的 LIO 格式）；WebUI `buildBootVarsCode` 展示 `set iscsi-sep`；API 文档 5 章节（字段来源表 + iPXE/JSON 示例 + 接入方式）与文档站控制面详解/Windows/Debian 文档同步更新
+
+---
+
+## 2026-08-03
+
+### 新增
+
+- Control Plane：`POST /workers/luns/disk/batch` — 批量给多个 Worker 创建系统盘（母盘克隆 / 空白盘），请求体 `targets` 逐项指定 `{worker_id, agent}` 存储节点分配（须已分配，不存在默认公共分配）；与单盘一致同一 `os` 至多一块、已存在自动跳过（不算失败）；逐项独立执行，单项失败不影响其余，返回 `succeeded` / `skipped` / `failed` 汇总；**创建成功的 Worker 自动将 `default_os` 设为本次批量系统**（批量部署直接进入默认启动，无需再调 `PUT /workers/{id}/default-os`；单盘接口不自动设置，审计记录 `worker.boot.set`）
+- WebUI Workers 页新增「批量创建系统盘」模式：
+  - 仅批量模式下每行出现勾选框，已拥有系统盘的 Worker 行标浅黄提醒（可正常勾选，重复 `os` 由后端自动跳过）；点击勾选单个，Shift+点击标定终点、中间自动勾选（范围选择基于当前筛选结果顺序）
+  - 左侧常驻侧边栏（悬浮于视口左侧、不挤占原列表宽度）：已选 Worker 计数 + 批量系统盘参数（系统 / 空白盘或母盘克隆 / 大小或母盘名，**不含存储节点**）+「开始批量创建」按钮与结果汇总（成功 / 跳过 / 失败明细）
+  - 右侧常驻侧边栏（悬浮于视口右侧、不挤占原列表宽度）：列出全部存储节点（role=disk），每个节点一个可拖拽标签框，内含「参与均摊」勾选 +「接管所选 Worker」按钮（已选 Worker 统一改派给该节点，覆盖之前单独指定）与已分配计数；节点列表底部新增「均摊分配所选 Worker」——勾选 ≥2 个节点后，已选 Worker 按参与节点轮流平均分配（覆盖之前分配）；拖动节点标签放到某行 = 该 Worker 单独指定该存储节点；行的「存储节点」列展示分配结果并可单独取消分配
+
+### 变更
+
+- 文档：`Control_Plane_API_Docs.md` 接口概览表新增批量创建条目，新增 7.1.3 章节（请求体字段表 + curl + 返回示例）

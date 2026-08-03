@@ -36,8 +36,20 @@ git clone https://github.com/dutyc/ipxe-all-ready
 cd ipxe-all-ready
 
 # 1. Adapt dnsmasq/dnsmasq.conf: NIC name, subnet, gateway
-# 2. Configure control_plane/control_plane.env (copy from .example)
+# 2. Prepare the Control Plane config (the repo tracks only *.env.example
+#    templates, which carry full comments):
+cp control_plane/control_plane.env.example control_plane/control_plane.env
+#    - Optional: set IPXE_CP_TOKEN to enable API auth (keep it in sync
+#      with the Web UI's VITE_CP_TOKEN)
 docker compose up -d
+
+# 3. (Optional) Rebuild the Web UI with a custom token:
+#    cp webui/app/.env.example webui/app/.env && cd webui/app && npm run build
+
+# 4. (Optional) Storage node: deploy the iscsi-server directory on it
+#    cp iscsi-server/.env.example iscsi-server/.env
+#    set IPXE_AGENT_TOKEN (must match the token of this node in agents.yml)
+#    docker compose -f iscsi-server/docker-compose.yml up -d
 ```
 
 * Web UI: `http://<controller-ip>:4838`

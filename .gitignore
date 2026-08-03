@@ -38,3 +38,7 @@ webui/deploy/public/install/windows/24h2/sources
 .env.local
 .env.*.local
 webui/app/.env
+
+# 本地运行时配置（含真实 token），仓库只保留 *.example 模板
+iscsi-server/.env
+control_plane/config/agents.yml

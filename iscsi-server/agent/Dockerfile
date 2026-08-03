@@ -8,7 +8,7 @@ ENV TZ=Asia/Shanghai
 WORKDIR /app
 
 COPY requirements.txt .
-# pip 走阿里云加速（推断自你换 apt 源的偏好，如不对告诉我换）
+# pip 走阿里云镜像加速（国内网络环境安装依赖更快）
 RUN pip install --no-cache-dir \
         -i https://mirrors.aliyun.com/pypi/simple/ \
         --trusted-host mirrors.aliyun.com \

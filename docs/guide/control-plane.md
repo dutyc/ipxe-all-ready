@@ -24,7 +24,7 @@ A single Worker can mount multiple system disks, at most one per OS (duplicates 
 
 ### Per-Worker Boot-Variable Injection
 
-While preserving the iPXE static menu interaction, the `/boot-vars` endpoint queries the inventory by MAC/hostname and dynamically returns variables such as `iscsi-server`, `menu-default`, and `menu-timeout`; when no default boot is configured it returns a `reboot` short-timeout loop. `menu.ipxe` requires zero changes; `boot.ipxe.cfg` simply fetches the variables at the end and recalculates `base-iscsi`.
+While preserving the iPXE static menu interaction, the `/boot-vars` endpoint queries the inventory by MAC/hostname and dynamically returns variables such as `iscsi-server`, `iscsi-sep`, `menu-default`, and `menu-timeout`; `iscsi-sep` is the iSCSI root **separator** (the field between `${iscsi-server}` and `${base-iqn}`), generated per the backend type of the Agent hosting the system disk (stgt `:::1:` / LIO `::::`), while root-path assembly (`iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.<os>`) stays static in `menu.ipxe` — only the differing separator is projected by the backend. When no default boot is configured it returns a `reboot` short-timeout loop. `boot.ipxe.cfg` fetches the variables at the end and recomputes the `iscsi-sep` fallback behind an `isset` guard (so an injected LIO format is never overwritten).
 
 ### Agent LUN Direct Management
 

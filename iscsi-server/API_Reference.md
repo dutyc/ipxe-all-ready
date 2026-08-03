@@ -37,6 +37,8 @@ Authorization: Bearer <IPXE_AGENT_TOKEN>
 401 unauthorized
 ```
 
+Token 比对采用常量时间算法（防时序攻击）；失败统一返回 `401`，不回显 Token 详情，日志中亦不记录 Token 值。
+
 ### 2.2 IQN Base 校验
 
 凡是请求中带 `iqn` 的接口，Agent 都会检查它是否以本 Agent 的 base IQN 开头。
