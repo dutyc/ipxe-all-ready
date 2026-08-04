@@ -139,3 +139,37 @@
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
+
+/* ===== Card actions (edit button) ===== */
+.agent-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-edit-btn {
+  padding: 3px 10px;
+  font-size: 11px;
+}
+
+/* ===== Edit modal (overlay) ===== */
+.agent-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.32);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 24px;
+  overflow-y: auto;
+}
+
+.agent-modal {
+  width: 600px;
+  max-width: 100%;
+}
+
+.agent-modal .create-form {
+  margin-bottom: 0;
+}

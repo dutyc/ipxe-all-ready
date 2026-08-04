@@ -25,12 +25,13 @@ Mechanism prerequisites (all are standard components of Debian-family distributi
 | Ubuntu | 22.04 / 24.04 / 26.04 (LTS) and newer non‑LTS releases | Mechanically supported (same chain) |
 
 > Debian 10, Ubuntu 20.04, and earlier releases are not recommended (EOL; the mechanisms are satisfied but they are outside the security support window).  
-> Ubuntu’s iBFT kernel modules (`iscsi_ibft` / `iscsi_tcp` / `ib_iser`) are located in the base kernel package and are present even in a minimal installation — no additional installation is needed.
+> Ubuntu’s iBFT kernel modules (`iscsi_ibft` / `iscsi_tcp` / `ib_iser`) are located in the base kernel package and are present even in a minimal installation — no additional installation is needed.  
+> Ubuntu is not split into Desktop vs Server editions: any desktop environment (GNOME / KDE / XFCE, etc.) works and does not affect diskless booting. The same applies to Debian — a normally installed system is always supported, with no need to worry about the desktop environment.
 
 ## Environment Preparation
 
 Deployment of the Controller (Control Plane) and the storage node (Agent + iSCSI backend) is covered in *Environment Deployment*. The process is platform‑agnostic and treats Windows and Debian identically.  
-The only contract: `IPXE_IQN_BASE` must match the `base-iqn` in `tftp/boot.ipxe.cfg`.
+The only contract: each storage node's `IPXE_IQN_BASE` is authoritative for the disks it hosts — disk IQNs are built from it at creation time, and at Worker boot iPXE fetches the actual `base-iqn` from `/boot-vars` (resolved to the node hosting the Worker's system disk), overriding the static fallback (placeholder) in `tftp/boot.ipxe.cfg`. The two do not need to match.
 
 ---
 
@@ -42,7 +43,7 @@ The only contract: `IPXE_IQN_BASE` must match the `base-iqn` in `tftp/boot.ipxe.
 
 * **A UEFI + GPT installation is mandatory** (a BIOS installation lacks an ESP partition and cannot satisfy the BOOTX64.EFI firmware contract).
 * Partition suggestion: 512 MB ESP + root partition + swap (standard automatic partitioning is sufficient).
-* Choose desktop or server installation as desired; after installation, **shut down** the VM and prepare for in‑disk adaptation.
+* Choose desktop or server installation as desired (any desktop environment works and does not affect diskless booting); after installation, **shut down** the VM and prepare for in‑disk adaptation.
 
 ### 1.2 Install on Real Hardware (Alternative Path)
 
@@ -155,18 +156,19 @@ On the Workers page, enter the Worker detail page and create a system disk:
 |---|---|
 | Operating System (OS) | `Debian` |
 | Disk Type | `Master` (golden‑image clone) |
-| Master Name | `_tpl_debian_12.img` (the golden‑image name from Step 1) |
+| Master Name | Select `_tpl_debian_12.img` from the dropdown (the golden‑image name from Step 1) |
 
 Completes in seconds (reflink clone). The iSCSI Target and IQN (`iqn.2026-07.com.controller:worker-01.debian`) are created automatically.
 
-## Step 5: Set Default Boot (Optional)
+## Step 5: Set Default Boot
 
-If not set, each boot lands at the iPXE menu where you must manually select **Boot Debian from iSCSI**. To boot directly to the system, configure on the Worker detail page:
+After setting the default OS, the Worker boots straight into the system on power‑on, with no need to select it manually at the iPXE menu. Configure it in the **Default Boot** section of the Worker detail page:
 
 | Form Field | Value |
 |---|---|
-| Default OS | `Debian` |
-| Menu Default | `debian` |
+| Default OS | Select `Debian` from the dropdown (options come from the system disks already mounted on this Worker — the disk cloned in Step 4) |
+
+> Only the **Default OS** field is required. Leave **Menu Default** at its default (reboot) — do not change it. The derivation chain is `default_os > boot.menu_default > reboot`: once `default_os` is set it takes priority, and an unset menu item keeps the reboot fallback.
 
 ## Step 6: Verification
 
@@ -192,7 +194,7 @@ iscsiadm -m session        # Current iSCSI session
 |---|---|
 | Cloned disk reports `Boot from SAN device failed: Error 0x7f22208e` | BOOTX64.EFI is missing from the ESP. Add the file as described in 1.4 and **re‑clone** (old cloned disks lack it). Confirm the golden image was installed as UEFI + GPT. |
 | Boot stops at the iPXE menu | The default boot is not set. Manually select **Boot Debian from iSCSI**, or set it up according to Step 5. |
-| iSCSI target not found | ① Verify that `IPXE_IQN_BASE` in `iscsi-server/.env` matches `base-iqn` in `boot.ipxe.cfg`; ② Confirm the Worker is registered in the WebUI; ③ On the detail page, the IQN should be `…:worker-xx.debian` |
+| iSCSI target not found | ① Verify the `IPXE_IQN_BASE` in `iscsi-server/.env` on the storage node hosting the Worker's system disk (authoritative: disk IQNs are built from it; `/boot-vars` returns it for the hosting node); ② Confirm the Worker is registered in the WebUI; ③ On the detail page, the IQN should be `…:worker-xx.debian` |
 | `VFS: Unable to mount root fs` | The initrd trio is incomplete (1.5 verification failed): missing module/iscsistart. Redo 1.3 and run `update-initramfs -u -k all`. |
 | Worried that the cloned disk has `root=UUID` hardcoded | This is expected: the UUID is a filesystem property that is copied as a whole during cloning; each cloned disk matches its own disk, no action needed. |
 | Golden image boots fine in a VM but the cloned disk won’t boot | Check whether BOOTX64.EFI was added as described in 1.4 (the most common hidden cause). |

@@ -95,6 +95,64 @@ def _remove_file(path: str) -> None:
         pass
 
 
+# ============================ 框架层：母盘扫描 ============================
+
+class MasterScanner:
+    """后台线程周期扫描 DISK_DIR，缓存 *_tpl_* 母盘清单（name/size/mtime）。
+
+    母盘命名约定：文件名须包含 `_tpl_` 标记（如 _tpl_ubuntu_2204.img）。
+    扫描结果带锁缓存，GET /masters 直接读缓存，不阻塞文件系统。
+    """
+
+    def __init__(self, disk_dir: str, interval: float = 30.0):
+        self.disk_dir = disk_dir
+        self.interval = interval
+        self.lock = threading.Lock()
+        self.cache: list = []
+        self._stop = threading.Event()
+
+    def _scan(self) -> list:
+        items = []
+        try:
+            names = os.listdir(self.disk_dir)
+        except OSError as e:
+            log.warning(f"master scan failed: {e}")
+            return items
+        for n in sorted(names):
+            if "_tpl_" not in n:
+                continue
+            p = os.path.join(self.disk_dir, n)
+            try:
+                st = os.stat(p)
+            except OSError:
+                continue
+            if not os.path.isfile(p):
+                continue
+            items.append({"name": n, "size": st.st_size, "mtime": int(st.st_mtime)})
+        return items
+
+    def start(self) -> None:
+        self.refresh()
+        threading.Thread(target=self._loop, daemon=True).start()
+        log.info(f"master scanner started: dir={self.disk_dir} interval={self.interval}s")
+
+    def _loop(self) -> None:
+        while not self._stop.wait(self.interval):
+            self.refresh()
+
+    def refresh(self) -> None:
+        items = self._scan()
+        with self.lock:
+            self.cache = items
+
+    def list(self) -> list:
+        with self.lock:
+            return list(self.cache)
+
+
+masters = MasterScanner(DISK_DIR)
+
+
 def _iqn_to_filename(iqn: str) -> str:
     ident = iqn.split(":", 1)[1] if ":" in iqn else iqn
     return f"{ident}.img"
@@ -438,6 +496,7 @@ def _startup() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     threading.Thread(target=_startup, daemon=True).start()
+    masters.start()
     log.info(f"agent started: backend={BACKEND}, base IQN={IQN_BASE}")
     yield
 
@@ -534,6 +593,12 @@ def delete(iqn: str, request: Request, delete_file: bool = False):
 @app.get("/lun", dependencies=[Depends(verify_token)])
 def list_luns():
     return backend.list_targets()
+
+
+@app.get("/masters", dependencies=[Depends(verify_token)])
+def list_masters():
+    """列出 DISK_DIR 下 *_tpl_* 母盘（后台线程周期扫描的缓存清单，供 Control Plane / WebUI 克隆选盘）。"""
+    return {"masters": masters.list()}
 
 
 @app.get("/capabilities", dependencies=[Depends(verify_token)])

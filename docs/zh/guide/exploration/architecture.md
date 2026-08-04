@@ -88,21 +88,32 @@ dhcp-host=52:54:00:12:34:56,worker-01
 
 ### 2. iPXE 基础变量的捕获与 Initiator IQN 拼接
 
-iPXE 固件接管网卡后，捕获 DHCP 下发的变量，并在 `boot.ipxe` 中拼接出当前节点作为 iSCSI 发起方的身份（Initiator IQN）。
+iPXE 固件接管网卡后，捕获 DHCP 下发的变量，并在 `boot.ipxe` 中拼接出当前节点作为 iSCSI 发起方的身份（Initiator IQN）。下面的 `base-iqn` 只是静态兜底值（占位符）。
 
 ```ipxe
-# boot.ipxe
+# boot.ipxe.cfg — 静态兜底值（占位符）
 set base-iqn iqn.2026-07.com.controller
 set iscsi-server 192.168.1.5
+set iscsi-sep :::1:
 
 # 拼接 Initiator IQN
-set initiator-iqn ${base-iqn}:${hostname}
+isset ${hostname} && set initiator-iqn ${base-iqn}:${hostname} || set initiator-iqn ${base-iqn}:${mac}
+```
+
+随后 `boot.ipxe.cfg` 在启动早期 chain Control Plane 的 `/boot-vars` 端点：控制面按 Worker 系统盘所在存储节点解析，返回该节点实际的 `base-iqn`（即盘 IQN 前缀，源自该节点 `IPXE_IQN_BASE`），覆盖上面的静态兜底值——`boot.ipxe.cfg` 的静态 `base-iqn` 无需与任何节点的 `IPXE_IQN_BASE` 一致。
+
+```ipxe
+# 拉取 per-worker 变量，再用 isset 守卫重建派生变量
+chain --autofree http://${controller_ip}:4839/boot-vars?mac=${mac}&hostname=${hostname} || goto vars-done
+isset ${iscsi-sep} || set iscsi-sep :::1:
+isset ${hostname} && set initiator-iqn ${base-iqn}:${hostname} || set initiator-iqn ${base-iqn}:${mac}
 ```
 
 **实际生成的变量值**：
 
 *   `${hostname}` = `worker-01`
-*   `${initiator-iqn}` = `iqn.2026-07.com.controller:worker-01`
+*   `${base-iqn}` = Worker 系统盘所在存储节点的 IQN 前缀（如 `iqn.2026-07.com.controller`），由 `/boot-vars` 返回——`boot.ipxe.cfg` 静态值仅兜底
+*   `${initiator-iqn}` = `${base-iqn}:worker-01`
 
 ### 3. menu.ipxe 中的 Target IQN 衍生与 URI 组装
 
@@ -114,14 +125,15 @@ set initiator-iqn ${base-iqn}:${hostname}
 set target-iqn ${base-iqn}:${hostname}.Ubuntu
 
 # 组装 iSCSI URI
-# 格式: iscsi:<server>:[<protocol>]:[<port>]:[<lun>]:<target-iqn>
-set root-path iscsi:${iscsi-server}::::${target-iqn}
+# 格式: iscsi:<server>${iscsi-sep}<base-iqn>:<hostname>.<os>
+set root-path iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.Ubuntu
 ```
 
 **实际生成的变量值**：
 
 *   `${target-iqn}` = `iqn.2026-07.com.controller:worker-01.Ubuntu`
-*   `${root-path}` = `iscsi:192.168.1.5::::iqn.2026-07.com.controller:worker-01.Ubuntu`
+*   `${iscsi-sep}` = iSCSI root 连接符，由 `/boot-vars` 按系统盘所在节点后端类型下发（stgt `:::1:` / LIO `::::`），兜底为 `boot.ipxe.cfg` 静态值
+*   `${root-path}` = `iscsi:192.168.1.5:::1:iqn.2026-07.com.controller:worker-01.Ubuntu`（stgt 后端）
 
 ### 4. 跨越协议边界的最终消费
 

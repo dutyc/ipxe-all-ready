@@ -38,7 +38,7 @@ Windows 无盘启动依赖 iPXE 写入的 iBFT(iSCSI Boot Firmware Table):启动
 ## 环境准备
 
 Controller(控制面)与存储节点(Agent + iSCSI 后端)的部署见《项目环境部署》,平台无关,对 Windows / Debian 一视同仁。
-唯一契约:`IPXE_IQN_BASE` 与 `tftp/boot.ipxe.cfg` 的 `base-iqn` 一致。
+唯一契约:各存储节点的 `IPXE_IQN_BASE` 对自身承载的盘是权威值——建盘按它生成盘 IQN,Worker 启动时 iPXE 经 `/boot-vars` 按系统盘所在节点获取实际 `base-iqn` 并覆盖 `tftp/boot.ipxe.cfg` 的静态兜底值(占位符),两者无需一致。
 
 ---
 
@@ -145,22 +145,21 @@ scp .\_tpl_windows_23h2.img dutyc@192.168.80.3:/pool1/iscsi_img
 |---|---|
 | 操作系统(OS) | `Windows` |
 | 磁盘类型(Type) | `Master`(母盘克隆) |
-| 母盘文件名(Master Name) | `_tpl_windows_23h2.img`(即第 1 步的母盘名) |
+| 母盘文件名(Master Name) | 下拉选择 `_tpl_windows_23h2.img`(即第 1 步的母盘名;列表由 WebUI 自动扫描存储节点生成,无需手工输入) |
 
 点击创建,**秒级完成**——克隆基于文件系统 reflink(写时复制),瞬间生成完整系统盘,
 同时自动完成 iSCSI Target 创建与 IQN 命名(`iqn.2026-07.com.controller:worker-01.windows`),
 全程无需触碰命令行。
 
-## 第 5 步:设置默认启动(可选)
+## 第 5 步:设置默认启动
 
-不设置时,Worker 每次开机进入 iPXE 菜单,手动选择 **Boot Windows from iSCSI**。
-
-如需开机直达桌面,在 Worker 详情页的 **默认启动(Default Boot)** 区域设置:
+设置默认系统后,Worker 开机自动直达系统,无需在 iPXE 菜单手动选择。在 Worker 详情页的 **默认启动(Default Boot)** 区域设置:
 
 | 表单字段 | 填写 |
 |---|---|
-| 默认系统(OS) | `Windows` |
-| 默认菜单项(Menu Default) | `windows` |
+| 默认系统(OS) | 下拉选择 `Windows`(选项来自该 Worker 已挂载的系统盘,即第 4 步克隆出的盘) |
+
+> 仅需配置「默认系统(OS)」一个字段;「默认菜单项(Menu Default)」保持默认(重启)即可,不要修改——推导链 `default_os > boot.menu_default > reboot` 中 `default_os` 优先命中,未配置的菜单项维持重启兜底。
 
 保存后,该 Worker 的启动变量即时下发(`/boot-vars`),下次开机自动进入 Windows。
 
@@ -183,6 +182,6 @@ scp .\_tpl_windows_23h2.img dutyc@192.168.80.3:/pool1/iscsi_img
 | 克隆盘启动后停在 iPXE 菜单 | 未设置默认启动,手动选择 **Boot Windows from iSCSI**,或按第 5 步设置 |
 | 克隆盘无法启动(转圈/蓝屏) | 母盘自身问题:检查母盘网卡驱动是否就绪、母盘在虚拟机中能否正常启动 |
 | 多台克隆机计算机名相同 | 属于预期行为(盘内身份未写入机器信息)。如需区分,自行处理(改名 / sysprep),不影响启动 |
-| 找不到 iSCSI 目标 | ① 核对 `iscsi-server/.env` 的 `IPXE_IQN_BASE` 与 `tftp/boot.ipxe.cfg` 的 `base-iqn` 一致;② 确认 Worker 已在 WebUI 注册(hostname 绑定生效);③ 详情页磁盘列表中 IQN 为 `…:worker-xx.windows` |
+| 找不到 iSCSI 目标 | ① 核对 Worker 系统盘所在存储节点 `iscsi-server/.env` 的 `IPXE_IQN_BASE`(权威值:建盘按它生成盘 IQN,`/boot-vars` 按盘所在节点返回);② 确认 Worker 已在 WebUI 注册(hostname 绑定生效);③ 详情页磁盘列表中 IQN 为 `…:worker-xx.windows` |
 | WebUI 操作报 401 | Control Plane 设了 `IPXE_CP_TOKEN` 但 `webui/app/.env` 未同步(见《项目环境部署》1.4),或改后未重新构建 WebUI |
 | 想换母盘版本 | 上传新母盘 → 对目标 Worker 克隆时选择新母盘。已有 Worker 盘不受影响 |

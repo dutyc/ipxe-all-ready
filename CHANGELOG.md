@@ -16,20 +16,6 @@
 
 ### 新增
 
-- **首个发行版（v0.1.0）发布准备 — 环境配置与注释收尾**：
-  - `iscsi-server/.env` 与 `control_plane/config/agents.yml`（含真实部署 token）解除 git 跟踪并加入 `.gitignore`，仓库只保留 `*.example` 模板
-  - 新增 `webui/app/.env.example`（VITE_CP_TOKEN 构建期变量说明）
-  - `control_plane.env(.example)` / `iscsi-server/.env(.example)` 补齐分组注释（文件路径、dnsmasq 联动、启动行为、Token 同步说明）
-  - `control_plane/config/agents.yml.example` 补齐字段注释（base_url / iscsi_server / token 占位 / role / tags / enabled）
-  - 根 `docker-compose.yml`：各服务补齐职责注释，移除无人引用的误导性 `networks.ipxe` 段；`iscsi-server/docker-compose.yml` 补齐后端与 Agent 注释、清理行尾空格
-  - `iscsi-server/agent/Dockerfile` 移除开发期对话遗留注释，改为规范说明
-  - README（中英）快速开始补全配置步骤：`cp *.env.example` 准备流程、API 鉴权 Token 同步、存储节点独立部署指引
-  - 文档收敛：删除冗余的 `iscsi-server/Agent_API_Docs.md`，保留更全面的 `API_Reference.md`（补入 Token 常量时间比对细节）
-- Control Plane：`POST /workers/delete/batch` — 批量删除 Worker（请求体 `worker_ids` + `delete_disk` / `ignore_missing_target`）：每项独立执行（单项失败不影响其余，不存在的计入 failed），返回 `succeeded`/`failed` 汇总；成功项统一保存台账、统一 reload 一次 dnsmasq（优于逐删逐 reload）；审计逐项 `delete_worker`
-- WebUI Workers 页新增独立「批量删除 Worker」模式（与批量创建互斥）：工具栏独立按钮进入/退出，勾选后左侧栏确认删除（含「同时删除 .img」/「忽略缺失 target」选项，与详情页一致）→ 结果汇总展示，成功后清空勾选并刷新
-- Control Plane：`POST /agents/probe` — 探测 Agent 并自动推导注册参数（预览，不写文件）：调 `/healthz` + `/capabilities`，推导 `role`（disk 恒真 + cd 取 capabilities）/ `tags`（storage + backend）/ `iscsi_server`（回退 base_url 主机名），返回 backend / base_iqn / clone 等能力供确认；Agent 不可达或 token 错误返回 502，审计记录 `agent.probe`
-- Control Plane：`POST /agents` — 注册新 Agent 写入 `agents.yml`，注册后立即生效；请求体含 `id` / `base_url`（须 http(s)://） / `token`（支持 `${ENV}` 占位）/ `iscsi_server` / `role`（disk/cd）/ `tags` / `enabled`；重复 id 返回 409，审计记录 `agent.register`；`AgentRegistry` 新增 `add()`（yaml 写回保持 `agents:` 顶层结构）
-- WebUI Agents 页新增「+ 添加 Agent」入口（两步流程）：填 Agent ID / API 地址 / Token 点「探测」→ 后端自动获取后端类型 / 角色 / 标签 / 数据面地址等参数并在预览区展示（可修改，含只读能力标签）→ 点「添加」完成注册并刷新列表；地址变更后旧探测结果自动失效
 - Control Plane：`POST /workers/{worker_id}/luns/disk` —— 给指定 Worker 创建系统盘 LUN（母盘克隆 / 空白盘），端点位于 `/luns/` 命名空间，为数据盘（`/luns/data`）与多系统盘预留
 - Control Plane：`PUT /workers/{worker_id}/default-os` —— 设置 Worker 默认启动配置，三个字段可设可清、可组合（详见下方"变更"）
 - Control Plane：`GET/POST/DELETE /agents/{agent_id}/luns` 与 `POST /agents/{agent_id}/luns/scan` —— Agent iSCSI LUN/target 直管（列出 / 创建磁盘 / 创建 CD / 删除 / 扫描）
@@ -139,3 +125,52 @@
 ### 变更
 
 - 文档：`Control_Plane_API_Docs.md` 接口概览表新增批量创建条目，新增 7.1.3 章节（请求体字段表 + curl + 返回示例）
+
+---
+
+## 2026-08-03
+
+### 新增
+
+- **首个发行版（v0.1.0）发布准备 — 环境配置与注释收尾**：
+  - `iscsi-server/.env` 与 `control_plane/config/agents.yml`（含真实部署 token）解除 git 跟踪并加入 `.gitignore`，仓库只保留 `*.example` 模板
+  - 新增 `webui/app/.env.example`（VITE_CP_TOKEN 构建期变量说明）
+  - `control_plane.env(.example)` / `iscsi-server/.env(.example)` 补齐分组注释（文件路径、dnsmasq 联动、启动行为、Token 同步说明）
+  - `control_plane/config/agents.yml.example` 补齐字段注释（base_url / iscsi_server / token 占位 / role / tags / enabled）
+  - 根 `docker-compose.yml`：各服务补齐职责注释，移除无人引用的误导性 `networks.ipxe` 段；`iscsi-server/docker-compose.yml` 补齐后端与 Agent 注释、清理行尾空格
+  - `iscsi-server/agent/Dockerfile` 移除开发期对话遗留注释，改为规范说明
+  - README（中英）快速开始补全配置步骤：`cp *.env.example` 准备流程、API 鉴权 Token 同步、存储节点独立部署指引
+  - 文档收敛：删除冗余的 `iscsi-server/Agent_API_Docs.md`，保留更全面的 `API_Reference.md`（补入 Token 常量时间比对细节）
+- Control Plane：`POST /workers/delete/batch` — 批量删除 Worker（请求体 `worker_ids` + `delete_disk` / `ignore_missing_target`）：每项独立执行（单项失败不影响其余，不存在的计入 failed），返回 `succeeded`/`failed` 汇总；成功项统一保存台账、统一 reload 一次 dnsmasq（优于逐删逐 reload）；审计逐项 `delete_worker`
+- WebUI Workers 页新增独立「批量删除 Worker」模式（与批量创建互斥）：工具栏独立按钮进入/退出，勾选后左侧栏确认删除（含「同时删除 .img」/「忽略缺失 target」选项，与详情页一致）→ 结果汇总展示，成功后清空勾选并刷新
+- Control Plane：`POST /agents/probe` — 探测 Agent 并自动推导注册参数（预览，不写文件）：调 `/healthz` + `/capabilities`，推导 `role`（disk 恒真 + cd 取 capabilities）/ `tags`（storage + backend）/ `iscsi_server`（回退 base_url 主机名），返回 backend / base_iqn / clone 等能力供确认；Agent 不可达或 token 错误返回 502，审计记录 `agent.probe`
+- Control Plane：`POST /agents` — 注册新 Agent 写入 `agents.yml`，注册后立即生效；请求体含 `id` / `base_url`（须 http(s)://） / `token`（支持 `${ENV}` 占位）/ `iscsi_server` / `role`（disk/cd）/ `tags` / `enabled`；重复 id 返回 409，审计记录 `agent.register`；`AgentRegistry` 新增 `add()`（yaml 写回保持 `agents:` 顶层结构）
+- WebUI Agents 页新增「+ 添加 Agent」入口（两步流程）：填 Agent ID / API 地址 / Token 点「探测」→ 后端自动获取后端类型 / 角色 / 标签 / 数据面地址等参数并在预览区展示（可修改，含只读能力标签）→ 点「添加」完成注册并刷新列表；地址变更后旧探测结果自动失效
+
+### 变更
+
+- 文档：《项目环境部署》1.3 节固件获取方式更新——不再下载解压 `tftp.zip`，改为从 [boot.ipxe.org](https://boot.ipxe.org/) 直接下载官方 release 固件（`undionly.kpxe`，以及 `x86_64-efi/` 下的 `ipxe-legacy.efi` / `ipxe.efi` / `snponly.efi`），全部统一放入 `tftp/` 根目录（不保留官网 `x86_64-efi/` 子目录，`wget` 默认只取 URL 末尾文件名）；`ipxe.efi` / `ipxe-legacy.efi` 为 UEFI 引导异常时的备选固件（改 `dnsmasq.conf` 的 efi64 引导文件）；补充 memdisk 说明——取自 SYSLINUX 发行包 `bios/memdisk/memdisk`，仅「iPXE 直接引导 ISO」的旧方式需要，常规无盘启动（iSCSI sanboot）不需要；中英文档同步
+
+---
+
+## 2026-08-04
+
+### 新增
+
+- Control Plane：`PUT /agents/{agent_id}` — 更新已有 Agent 配置（id 不可改，走路径参数）：`base_url` / `token` / `iscsi_server` / `role` / `tags` / `enabled` 全量覆盖写回 agents.yml，保存后立即生效；`token` 传空字符串 = 保持原值（API 不回显 token，前端无法回填）；`enabled=false` 停用（不再参与建盘/挂载调度与存活探测）；不存在返回 404，审计记录 `agent.update`；`AgentRegistry` 新增 `update()`（原 token 保留）
+- Control Plane：`POST /agents/probe` 新增可选 `agent_id` 参数 — 编辑场景 token 留空时自动沿用注册表中该 Agent 的 token 探测（未知 id 忽略）
+- WebUI Agents 页每张卡片右上角新增「编辑」按钮 — 点击后在列表上方弹出遮罩弹层（fixed 覆盖，不挤占原有布局；点遮罩空白处或「取消」关闭），编辑表单复用添加的两步探测流程：id 只读展示（走路径参数）、Token 留空保持不变（placeholder 提示，探测沿用注册表原值）、新增「启用（参与调度）」复选框，探测成功后方可保存，保存后刷新列表；停用的 Agent 卡片显示「停用」徽章
+- Agent：`GET /masters` — 列出存储节点 `DISK_DIR` 下 `*_tpl_*` 母盘（新增 `MasterScanner` 后台 daemon 线程，每 30 秒周期扫描并带锁缓存 `{name, size, mtime}`，识别文件名含 `_tpl_` 标记的镜像；纯读接口，Bearer 鉴权，不写操作日志）
+- Control Plane：`GET /masters` — 聚合列出全部启用磁盘角色 Agent 的母盘清单（遍历 `agents.yml` 中 `enabled` + `role.disk` 节点，逐台调用 Agent `list_masters()`；单台失败返回 `error` 字段并记审计 `master.list`（failed）不阻塞整体，全部失败 502 / 部分成功 200 / 无候选空列表）；`AgentClient` 新增 `list_masters()`
+- WebUI：母盘克隆下拉选择——Workers 批量创建与 Worker 详情页「创建系统盘」的母盘名由手工输入改为下拉选择（数据来自 Control Plane 聚合的母盘清单）：批量模式选项值为 `agent::name`，选择后自动将所选 Worker 接管到母盘所在节点，提交时校验节点一致性；详情页按所选存储节点过滤母盘、切换节点自动清空已选
+
+### 变更
+
+- 文档：`iscsi-server/API_Reference.md` 与 `control_plane/Control_Plane_API_Docs.md` 同步母盘清单接口——接口总览表新增 `GET /masters` 条目并新增独立章节（响应结构 `{agents: [{agent, iscsi_server, masters, error?}]}`、字段说明、失败容错语义）；Agent 侧 `API_Reference.md` 新增 `## 12. GET /masters（母盘清单）`，原编号顺延
+- 文档：《项目环境部署》第 2 步新增 2.1「准备 img 存储目录」小节（原 2.1–2.5 顺延为 2.2–2.6）：明确 `iscsi-server/docker-compose.yml` 中 `- /pool1/iscsi_img:/home/iscsi_img` 卷映射须将宿主机侧路径改为存储节点实际存放 img 文件的目录（`ipxe-iscsi` 与 `ipxe-agent` 两处一致，容器内 `/home/iscsi_img` 不变）；存储目录文件系统强烈建议 btrfs（母盘克隆走 reflink/FICLONE 秒级完成，ext4/xfs 等不支持时回退全量拷贝，克隆时间随母盘大小线性增长）；新增单台 iSCSI 服务器硬件瓶颈表（网卡速率 / 硬盘 IO / 内存 CPU）与按并发 Worker 规模扩容存储节点建议（10GbE 约支撑 10–20 个并发 Worker）；中英文档同步
+- 文档：Windows / Debian 系无盘快速部署「WebUI 秒级克隆」步骤的母盘名改为下拉选择说明——母盘列表由 WebUI 自动扫描存储节点生成（数据来自 Control Plane 聚合的 `GET /masters` 母盘清单，文件名须含 `_tpl_` 标记），无需手工输入；中英文档同步
+- 文档：文档站中英文首页「核心能力」更新——以 README 六条为基础结构：原「秒级启动」改写为「母盘克隆秒级交付」（btrfs reflink 秒级克隆 + 支持矩阵同步为 Debian 11/12/13、Ubuntu 22.04/24.04/26.04、Windows 11 23H2/24H2/25H2），新增「批量部署」「Agent 直管与在线编辑」两条，原「中心控制面 + Web UI」并入后者；补齐「文件即真相」；中英文同步
+- 文档：Windows / Debian 系无盘快速部署「第 5 步:设置默认启动」由可选步骤改为常规流程——设置默认系统后开机自动直达系统（无需在 iPXE 菜单手动选择）；仅需配置「默认系统(OS)」一个字段，下拉选项来自该 Worker 已挂载的系统盘（即刚克隆出的盘）；「默认菜单项(Menu Default)」保持默认（重启）不动——推导链 `default_os > boot.menu_default > reboot` 中 `default_os` 优先命中，未配置的菜单项维持重启兜底；中英文档同步
+- 文档：Debian 系无盘快速部署「支持范围」注明桌面/服务器版本无差别——Ubuntu 不区分 Desktop / Server 版本，桌面环境（GNOME / KDE / XFCE 等）任意选择，不影响无盘启动；Debian 同理，按常规方式正常安装的系统均支持，无需担心桌面环境影响；1.1 安装步骤同步补充说明；中英文档同步
+- 文档：IQN 契约表述修正——`tftp/boot.ipxe.cfg` 的 `base-iqn` 仅为静态兜底值（占位符），Worker 启动时 iPXE 经 `/boot-vars` 按系统盘所在存储节点获取实际 `base-iqn`（盘 IQN 前缀，源自该节点 `IPXE_IQN_BASE`）并覆盖；各存储节点 `IPXE_IQN_BASE` 对自身承载的盘是权威值，无需与 `boot.ipxe.cfg` 静态值一致；《项目环境部署》2.3 与快速部署「环境准备」/FAQ 同步修正；中英文档同步
+- 文档：IQN 机制表述复核修正——架构文档（中英）1.5 节第 2 步补充 `base-iqn` 静态兜底 + `/boot-vars` 按系统盘所在存储节点动态覆盖机制（原按纯静态配置推演，缺覆盖环节），第 3 步 root-path 拼装改为与 `menu.ipxe` 一致的 `iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.<os>` 变量格式（原硬编码 `::::`）；Control Plane 文档（中英）`/boot-vars` 返回变量列表补入 `base-iqn`；中英文档同步

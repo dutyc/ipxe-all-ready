@@ -91,6 +91,7 @@ IQN 含有冒号。作为 query 参数传递时，建议使用 `curl -G --data-u
 | `DELETE` | `/lun` | 删除 target，可选删除 backing 文件 | 是 |
 | `GET` | `/lun` | 列出当前 target | 是 |
 | `GET` | `/capabilities` | 查询 Agent 后端能力 | 是 |
+| `GET` | `/masters` | 列出 *_tpl_* 母盘（后台周期扫描缓存） | 是 |
 | `GET` | `/logs` | 查询操作日志 | 是 |
 
 ## 4. GET /healthz
@@ -444,7 +445,43 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 日志不会记录 token。
 
-## 12. 错误码
+## 12. GET /masters（母盘清单）
+
+列出本节点 `IPXE_DISK_DIR` 下可用的母盘文件，供 Control Plane / WebUI 克隆选盘。
+
+母盘按文件名约定识别：文件名包含 `_tpl_` 标记（如 `_tpl_ubuntu_2204.img`、`_tpl_debian_12.img`）。
+
+Agent 启动后后台线程每 30 秒扫描一次镜像目录并缓存清单，本接口直接返回缓存，不阻塞文件系统（新增母盘后最多 30 秒可见）。
+
+### 12.1 请求
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://localhost:4841/masters | python3 -m json.tool
+```
+
+### 12.2 响应
+
+```json
+{
+  "masters": [
+    {"name": "_tpl_ubuntu_2204.img", "size": 10737418240, "mtime": 1785552000},
+    {"name": "_tpl_debian_12.img", "size": 5368709120, "mtime": 1785552000}
+  ]
+}
+```
+
+字段说明：
+
+| 字段 | 说明 |
+|---|---|
+| `name` | 母盘文件名（含 `_tpl_` 标记，如 `_tpl_ubuntu_2204.img`） |
+| `size` | 文件大小（字节） |
+| `mtime` | 文件最后修改时间（Unix 时间戳，秒） |
+
+无母盘时返回 `{"masters": []}`。
+
+## 13. 错误码
 
 | 状态码 | 常见触发条件 |
 |---:|---|
@@ -455,7 +492,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 | `500` | `tgtadm` 或 `targetcli` 执行失败 |
 | `503` | iSCSI 容器不存在；Docker 连接失败 |
 
-## 13. Control Plane 调用建议
+## 14. Control Plane 调用建议
 
 推荐 Control Plane 按以下顺序接入 Agent：
 
@@ -465,7 +502,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 4. Windows 安装期如需 ISO 光驱，只调度到 `cd=true` 的 Agent。
 5. 写操作后通过 `GET /logs?since=<cursor>` 拉取审计日志。
 
-## 14. 部署注意事项
+## 15. 部署注意事项
 
 当前 Agent 通过 Docker socket 操作本机 iSCSI 容器：
 

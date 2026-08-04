@@ -81,6 +81,37 @@ class AgentRegistry:
         with self.agents_file.open("w", encoding="utf-8") as f:
             yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
 
+    def update(
+        self,
+        agent_id: str,
+        base_url: str,
+        token: str | None = None,
+        *,
+        role_disk: bool = False,
+        role_cd: bool = False,
+        iscsi_server: str | None = None,
+        enabled: bool = True,
+        tags: tuple[str, ...] = (),
+    ) -> None:
+        """更新已有 Agent：覆盖 agents.yml 中对应条目（id 不可改，不存在抛 KeyError）。
+        token 传 None / 空字符串时保持原值（API 不回显 token，前端无法回填）。"""
+        with self.agents_file.open("r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        agents_data = data.get("agents")
+        entry = agents_data.get(agent_id) if isinstance(agents_data, dict) else None
+        if not isinstance(entry, dict):
+            raise KeyError(agent_id)
+        agents_data[agent_id] = {
+            "base_url": base_url,
+            "token": token or entry.get("token", ""),
+            "role": {"disk": role_disk, "cd": role_cd},
+            "iscsi_server": iscsi_server or "",
+            "tags": list(tags),
+            "enabled": enabled,
+        }
+        with self.agents_file.open("w", encoding="utf-8") as f:
+            yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
+
     def client(self, agent: AgentConfig) -> AgentClient:
         return AgentClient(agent, self.timeout)
 

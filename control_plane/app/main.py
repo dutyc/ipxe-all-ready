@@ -21,6 +21,7 @@ from .models import (
     CreateWorkerRequest,
     ProbeAgentRequest,
     SetWorkerDefaultBootRequest,
+    UpdateAgentRequest,
 )
 from .scheduler import AgentRegistry
 from .state import FileStateStore, OperationLog
@@ -115,6 +116,35 @@ def create_agent(req: CreateAgentRequest, request: Request):
     return agents.get(agent_id).public_dict()
 
 
+@app.put("/agents/{agent_id}", dependencies=[Depends(verify_control_token)])
+def update_agent(agent_id: str, req: UpdateAgentRequest, request: Request):
+    """更新已有 Agent：覆盖 agents.yml 中对应条目（id 不可改，走路径参数）。
+    token 传空字符串 = 保持原值（API 不回显 token）；enabled=false 停用（不再参与调度与存活探测）。"""
+    agent_id = agent_id.strip().lower()
+    base_url = req.base_url.strip().rstrip("/")
+    if not base_url.startswith(("http://", "https://")):
+        raise HTTPException(400, "base_url must start with http:// or https://")
+    iscsi_server = req.iscsi_server.strip() if req.iscsi_server else None
+    try:
+        agents.get(agent_id)
+    except KeyError:
+        raise HTTPException(404, f"agent not found: {agent_id}")
+
+    with store.locked():
+        agents.update(
+            agent_id,
+            base_url,
+            req.token.strip() or None,
+            role_disk=req.role.disk,
+            role_cd=req.role.cd,
+            iscsi_server=iscsi_server,
+            enabled=req.enabled,
+            tags=tuple(t.strip() for t in req.tags if t.strip()),
+        )
+    _record("agent.update", "ok", agent=agent_id, client=_client_host(request))
+    return agents.get(agent_id).public_dict()
+
+
 @app.post("/agents/probe", dependencies=[Depends(verify_control_token)])
 def probe_agent(req: ProbeAgentRequest, request: Request):
     """探测 Agent：调 /healthz + /capabilities，自动推导注册参数预览（不写任何文件）。
@@ -125,11 +155,19 @@ def probe_agent(req: ProbeAgentRequest, request: Request):
     if not base_url.startswith(("http://", "https://")):
         raise HTTPException(400, "base_url must start with http:// or https://")
 
+    # 编辑场景：token 留空时回退注册表中该 Agent 的 token（未知 id 则按空 token 探测）
+    token = req.token.strip()
+    if not token and req.agent_id:
+        try:
+            token = agents.get(req.agent_id.strip().lower()).token
+        except KeyError:
+            pass
+
     # 临时 AgentConfig 探测（不落盘，不进入注册表）
     probe_cfg = AgentConfig(
         id="_probe",
         base_url=base_url,
-        token=req.token.strip(),
+        token=token,
         role_disk=True,
         role_cd=False,
     )
@@ -246,6 +284,38 @@ def scan_agent_luns(agent_id: str, request: Request):
     _record("lun.scan", "ok", agent=agent_id, client=_client_host(request),
             created=len(result.get("created", [])), skipped=len(result.get("skipped", [])))
     return result
+
+
+@app.get("/masters", dependencies=[Depends(verify_control_token)])
+def list_masters(request: Request):
+    """聚合列出全部启用磁盘角色 Agent 上的母盘（后台扫描缓存），供 WebUI 克隆选盘。
+    单台 Agent 失败不阻塞整体：失败节点返回 error 字段；全部失败时整体 502。"""
+    results: list[dict[str, Any]] = []
+    total = failed = 0
+    for agent in agents.load():
+        if not (agent.enabled and agent.role_disk and agent.base_url):
+            continue
+        total += 1
+        entry: dict[str, Any] = {
+            "agent": agent.id,
+            "iscsi_server": agents.iscsi_server_for(agent.id),
+        }
+        try:
+            payload = agents.client(agent).list_masters()
+        except AgentAPIError as exc:
+            failed += 1
+            _record("master.list", "failed", agent=agent.id, client=_client_host(request), error=exc.detail)
+            entry["masters"] = []
+            entry["error"] = exc.detail
+            results.append(entry)
+            continue
+        masters = payload.get("masters", []) if isinstance(payload, dict) else []
+        _record("master.list", "ok", agent=agent.id, client=_client_host(request), count=len(masters))
+        entry["masters"] = masters
+        results.append(entry)
+    if total > 0 and failed == total:
+        raise HTTPException(502, {"agents": results, "error": "all agents failed"})
+    return {"agents": results}
 
 
 def _agent_or_404(agent_id: str):

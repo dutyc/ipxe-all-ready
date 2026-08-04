@@ -34,15 +34,28 @@ class AgentRoleRequest(BaseModel):
 
 
 class ProbeAgentRequest(BaseModel):
-    """探测 Agent 并自动推导注册参数（预览，不写任何文件）。"""
+    """探测 Agent 并自动推导注册参数（预览，不写任何文件）。
+    agent_id 可选：编辑场景 token 留空时，使用注册表中该 Agent 的 token 探测。"""
     base_url: str
     token: str = ""
+    agent_id: str | None = None
 
 
 class CreateAgentRequest(BaseModel):
     """注册新 Agent 到 agents.yml。token 支持 ${ENV} 占位（Control Plane 读取时展开）；
     tags 自由标签（如 storage/lio/stgt），仅作展示。"""
     id: str
+    base_url: str
+    token: str = ""
+    iscsi_server: str | None = None
+    role: AgentRoleRequest = Field(default_factory=AgentRoleRequest)
+    tags: list[str] = Field(default_factory=list)
+    enabled: bool = True
+
+
+class UpdateAgentRequest(BaseModel):
+    """更新已有 Agent 的配置（id 不可改，走路径参数）。
+    token 传空字符串 = 保持原值（API 不回显 token，前端无法回填）。"""
     base_url: str
     token: str = ""
     iscsi_server: str | None = None

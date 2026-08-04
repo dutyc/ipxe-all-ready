@@ -52,19 +52,38 @@ dhcp-option=3,192.168.80.2                       # Gateway
 dhcp-option=6,223.5.5.5                          # DNS
 ```
 
-### 1.3 Extract TFTP Firmware
+### 1.3 Obtain iPXE Firmware
 
-Extract the downloaded `tftp.zip` into the `tftp/` directory to obtain the firmware required for iPXE boot:
+Download the boot firmware from the official iPXE release site [https://boot.ipxe.org/](https://boot.ipxe.org/) (official prebuilt binaries, no compilation needed). The following files are required (`x86_64-efi/` is the official subdirectory):
 
 ```
-tftp/
-├── boot.ipxe / boot.ipxe.cfg / menu.ipxe   # Provided by the project (scripts)
-├── undionly.kpxe        # BIOS boot firmware
-├── snponly.efi          # UEFI boot firmware
-└── wimboot / memtest and other tool firmware
+undionly.kpxe                    # BIOS boot firmware
+x86_64-efi/
+├── ipxe-legacy.efi              # UEFI firmware (legacy-firmware compatible, fallback)
+├── ipxe.efi                     # UEFI firmware (standard, fallback)
+└── snponly.efi                  # UEFI firmware (SNP-only, distributed by default)
 ```
 
-`dnsmasq.conf` is already configured to distribute firmware based on architecture detection: UEFI → `snponly.efi`, BIOS → `undionly.kpxe`, second iPXE request → `boot.ipxe`.
+Place all of them into the `tftp/` root directory — do not keep the official `x86_64-efi/` subdirectory (`wget` saves each file by its URL basename into the current directory):
+
+```bash
+cd tftp
+wget https://boot.ipxe.org/undionly.kpxe
+wget https://boot.ipxe.org/x86_64-efi/ipxe-legacy.efi
+wget https://boot.ipxe.org/x86_64-efi/ipxe.efi
+wget https://boot.ipxe.org/x86_64-efi/snponly.efi
+```
+
+`dnsmasq.conf` is already configured to distribute firmware based on architecture detection: UEFI → `snponly.efi`, BIOS → `undionly.kpxe`, second iPXE request → `boot.ipxe`. If a machine fails to boot over UEFI, try switching the efi64 boot file to `ipxe.efi` or `ipxe-legacy.efi`.
+
+> **memdisk (optional; not needed for regular boot)**: memdisk is only used for the legacy approach of booting ISO installation images directly via iPXE (`kernel memdisk` + `initrd xxx.iso`); this project boots diskless machines over iSCSI sanboot and does not need it. If required, download the SYSLINUX release package from the [SYSLINUX release page](https://www.kernel.org/pub/linux/utils/boot/syslinux/), extract it, and place `bios/memdisk/memdisk` into `tftp/`:
+>
+> ```bash
+> cd /tmp
+> wget https://mirrors.edge.kernel.org/pub/linux/utils/boot/syslinux/6.03/syslinux-6.03.tar.gz
+> tar xzf syslinux-6.03.tar.gz
+> cp syslinux-6.03/bios/memdisk/memdisk <project-path>/tftp/
+> ```
 
 ### 1.4 Configure API Token (optional; boot works without it)
 
@@ -103,7 +122,30 @@ curl http://localhost:4839/healthz        # Control Plane
 
 > Perform this section once on each storage node; if co-located with the Controller, just run it locally.
 
-### 2.1 Choose the Backend Type
+### 2.1 Prepare the img Storage Directory (Determines Clone Speed)
+
+Edit `iscsi-server/docker-compose.yml` and change the **host-side path** of both volume mappings to the actual directory where this node stores img files (edit **both** the `ipxe-iscsi` and `ipxe-agent` service blocks — they **must match**; the in-container path `/home/iscsi_img` stays unchanged and corresponds to `IPXE_DISK_DIR` in 2.3):
+
+```yaml
+# ipxe-iscsi service block
+      - /pool1/iscsi_img:/home/iscsi_img   # change the host dir as needed, e.g. /data/iscsi_img
+# ipxe-agent service block
+      - /pool1/iscsi_img:/home/iscsi_img   # must match the mapping above
+```
+
+> **btrfs is strongly recommended for the storage filesystem**: when cloning a golden image, the Agent prefers reflink (FICLONE, copy-on-write); on btrfs a clone completes in seconds and consumes almost no extra space. If the directory sits on a filesystem without reflink support (ext4 / xfs), the Agent automatically falls back to a full copy, so clone time grows linearly with the image size (e.g. copying a 60 GB golden image takes several minutes). Format example: `mkfs.btrfs -f /dev/sdb1` and mount it as the storage directory.
+
+**Single storage node hardware bottlenecks** (basis for scaling out):
+
+| Bottleneck | Impact | Recommendation |
+|---|---|---|
+| NIC throughput | Gigabit is ~125 MB/s theoretical; a single diskless Worker's sustained I/O can approach that, and throughput collapses when Workers share it | Production ≥ 10GbE; gigabit is only fine for validating with a few Workers |
+| Disk I/O | Diskless Workers are dominated by small random reads; spinning disks are poor at random I/O | Use SSD / NVMe; size capacity and IOPS for the expected number of concurrent Workers |
+| Memory / CPU | Affects iSCSI server queueing and caching | Regular config is fine; the bottleneck is usually network and disk |
+
+**Scale out storage nodes by workload**: a single 10GbE link delivers roughly 1.1 GB/s effective throughput; at an average 50–100 MB/s sustained read per Worker, that supports about 10–20 concurrent Workers. For more Workers or higher I/O, add storage nodes (one Agent per machine — complete 2.2–2.4 and append a record in `agents.yml`); the Control Plane automatically schedules disk creation across Agents by `role.disk`.
+
+### 2.2 Choose the Backend Type
 
 Edit `iscsi-server/docker-compose.yml` and **choose one** backend service block to enable (the container is named `ipxe-iscsi` in both cases; you cannot enable both simultaneously):
 
@@ -112,23 +154,25 @@ Edit `iscsi-server/docker-compose.yml` and **choose one** backend service block 
 | `stgt` | Uncomment the `ipxe-stgt` service block and comment out the `ipxe-lio` block | User-space, supports mounting ISO as a virtual optical drive (`role.cd`), friendly to constrained environments |
 | `lio` | Uncomment the `ipxe-lio` service block and comment out the `ipxe-stgt` block | Kernel-space, production-grade disk performance (recommended for system disks) |
 
-### 2.2 Configure `.env`
+### 2.3 Configure `.env`
 
 Edit `iscsi-server/.env`:
 
 ```env
 IPXE_ISCSI_CONTAINER=ipxe-iscsi
-IPXE_DISK_DIR=/home/iscsi_img              # Disk directory inside the container (maps to host /pool1/iscsi_img)
-IPXE_IQN_BASE=iqn.2026-07.com.controller   # Must match the base-iqn in tftp/boot.ipxe.cfg!
-IPXE_BACKEND=lio                           # Must match the choice in 2.1 (stgt / lio)
+IPXE_DISK_DIR=/home/iscsi_img              # Disk directory inside the container (matches the host storage dir set in 2.1)
+IPXE_IQN_BASE=iqn.2026-07.com.controller   # This node's IQN prefix (authoritative): disk IQNs are built from it; /boot-vars returns it for disks hosted here
+IPXE_BACKEND=lio                           # Must match the choice in 2.2 (stgt / lio)
 IPXE_AGENT_TOKEN=<generate a token>        # Generate: openssl rand -hex 32
 TZ=Asia/Shanghai
 ```
 
-> **IQN consistency is the boot contract**: `IPXE_IQN_BASE` must match the `base-iqn` inside `tftp/boot.ipxe.cfg`,  
-> otherwise iPXE will be unable to locate the Target using `${base-iqn}:${hostname}.windows`.
+> **IQN is resolved dynamically at Worker boot**: the `base-iqn` in `tftp/boot.ipxe.cfg` is only a static fallback (placeholder).  
+> When a Worker boots, iPXE fetches `/boot-vars` from the Control Plane, which returns the actual `base-iqn` of the storage node hosting the Worker's system disk  
+> (the disk's IQN prefix, derived from that node's `IPXE_IQN_BASE`), overriding the static fallback.  
+> Each node's `IPXE_IQN_BASE` is therefore authoritative for the disks it hosts — it does not need to match the static value in `boot.ipxe.cfg`.
 
-### 2.3 Register the Agent
+### 2.4 Register the Agent
 
 In the Controller’s `control_plane/config/agents.yml`, register this node (one entry per node):
 
@@ -147,16 +191,16 @@ agents:
     enabled: true
 ```
 
-Multi-node deployment: repeat 2.1–2.2 on each storage node and append a record in `agents.yml` (with a different Agent ID).
+Multi-node deployment: repeat 2.1–2.3 on each storage node and append a record in `agents.yml` (with a different Agent ID).
 
-### 2.4 Start the Storage Node
+### 2.5 Start the Storage Node
 
 ```bash
 cd iscsi-server
 docker compose up -d
 ```
 
-### 2.5 Verification
+### 2.6 Verification
 
 ```bash
 curl http://localhost:4840/healthz            # Agent liveness

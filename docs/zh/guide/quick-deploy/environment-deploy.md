@@ -52,19 +52,38 @@ dhcp-option=3,192.168.80.2                       # 网关
 dhcp-option=6,223.5.5.5                          # DNS
 ```
 
-### 1.3 解压 TFTP 固件
+### 1.3 获取 iPXE 固件
 
-将下载好的 `tftp.zip` 在 `tftp/` 目录下解压，得到 iPXE 启动所需固件：
+从 iPXE 官方发布站 [https://boot.ipxe.org/](https://boot.ipxe.org/) 下载启动固件（官方构建的 release 二进制，无需自行编译），需要以下文件（`x86_64-efi/` 为官网子目录）：
 
 ```
-tftp/
-├── boot.ipxe / boot.ipxe.cfg / menu.ipxe   # 项目自带（脚本）
-├── undionly.kpxe        # BIOS 引导固件
-├── snponly.efi          # UEFI 引导固件
-└── wimboot / memtest 等工具固件
+undionly.kpxe                    # BIOS 引导固件
+x86_64-efi/
+├── ipxe-legacy.efi              # UEFI 固件（旧版固件兼容，备选）
+├── ipxe.efi                     # UEFI 固件（标准版，备选）
+└── snponly.efi                  # UEFI 固件（SNP 精简版，dnsmasq 默认分发）
 ```
 
-`dnsmasq.conf` 已按架构识别分发固件：UEFI → `snponly.efi`，BIOS → `undionly.kpxe`，iPXE 二次请求 → `boot.ipxe`。
+下载后**统一放入 `tftp/` 根目录**，不要保留官网的 `x86_64-efi/` 子目录（`wget` 默认只取 URL 末尾文件名存到当前目录）：
+
+```bash
+cd tftp
+wget https://boot.ipxe.org/undionly.kpxe
+wget https://boot.ipxe.org/x86_64-efi/ipxe-legacy.efi
+wget https://boot.ipxe.org/x86_64-efi/ipxe.efi
+wget https://boot.ipxe.org/x86_64-efi/snponly.efi
+```
+
+`dnsmasq.conf` 已按架构识别分发固件：UEFI → `snponly.efi`，BIOS → `undionly.kpxe`，iPXE 二次请求 → `boot.ipxe`。个别机器 UEFI 引导异常时，可将 efi64 引导文件改为 `ipxe.efi` 或 `ipxe-legacy.efi` 试验。
+
+> **memdisk（可选，常规启动不需要）**：memdisk 仅用于「iPXE 直接引导 ISO 安装镜像」的旧方式（`kernel memdisk` + `initrd xxx.iso`），本项目常规无盘启动走 iSCSI sanboot，无需此文件。需要时从 [SYSLINUX 发布页](https://www.kernel.org/pub/linux/utils/boot/syslinux/) 下载发行包，解压取 `bios/memdisk/memdisk` 放入 `tftp/`：
+>
+> ```bash
+> cd /tmp
+> wget https://mirrors.edge.kernel.org/pub/linux/utils/boot/syslinux/6.03/syslinux-6.03.tar.gz
+> tar xzf syslinux-6.03.tar.gz
+> cp syslinux-6.03/bios/memdisk/memdisk <项目路径>/tftp/
+> ```
 
 ### 1.4 配置 API Token（可选，不设置不影响启动）
 
@@ -103,7 +122,30 @@ curl http://localhost:4839/healthz        # Control Plane
 
 > 每台存储节点执行一次本节；与 Controller 同机则就地执行。
 
-### 2.1 选择后端类型
+### 2.1 准备 img 存储目录（决定克隆速度）
+
+编辑 `iscsi-server/docker-compose.yml`，将**两处卷映射的宿主机侧路径**改为本节点实际存放 img 文件的目录（`ipxe-iscsi` 与 `ipxe-agent` 两个服务块都要改，**必须一致**；容器内路径 `/home/iscsi_img` 保持不变，与 2.3 的 `IPXE_DISK_DIR` 对应）：
+
+```yaml
+# ipxe-iscsi 服务块
+      - /pool1/iscsi_img:/home/iscsi_img   # 宿主目录按实际修改，如 /data/iscsi_img
+# ipxe-agent 服务块
+      - /pool1/iscsi_img:/home/iscsi_img   # 两处必须一致
+```
+
+> **文件系统强烈建议 btrfs**：克隆母盘时 Agent 优先使用 reflink（FICLONE 写时复制），btrfs 下克隆秒级完成、几乎不占额外空间；若目录落在 ext4 / xfs 等不支持 reflink 的文件系统上，会自动回退为全量拷贝，克隆时间随母盘大小线性增长（如 60GB 母盘约数分钟）。
+
+**单台存储节点的硬件瓶颈**（扩容依据）：
+
+| 瓶颈点 | 影响 | 建议 |
+|---|---|---|
+| 网卡速率 | 千兆理论 125MB/s，单个无盘 Worker 的持续读写就可能逼近上限，多 Worker 共享时急剧下降 | 生产 ≥ 10GbE（万兆）；千兆只适合少量 Worker 验证 |
+| 硬盘 IO | 无盘 Worker 以小 IO 随机读为主，机械盘随机 IO 性能差 | 建议 SSD / NVMe，按并发 Worker 数规划容量与 IOPS |
+| 内存 / CPU | 影响 iSCSI 服务端排队与缓存 | 常规配置即可，瓶颈通常在网络与磁盘 |
+
+**按规模扩容存储节点**：单台 10GbE 有效吞吐约 1.1GB/s，按每 Worker 平均 50–100MB/s 持续读估算，约支撑 10–20 个并发 Worker；Worker 更多或 IO 要求更高时，添加存储节点（每台一个 Agent，按 2.2–2.4 完成配置并在 `agents.yml` 追加记录），Control Plane 按 `role.disk` 自动在多 Agent 间调度建盘。
+
+### 2.2 选择后端类型
 
 编辑 `iscsi-server/docker-compose.yml`，**二选一**启用后端服务块（容器同名 `ipxe-iscsi`，不可同时启用）：
 
@@ -112,23 +154,25 @@ curl http://localhost:4839/healthz        # Control Plane
 | `stgt` | 取消 `ipxe-stgt` 服务块注释，注释掉 `ipxe-lio` 块 | 用户态，支持把 ISO 挂成虚拟光驱（`role.cd`），受限环境友好 |
 | `lio` | 取消 `ipxe-lio` 服务块注释，注释掉 `ipxe-stgt` 块 | 内核态，生产级磁盘性能（推荐系统盘） |
 
-### 2.2 配置 `.env`
+### 2.3 配置 `.env`
 
 编辑 `iscsi-server/.env`：
 
 ```env
 IPXE_ISCSI_CONTAINER=ipxe-iscsi
-IPXE_DISK_DIR=/home/iscsi_img              # 容器内盘目录（对应宿主 /pool1/iscsi_img）
-IPXE_IQN_BASE=iqn.2026-07.com.controller   # 必须与 tftp/boot.ipxe.cfg 的 base-iqn 一致！
-IPXE_BACKEND=lio                           # 与 2.1 的选择一致（stgt / lio）
+IPXE_DISK_DIR=/home/iscsi_img              # 容器内盘目录（对应 2.1 设置的宿主存储目录）
+IPXE_IQN_BASE=iqn.2026-07.com.controller   # 本节点 IQN 前缀（权威值）：建盘按它生成盘 IQN，Worker 启动时 /boot-vars 按盘所在节点返回该前缀
+IPXE_BACKEND=lio                           # 与 2.2 的选择一致（stgt / lio）
 IPXE_AGENT_TOKEN=<生成一个token>           # 生成：openssl rand -hex 32
 TZ=Asia/Shanghai
 ```
 
-> **IQN 一致性是启动契约**：`IPXE_IQN_BASE` 与 `tftp/boot.ipxe.cfg` 里的 `base-iqn` 必须一致，
-> 否则 iPXE 按 `${base-iqn}:${hostname}.windows` 找不到 Target。
+> **IQN 按 Worker 启动时动态解析**:`tftp/boot.ipxe.cfg` 里的 `base-iqn` 只是静态兜底值（占位符）。
+> Worker 启动时，iPXE 从 Control Plane 拉取 `/boot-vars`，该端点按 Worker 系统盘所在存储节点返回实际的 `base-iqn`
+> （即盘 IQN 前缀，源自该节点 `IPXE_IQN_BASE`），并覆盖静态兜底值。
+> 因此各存储节点的 `IPXE_IQN_BASE` 对自身承载的盘是权威值，无需与 `boot.ipxe.cfg` 静态值一致。
 
-### 2.3 登记 Agent
+### 2.4 登记 Agent
 
 在 Controller 的 `control_plane/config/agents.yml` 登记本节点（一个节点一条）：
 
@@ -147,16 +191,16 @@ agents:
     enabled: true
 ```
 
-多节点部署：每台存储节点重复 2.1–2.2，并在 `agents.yml` 追加一条记录（Agent ID 不同）。
+多节点部署：每台存储节点重复 2.1–2.3，并在 `agents.yml` 追加一条记录（Agent ID 不同）。
 
-### 2.4 启动存储节点
+### 2.5 启动存储节点
 
 ```bash
 cd iscsi-server
 docker compose up -d
 ```
 
-### 2.5 验证
+### 2.6 验证
 
 ```bash
 curl http://localhost:4840/healthz            # Agent 存活

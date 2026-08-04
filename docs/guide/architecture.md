@@ -88,21 +88,32 @@ dhcp-host=52:54:00:12:34:56,worker-01
 
 ### 2. Capturing iPXE Base Variables and Assembling the Initiator IQN
 
-After taking over the NIC, the iPXE firmware captures the variables delivered by DHCP and assembles the current node’s identity as an iSCSI initiator (Initiator IQN) in `boot.ipxe`.
+After taking over the NIC, the iPXE firmware captures the variables delivered by DHCP and assembles the current node's identity as an iSCSI initiator (Initiator IQN) in `boot.ipxe`. The `base-iqn` below is only a static fallback (placeholder).
 
 ```ipxe
-# boot.ipxe
+# boot.ipxe.cfg — static fallback values (placeholders)
 set base-iqn iqn.2026-07.com.controller
 set iscsi-server 192.168.1.5
+set iscsi-sep :::1:
 
 # Assemble the Initiator IQN
-set initiator-iqn ${base-iqn}:${hostname}
+isset ${hostname} && set initiator-iqn ${base-iqn}:${hostname} || set initiator-iqn ${base-iqn}:${mac}
+```
+
+Early in the boot process `boot.ipxe.cfg` chains the Control Plane's `/boot-vars` endpoint: the Control Plane resolves the storage node hosting the Worker's system disk and returns that node's actual `base-iqn` (the disk's IQN prefix, derived from the node's `IPXE_IQN_BASE`), overriding the static fallback above — the static `base-iqn` in `boot.ipxe.cfg` never needs to match any node's `IPXE_IQN_BASE`.
+
+```ipxe
+# Fetch per-worker variables, then rebuild derived values behind an isset guard
+chain --autofree http://${controller_ip}:4839/boot-vars?mac=${mac}&hostname=${hostname} || goto vars-done
+isset ${iscsi-sep} || set iscsi-sep :::1:
+isset ${hostname} && set initiator-iqn ${base-iqn}:${hostname} || set initiator-iqn ${base-iqn}:${mac}
 ```
 
 **Resulting variable values**:
 
 * `${hostname}` = `worker-01`
-* `${initiator-iqn}` = `iqn.2026-07.com.controller:worker-01`
+* `${base-iqn}` = the IQN prefix of the storage node hosting the Worker's system disk (e.g. `iqn.2026-07.com.controller`), returned by `/boot-vars` — the static value in `boot.ipxe.cfg` is only a fallback
+* `${initiator-iqn}` = `${base-iqn}:worker-01`
 
 ### 3. Deriving the Target IQN and Assembling the URI in menu.ipxe
 
@@ -114,14 +125,15 @@ When the user selects “Boot Ubuntu” from the menu, `menu.ipxe` derives the t
 set target-iqn ${base-iqn}:${hostname}.Ubuntu
 
 # Assemble the iSCSI URI
-# Format: iscsi:<server>:[<protocol>]:[<port>]:[<lun>]:<target-iqn>
-set root-path iscsi:${iscsi-server}::::${target-iqn}
+# Format: iscsi:<server>${iscsi-sep}<base-iqn>:<hostname>.<os>
+set root-path iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.Ubuntu
 ```
 
 **Resulting variable values**:
 
 * `${target-iqn}` = `iqn.2026-07.com.controller:worker-01.Ubuntu`
-* `${root-path}` = `iscsi:192.168.1.5::::iqn.2026-07.com.controller:worker-01.Ubuntu`
+* `${iscsi-sep}` = the iSCSI root separator, injected by `/boot-vars` per the backend type of the node hosting the system disk (stgt `:::1:` / LIO `::::`), falling back to the static value in `boot.ipxe.cfg`
+* `${root-path}` = `iscsi:192.168.1.5:::1:iqn.2026-07.com.controller:worker-01.Ubuntu` (with a stgt backend)
 
 ### 4. Final Consumption Across Protocol Boundaries
 

@@ -28,11 +28,12 @@ Ubuntu 等 Debian 系发行版走同一链路,制备与克隆流程完全一致�
 
 > 不推荐 Debian 10、Ubuntu 20.04 及更早版本(已 EOL,机制虽满足但无安全支持期)。
 > Ubuntu 的 iBFT 内核模块(`iscsi_ibft` / `iscsi_tcp` / `ib_iser`)位于基础内核包,最小安装亦自带,无需额外安装。
+> Ubuntu 不区分 Desktop / Server 版本,桌面环境(GNOME / KDE / XFCE 等)任意选择,不影响无盘启动;Debian 同理——按常规方式正常安装的系统均支持,无需担心桌面环境影响。
 
 ## 环境准备
 
 Controller(控制面)与存储节点(Agent + iSCSI 后端)的部署见《项目环境部署》,平台无关,对 Windows / Debian 一视同仁。
-唯一契约:`IPXE_IQN_BASE` 与 `tftp/boot.ipxe.cfg` 的 `base-iqn` 一致。
+唯一契约:各存储节点的 `IPXE_IQN_BASE` 对自身承载的盘是权威值——建盘按它生成盘 IQN,Worker 启动时 iPXE 经 `/boot-vars` 按系统盘所在节点获取实际 `base-iqn` 并覆盖 `tftp/boot.ipxe.cfg` 的静态兜底值(占位符),两者无需一致。
 
 ---
 
@@ -44,7 +45,7 @@ Controller(控制面)与存储节点(Agent + iSCSI 后端)的部署见《项目�
 
 * **必须 UEFI + GPT 安装**(BIOS 安装无 ESP 分区,无法满足 BOOTX64.EFI 固件契约)。
 * 分区建议:ESP 分区 512M + 根分区 + swap(常规自动分区即可满足)。
-* 安装桌面或服务器按需选择;安装完成后**关机**,准备盘内改造。
+* 安装桌面或服务器按需选择(桌面环境任意,不影响无盘启动);安装完成后**关机**,准备盘内改造。
 
 ### 1.2 在真实硬件上安装(备选路径)
 
@@ -157,18 +158,19 @@ Workers 页面进入 Worker 详情页,创建系统盘:
 |---|---|
 | 操作系统(OS) | `Debian` |
 | 磁盘类型(Type) | `Master`(母盘克隆) |
-| 母盘文件名(Master Name) | `_tpl_debian_12.img`(第 1 步的母盘名) |
+| 母盘文件名(Master Name) | 下拉选择 `_tpl_debian_12.img`(第 1 步的母盘名;列表由 WebUI 自动扫描存储节点生成,无需手工输入) |
 
 秒级完成(reflink 克隆),自动创建 iSCSI Target 与 IQN(`iqn.2026-07.com.controller:worker-01.debian`)。
 
-## 第 5 步:设置默认启动(可选)
+## 第 5 步:设置默认启动
 
-不设置时每次开机进 iPXE 菜单手动选择 **Boot Debian from iSCSI**。开机直达,在 Worker 详情页设置:
+设置默认系统后,Worker 开机自动直达系统,无需在 iPXE 菜单手动选择。在 Worker 详情页的**默认启动配置**区域设置:
 
 | 表单字段 | 填写 |
 |---|---|
-| 默认系统(OS) | `Debian` |
-| 默认菜单项(Menu Default) | `debian` |
+| 默认系统(OS) | 下拉选择 `Debian`(选项来自该 Worker 已挂载的系统盘,即第 4 步克隆出的盘) |
+
+> 仅需配置「默认系统(OS)」一个字段;「默认菜单项(Menu Default)」保持默认(重启)即可,不要修改——推导链 `default_os > boot.menu_default > reboot` 中 `default_os` 优先命中,未配置的菜单项维持重启兜底。
 
 ## 第 6 步:验证
 
@@ -194,7 +196,7 @@ iscsiadm -m session        # 当前 iSCSI 会话
 |---|---|
 | 克隆盘报 `Boot from SAN device failed: Error 0x7f22208e` | ESP 缺 BOOTX64.EFI:按 1.4 补文件后**重新克隆**(旧克隆盘不带);确认母盘为 UEFI + GPT 安装 |
 | 启动停在 iPXE 菜单 | 未设置默认启动,手动选择 **Boot Debian from iSCSI**,或按第 5 步设置 |
-| 找不到 iSCSI 目标 | ① `iscsi-server/.env` 的 `IPXE_IQN_BASE` 与 `boot.ipxe.cfg` 的 `base-iqn` 一致;② Worker 已在 WebUI 注册;③ 详情页 IQN 为 `…:worker-xx.debian` |
+| 找不到 iSCSI 目标 | ① 核对 Worker 系统盘所在存储节点 `iscsi-server/.env` 的 `IPXE_IQN_BASE`(权威值:建盘按它生成盘 IQN,`/boot-vars` 按盘所在节点返回);② Worker 已在 WebUI 注册;③ 详情页 IQN 为 `…:worker-xx.debian` |
 | `VFS: Unable to mount root fs` | initrd 三件套未齐(1.5 验证失败):缺模块/iscsistart,回 1.3 重做并 `update-initramfs -u -k all` |
 | 担心克隆盘 `root=UUID` 写死 | 属预期:UUID 是文件系统属性随克隆整体复制,克隆盘各自匹配自身盘,无需处理 |
 | 母盘在虚拟机正常、克隆盘无法启动 | 检查 1.4 BOOTX64.EFI 是否已补(最常见的隐蔽原因) |

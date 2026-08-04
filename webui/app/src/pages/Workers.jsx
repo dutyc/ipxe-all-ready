@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { getWorkers, getAgents, createWorker, batchCreateWorkerDisks, batchDeleteWorkers } from '../api/client'
+import { getWorkers, getAgents, createWorker, batchCreateWorkerDisks, batchDeleteWorkers, getMasters } from '../api/client'
 import { useI18n } from '../i18n'
 import Button from '../components/Button'
 import Input from '../components/Input'
@@ -44,9 +44,10 @@ export default function Workers() {
   const [selected, setSelected] = useState([])
   const [anchor, setAnchor] = useState(null)
   const [storageAgents, setStorageAgents] = useState([])
+  const [mastersData, setMastersData] = useState(null)
   const [assign, setAssign] = useState({})
   const [spreadIds, setSpreadIds] = useState([])
-  const [batchForm, setBatchForm] = useState({ os: 'ubuntu', type: 'empty', name: '', size: '40G' })
+  const [batchForm, setBatchForm] = useState({ os: 'ubuntu', type: 'empty', name: '', size: '40G', master: '' })
   const [submitting, setSubmitting] = useState(false)
   const [batchError, setBatchError] = useState(null)
   const [batchResult, setBatchResult] = useState(null)
@@ -59,6 +60,14 @@ export default function Workers() {
     { value: 'empty', label: t('workers.empty') },
     { value: 'master', label: t('workers.master') },
   ]
+
+  // 聚合母盘清单平铺为选项: value="agent::name"（母盘所在节点与选中值绑定，选择后自动接管）
+  const masterOptions = (mastersData?.agents || []).flatMap((entry) =>
+    (entry.masters || []).map((m) => ({
+      value: `${entry.agent}::${m.name}`,
+      label: `${entry.agent} / ${m.name}`,
+    }))
+  )
 
   const form = useForm({
     worker_id: '',
@@ -94,12 +103,14 @@ export default function Workers() {
       setAnchor(null)
       setAssign({})
       setSpreadIds([])
+      setMastersData(null)
       try {
-        const agents = await getAgents(false)
+        const [agents, masters] = await Promise.all([getAgents(false), getMasters()])
         const diskAgents = (Array.isArray(agents) ? agents : []).filter(
           (a) => a.enabled && a.role?.disk
         )
         setStorageAgents(diskAgents)
+        setMastersData(masters)
       } catch (e) {
         setBatchError(e.message)
       }
@@ -152,6 +163,23 @@ export default function Workers() {
     setBatchError(null)
   }
 
+  // 选择母盘：存完整值 "agent::name"，并把已选 Worker 自动接管到母盘所在节点
+  const handleMasterSelect = (e) => {
+    const v = e.target.value
+    setBatchForm((prev) => ({ ...prev, master: v }))
+    const agent = v.split('::')[0]
+    if (agent && selected.length > 0) {
+      setAssign((prev) => {
+        const next = { ...prev }
+        selected.forEach((id) => {
+          next[id] = agent
+        })
+        return next
+      })
+      setBatchError(null)
+    }
+  }
+
   // 均摊分配：已选 Worker 按参与节点轮流平均分配（覆盖之前分配），需 ≥2 个参与节点
   const handleSpread = () => {
     if (selected.length === 0 || spreadIds.length < 2) return
@@ -195,12 +223,20 @@ export default function Workers() {
       setBatchError(t('workers.batch.noAssign'))
       return
     }
+    if (batchForm.type === 'master') {
+      const masterAgent = batchForm.master.split('::')[0]
+      if (targets.some((t) => t.agent !== masterAgent)) {
+        setBatchError(t('workers.batch.masterNodeMismatch'))
+        return
+      }
+    }
     setSubmitting(true)
     setBatchError(null)
     setBatchResult(null)
     const body = { type: batchForm.type, os: batchForm.os, targets }
     if (batchForm.type === 'master') {
-      body.name = batchForm.name.trim()
+      const idx = batchForm.master.indexOf('::')
+      body.name = idx >= 0 ? batchForm.master.slice(idx + 2) : batchForm.master.trim()
     } else {
       body.size = batchForm.size.trim()
     }
@@ -421,14 +457,20 @@ export default function Workers() {
                 options={DISK_TYPE_OPTIONS}
               />
               {batchForm.type === 'master' ? (
-                <Input
-                  label={t('workers.masterName')}
-                  name="disk_name"
-                  value={batchForm.name}
-                  onChange={(e) => setBatchForm((prev) => ({ ...prev, name: e.target.value }))}
-                  placeholder={t('workers.masterNamePlaceholder')}
-                  required
-                />
+                <>
+                  <Select
+                    label={t('workers.masterName')}
+                    name="disk_name"
+                    value={batchForm.master}
+                    onChange={handleMasterSelect}
+                    options={masterOptions}
+                    placeholder={masterOptions.length === 0 ? t('workers.noMasters') : t('workers.masterSelectPlaceholder')}
+                    required
+                  />
+                  {masterOptions.length > 0 && (
+                    <p className="batch-hint">{t('workers.batch.autoTakeoverHint')}</p>
+                  )}
+                </>
               ) : (
                 <Input
                   label={t('workers.diskSize')}

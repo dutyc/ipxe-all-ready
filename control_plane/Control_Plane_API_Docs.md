@@ -95,7 +95,9 @@ curl -s "$BASE_URL/workers" \
 | `GET` | `/agents` | 查询 Agent 列表与能力 |
 | `POST` | `/agents` | 注册新 Agent（写入 agents.yml，重复 id 返回 409） |
 | `POST` | `/agents/probe` | 探测 Agent 并自动推导注册参数（预览，不写文件） |
+| `PUT` | `/agents/{agent_id}` | 更新 Agent 配置（id 不可改，token 留空保持不变） |
 | `GET` | `/agents/{agent_id}/luns` | 列出指定 Agent 上的 iSCSI target/LUN |
+| `GET` | `/masters` | 聚合列出全部存储节点上的母盘清单（供克隆选盘） |
 | `POST` | `/agents/{agent_id}/luns/disk` | 在指定 Agent 上创建磁盘 LUN（母盘克隆/空白盘） |
 | `POST` | `/agents/{agent_id}/luns/cd` | 在指定 Agent 上创建 CD（ISO 虚拟光驱）LUN |
 | `DELETE` | `/agents/{agent_id}/luns` | 删除指定 Agent 上的 LUN/target |
@@ -462,6 +464,7 @@ curl -s -X POST "$BASE_URL/agents" \
 |---|---:|---|
 | `base_url` | 是 | Agent 控制面 API 地址，须以 `http://` 或 `https://` 开头 |
 | `token` | 否 | Agent 鉴权 Token；Agent 配置了 `IPXE_AGENT_TOKEN` 时必填（Agent 不回显自身 token，无法自动获取） |
+| `agent_id` | 否 | 编辑场景：`token` 留空时，沿用注册表中该 Agent 的 token 探测（未知 id 忽略） |
 
 ### curl
 
@@ -495,6 +498,65 @@ curl -s -X POST "$BASE_URL/agents/probe" \
 |---|---|
 | `400` | `base_url` 非 http(s) 开头 |
 | `502` | Agent 不可达（`/healthz` 失败）或 `/capabilities` 调用失败（如 token 错误） |
+
+---
+
+## 6.3 PUT /agents/{agent_id}
+
+### 说明
+
+更新已有 Agent：覆盖 `config/agents.yml` 中对应条目，保存后立即生效（建盘/挂载调度即用新配置）。`id` 不可改（走路径参数）；`token` 传空字符串 = **保持原值**（API 不回显 token，前端无法回填）。
+
+适用场景：iSCSI Server 配置变动——数据面地址迁移、API 地址变更、Token 轮换、停用 / 启用节点。
+
+### 请求体字段
+
+| 字段 | 必填 | 说明 |
+|---|---:|---|
+| `base_url` | 是 | Agent 控制面 API 地址，须以 `http://` 或 `https://` 开头，末尾 `/` 自动去除 |
+| `token` | 否 | 传空字符串 = 保持原值（不覆盖）；传新值 = 轮换。支持 `${ENV}` 占位 |
+| `iscsi_server` | 否 | iSCSI 数据面地址。缺省时回退为 `base_url` 的主机名 |
+| `role` | 否 | 角色：`disk`=可建系统盘，`cd`=可挂载 ISO；默认 `{disk: false, cd: false}` |
+| `tags` | 否 | 自由标签数组 |
+| `enabled` | 否 | 是否启用；`false` 停用（不再参与建盘/挂载调度与存活探测）；默认 `true` |
+
+### curl
+
+```bash
+curl -s -X PUT "$BASE_URL/agents/storage-stgt-02" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "base_url": "http://host.docker.internal:4840",
+    "token": "",
+    "iscsi_server": "192.168.1.8",
+    "role": {"disk": true, "cd": false},
+    "tags": ["storage", "stgt"],
+    "enabled": true
+  }'
+```
+
+### 成功返回（200）
+
+```json
+{
+  "id": "storage-stgt-02",
+  "base_url": "http://host.docker.internal:4840",
+  "iscsi_server": "192.168.1.8",
+  "role": {"disk": true, "cd": false},
+  "enabled": true,
+  "tags": ["storage", "stgt"]
+}
+```
+
+### 错误返回
+
+| 状态码 | 场景 |
+|---|---|
+| `400` | `base_url` 非 http(s) 开头 |
+| `404` | Agent `id` 不存在 |
+
+> **编辑探测**：编辑场景建议先调 `POST /agents/probe`（6.2）验证新地址可达再保存——`token` 留空时，探测请求带 `agent_id` 参数即可，后端自动沿用注册表中该 Agent 的 token。
 
 ---
 
@@ -1564,7 +1626,55 @@ curl -s -X POST "$BASE_URL/agents/storage-lio-01/luns/scan" \
 
 ---
 
-## 15. 当前实现边界
+## 15. GET /masters（母盘清单）
+
+### 说明
+
+聚合列出全部**启用磁盘角色**（`enabled=true` 且 `role.disk=true`）Agent 上的母盘清单。母盘由存储节点 Agent 的后台扫描线程周期扫描（默认每 30 秒），识别 `DISK_DIR` 下文件名含 `_tpl_` 标记的镜像文件（如 `_tpl_ubuntu_2204.img`）。
+
+供 WebUI 母盘克隆下拉列表选盘。**与创建 Worker 的 API 无联动**——纯只读查询，不改任何状态，不写台账。
+
+### 失败容错
+
+- 单台 Agent 不可达或鉴权失败：该节点返回 `error` 字段并记审计 `master.list`（failed），**不阻塞整体**；
+- 全部节点失败：整体返回 `502`；
+- 部分成功 / 无可用节点：返回 `200`（无节点时 `agents` 为空数组）。
+
+### curl
+
+```bash
+curl -s "$BASE_URL/masters" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### 成功返回示例
+
+```json
+{
+  "agents": [
+    {
+      "agent": "storage-lio-01",
+      "iscsi_server": "192.168.80.3",
+      "masters": [
+        {"name": "_tpl_ubuntu_2204.img", "size": 10737418240, "mtime": 1785643200},
+        {"name": "_tpl_debian_12.img", "size": 8589934592, "mtime": 1785729600}
+      ]
+    }
+  ]
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `agents` | 数组，每项对应一个启用磁盘角色的 Agent |
+| `agents[].agent` | Agent 编号（`config/agents.yml` 的 key） |
+| `agents[].iscsi_server` | 数据面 iSCSI 地址（与 `/boot-vars` 相同的回退规则） |
+| `agents[].masters` | 母盘数组，每项 `{name, size, mtime}`：文件名 / 字节大小 / 修改时间戳 |
+| `agents[].error` | 该节点查询失败时的错误详情（成功节点无此字段） |
+
+---
+
+## 16. 当前实现边界
 
 当前版本已经支持：
 
@@ -1574,6 +1684,7 @@ curl -s -X POST "$BASE_URL/agents/storage-lio-01/luns/scan" \
 - Worker 删除
 - Agent 选择
 - Agent LUN 直管（列出 / 创建磁盘 / 创建 CD / 删除 / 扫描）
+- 母盘清单查询（`GET /masters`，存储节点后台周期扫描缓存）
 - Windows ISO 特例
 - dnsmasq 主机名绑定
 - Worker 与操作轨迹查询

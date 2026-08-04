@@ -80,6 +80,10 @@ export function createAgent(data) {
   return request('/agents', { method: 'POST', body: data });
 }
 
+export function updateAgent(agentId, data) {
+  return request(`/agents/${agentId}`, { method: 'PUT', body: data });
+}
+
 export function probeAgent(data) {
   return request('/agents/probe', { method: 'POST', body: data });
 }
@@ -106,6 +110,12 @@ export function deleteAgentLun(agentId, iqn, deleteFile = false) {
 
 export function scanAgentLuns(agentId) {
   return request(`/agents/${agentId}/luns/scan`, { method: 'POST' });
+}
+
+// ===== Masters =====
+export function getMasters() {
+  // 聚合列出全部启用磁盘角色 Agent 上的母盘: { agents: [{ agent, iscsi_server, masters: [{name,size,mtime}] }] }
+  return request('/masters');
 }
 
 // ===== Workers =====

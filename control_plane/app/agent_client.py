@@ -66,6 +66,10 @@ class AgentClient:
     def list_luns(self) -> list[dict[str, Any]]:
         return self._request("GET", "/lun")
 
+    def list_masters(self) -> dict[str, Any]:
+        """列出 Agent 上可用母盘（后台扫描缓存的 *_tpl_* 文件清单）。"""
+        return self._request("GET", "/masters")
+
     def _request(self, method: str, path: str, *, auth: bool = True, **kwargs: Any) -> Any:
         headers = kwargs.pop("headers", {})
         if auth:

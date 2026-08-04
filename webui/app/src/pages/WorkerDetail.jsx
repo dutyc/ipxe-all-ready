@@ -9,6 +9,7 @@ import {
   deleteWorkerDisk,
   setWorkerDefaultBoot,
   getAgents,
+  getMasters,
 } from '../api/client'
 import { useI18n } from '../i18n'
 import Button from '../components/Button'
@@ -43,6 +44,7 @@ export default function WorkerDetail() {
   const [error, setError] = useState(null)
   const [statusLoading, setStatusLoading] = useState(false)
   const [agentsList, setAgentsList] = useState([])
+  const [mastersData, setMastersData] = useState(null)
   const [diskForm, setDiskForm] = useState({ os: 'ubuntu', type: 'empty', name: '', size: '40G', disk_agent: '' })
   const [creatingDisk, setCreatingDisk] = useState(false)
   const [diskCreateError, setDiskCreateError] = useState(null)
@@ -70,6 +72,13 @@ export default function WorkerDetail() {
     { value: 'empty', label: t('workers.empty') },
     { value: 'master', label: t('workers.master') },
   ]
+
+  // 母盘清单按当前所选存储节点过滤（value 直接存母盘名，agent 已由 disk_agent 单独选择）
+  const masterOptions = (mastersData?.agents || [])
+    .filter((entry) => !diskForm.disk_agent || entry.agent === diskForm.disk_agent)
+    .flatMap((entry) =>
+      (entry.masters || []).map((m) => ({ value: m.name, label: m.name }))
+    )
 
   const buildBootVarsCode = (bv, worker) => {
     if (bv && Object.keys(bv).length > 0) {
@@ -117,17 +126,22 @@ export default function WorkerDetail() {
     let cancelled = false
     async function loadDiskAgents() {
       try {
-        const agents = await getAgents(false)
+        const [agents, masters] = await Promise.all([
+          getAgents(false),
+          getMasters().catch(() => null), // 全部 Agent 失败时聚合端点 502，母盘下拉置空即可
+        ])
         if (cancelled) return
         const diskAgents = (Array.isArray(agents) ? agents : []).filter(
           (a) => a.enabled && a.role?.disk
         )
         setAgentsList(diskAgents)
+        setMastersData(masters)
         if (diskAgents.length > 0) {
           setDiskForm((prev) => ({ ...prev, disk_agent: prev.disk_agent || diskAgents[0].id }))
         }
       } catch {
         setAgentsList([])
+        setMastersData(null)
       }
     }
     loadDiskAgents()
@@ -310,12 +324,13 @@ export default function WorkerDetail() {
             options={DISK_TYPE_OPTIONS}
           />
           {diskForm.type === 'master' ? (
-            <Input
+            <Select
               label={t('workers.masterName')}
               name="disk_name"
               value={diskForm.name}
               onChange={(e) => { setDiskForm((prev) => ({ ...prev, name: e.target.value })) }}
-              placeholder={t('workers.masterNamePlaceholder')}
+              options={masterOptions}
+              placeholder={masterOptions.length === 0 ? t('workers.noMasters') : t('workers.masterSelectPlaceholder')}
               required
             />
           ) : (
@@ -333,7 +348,10 @@ export default function WorkerDetail() {
               label={t('workers.diskAgent')}
               name="disk_agent"
               value={diskForm.disk_agent}
-              onChange={(e) => { setDiskForm((prev) => ({ ...prev, disk_agent: e.target.value })) }}
+              onChange={(e) => {
+                // 切换节点后母盘清单随之过滤，已选母盘不再有效则清空
+                setDiskForm((prev) => ({ ...prev, disk_agent: e.target.value, name: '' }))
+              }}
               options={agentsList.map((a) => ({
                 value: a.id,
                 label: `${a.id}${a.iscsi_server ? ` (${a.iscsi_server})` : ''}`,

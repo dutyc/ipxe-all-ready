@@ -38,7 +38,7 @@ After cloning, the iBFT mechanism guarantees bootability — no in‑disk proces
 ## Environment Preparation
 
 Deployment of the Controller (Control Plane) and the storage node (Agent + iSCSI backend) is covered in *Environment Deployment*. The process is platform‑agnostic and treats Windows and Debian identically.  
-The only contract: `IPXE_IQN_BASE` must match the `base-iqn` in `tftp/boot.ipxe.cfg`.
+The only contract: each storage node's `IPXE_IQN_BASE` is authoritative for the disks it hosts — disk IQNs are built from it at creation time, and at Worker boot iPXE fetches the actual `base-iqn` from `/boot-vars` (resolved to the node hosting the Worker's system disk), overriding the static fallback (placeholder) in `tftp/boot.ipxe.cfg`. The two do not need to match.
 
 ---
 
@@ -142,21 +142,20 @@ On the Workers page, click a Worker to enter its detail page and create a system
 |---|---|
 | Operating System (OS) | `Windows` |
 | Disk Type | `Master` (golden‑image clone) |
-| Master Name | `_tpl_windows_23h2.img` (the golden‑image name from Step 1) |
+| Master Name | Select `_tpl_windows_23h2.img` from the dropdown (the golden‑image name from Step 1) |
 
 Click create — the process **completes in seconds**. The clone uses filesystem reflink (copy‑on‑write) to instantly produce a full system disk.  
 At the same time, the iSCSI Target is automatically created with the IQN named (`iqn.2026-07.com.controller:worker-01.windows`). No command‑line interaction is required throughout the entire process.
 
-## Step 5: Set Default Boot (Optional)
+## Step 5: Set Default Boot
 
-If not set, each time the Worker boots it will display the iPXE menu, where you must manually select **Boot Windows from iSCSI**.
-
-To boot directly to the desktop, configure the **Default Boot** section on the Worker detail page:
+After setting the default OS, the Worker boots straight into the system on power‑on, with no need to select it manually at the iPXE menu. Configure it in the **Default Boot** section of the Worker detail page:
 
 | Form Field | Value |
 |---|---|
-| Default OS | `Windows` |
-| Menu Default | `windows` |
+| Default OS | Select `Windows` from the dropdown (options come from the system disks already mounted on this Worker — the disk cloned in Step 4) |
+
+> Only the **Default OS** field is required. Leave **Menu Default** at its default (reboot) — do not change it. The derivation chain is `default_os > boot.menu_default > reboot`: once `default_os` is set it takes priority, and an unset menu item keeps the reboot fallback.
 
 After saving, the boot variables for this Worker are delivered immediately (`/boot-vars`). On the next boot the system will go straight into Windows.
 
@@ -179,6 +178,6 @@ After saving, the boot variables for this Worker are delivered immediately (`/bo
 | After booting, the cloned disk stops at the iPXE menu | The default boot is not set; manually select **Boot Windows from iSCSI**, or set it up according to Step 5 |
 | The cloned disk fails to boot (spinning circle / blue screen) | Issue with the golden image itself: check that the network driver is in place in the golden image, and that the golden image boots correctly inside a VM |
 | Multiple clones share the same computer name | This is expected (no machine identity is written inside the disk). If you need to differentiate them, handle it manually (rename / sysprep) — it does not affect bootability |
-| iSCSI target not found | ① Verify that `IPXE_IQN_BASE` in `iscsi-server/.env` matches `base-iqn` in `tftp/boot.ipxe.cfg`; ② Confirm the Worker is registered in the WebUI (the hostname binding is in effect); ③ On the detail page, the IQN in the disk list should be `…:worker-xx.windows` |
+| iSCSI target not found | ① Verify the `IPXE_IQN_BASE` in `iscsi-server/.env` on the storage node hosting the Worker's system disk (authoritative: disk IQNs are built from it; `/boot-vars` returns it for the hosting node); ② Confirm the Worker is registered in the WebUI (the hostname binding is in effect); ③ On the detail page, the IQN in the disk list should be `…:worker-xx.windows` |
 | WebUI operation returns 401 | The Control Plane has `IPXE_CP_TOKEN` set but `webui/app/.env` is not synchronized (see *Environment Deployment* 1.4), or the WebUI was not rebuilt after the change |
 | Want to switch the golden‑image version | Upload a new golden image → choose the new golden image when cloning the target Worker. Existing Worker disks are not affected |
