@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "iPXE-All-Ready"
   text: "Zero to Ready. Plug and Boot."
-  tagline: "Enterprise-grade, stateless computing infrastructure on 100% open-source iPXE + iSCSI toolchains — with a central control plane, a web management UI and zero-touch provisioning."
+  tagline: "A true cloud-native implementation on 100% open-source iPXE + iSCSI toolchains — statelessness carried down to the compute layer itself, compute bound to no specific hardware; with a central control plane, a web management UI and zero-touch provisioning."
   actions:
     - theme: brand
       text: "Quick Deploy"

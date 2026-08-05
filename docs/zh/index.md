@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "iPXE-All-Ready"
   text: "零接触接入,插电即就绪"
-  tagline: "基于 100% 开源工具链(iPXE + iSCSI)的企业级无状态计算基础设施底座 —— 配备中心控制面、Web 管理界面与零接触自动注册。"
+  tagline: "基于 100% 开源工具链（iPXE + iSCSI）的真正的云原生实现 —— 把「无状态」贯彻到算力层本身，算力不绑定任何具体硬件；配备中心控制面、Web 管理界面与零接触自动注册。"
   actions:
     - theme: brand
       text: "快速部署"

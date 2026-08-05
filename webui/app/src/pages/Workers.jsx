@@ -61,13 +61,11 @@ export default function Workers() {
     { value: 'master', label: t('workers.master') },
   ]
 
-  // 聚合母盘清单平铺为选项: value="agent::name"（母盘所在节点与选中值绑定，选择后自动接管）
-  const masterOptions = (mastersData?.agents || []).flatMap((entry) =>
-    (entry.masters || []).map((m) => ({
-      value: `${entry.agent}::${m.name}`,
-      label: `${entry.agent} / ${m.name}`,
-    }))
-  )
+  // 聚合母盘清单按母盘名去重为纯名选项（不绑定节点）；均摊克隆时各参与节点须本地都有该母盘（提交时校验）
+  const masterOptions = (mastersData?.agents || [])
+    .flatMap((entry) => (entry.masters || []).map((m) => m.name))
+    .filter((name, idx, arr) => arr.indexOf(name) === idx)
+    .map((name) => ({ value: name, label: name }))
 
   const form = useForm({
     worker_id: '',
@@ -163,21 +161,10 @@ export default function Workers() {
     setBatchError(null)
   }
 
-  // 选择母盘：存完整值 "agent::name"，并把已选 Worker 自动接管到母盘所在节点
+  // 选择母盘：只记录母盘名（不再绑定/接管节点）；节点分配由均摊/接管/拖拽侧边栏决定
   const handleMasterSelect = (e) => {
-    const v = e.target.value
-    setBatchForm((prev) => ({ ...prev, master: v }))
-    const agent = v.split('::')[0]
-    if (agent && selected.length > 0) {
-      setAssign((prev) => {
-        const next = { ...prev }
-        selected.forEach((id) => {
-          next[id] = agent
-        })
-        return next
-      })
-      setBatchError(null)
-    }
+    setBatchForm((prev) => ({ ...prev, master: e.target.value }))
+    setBatchError(null)
   }
 
   // 均摊分配：已选 Worker 按参与节点轮流平均分配（覆盖之前分配），需 ≥2 个参与节点
@@ -224,9 +211,20 @@ export default function Workers() {
       return
     }
     if (batchForm.type === 'master') {
-      const masterAgent = batchForm.master.split('::')[0]
-      if (targets.some((t) => t.agent !== masterAgent)) {
-        setBatchError(t('workers.batch.masterNodeMismatch'))
+      const masterName = batchForm.master.trim()
+      // 母盘克隆在节点本地完成：均摊激活（≥2 节点参与）时检查参与均摊的节点，否则检查全部实际分配节点
+      // ——每个待克隆节点都须本地存在该母盘，缺失则列出并阻止提交，由用户调整（移除勾选或先补母盘）
+      const assignedAgents = [...new Set(targets.map((t) => t.agent))]
+      const checkAgents =
+        spreadIds.length >= 2 && spreadIds.some((a) => assignedAgents.includes(a))
+          ? [...spreadIds]
+          : assignedAgents
+      const missing = checkAgents.filter((aid) => {
+        const entry = (mastersData?.agents || []).find((e) => e.agent === aid)
+        return !entry || !(entry.masters || []).some((m) => m.name === masterName)
+      })
+      if (missing.length > 0) {
+        setBatchError(t('workers.batch.masterMissingOnNodes', { nodes: missing.join(', ') }))
         return
       }
     }
@@ -235,8 +233,7 @@ export default function Workers() {
     setBatchResult(null)
     const body = { type: batchForm.type, os: batchForm.os, targets }
     if (batchForm.type === 'master') {
-      const idx = batchForm.master.indexOf('::')
-      body.name = idx >= 0 ? batchForm.master.slice(idx + 2) : batchForm.master.trim()
+      body.name = batchForm.master.trim()
     } else {
       body.size = batchForm.size.trim()
     }
@@ -468,7 +465,7 @@ export default function Workers() {
                     required
                   />
                   {masterOptions.length > 0 && (
-                    <p className="batch-hint">{t('workers.batch.autoTakeoverHint')}</p>
+                    <p className="batch-hint">{t('workers.batch.spreadMasterHint')}</p>
                   )}
                 </>
               ) : (

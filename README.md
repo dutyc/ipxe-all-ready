@@ -4,7 +4,9 @@
 
 [中文版](./README.zh-CN.md) | [English](./README.md)
 
-**iPXE-All-Ready** is an open-source, enterprise-grade diskless computing platform built on a fully open-source toolchain (iPXE + iSCSI). It delivers stateless compute nodes that boot straight from the network — no local disk, no manual pre-registration, no vendor lock-in.
+**iPXE-All-Ready** is a true cloud-native implementation built on a fully open-source toolchain (iPXE + iSCSI): it carries statelessness down to the compute layer itself — compute nodes hold no persistent state of their own; identity, OS, and data are granted externally by the network and the control plane, so nodes can be discarded, replaced, and rebuilt in an instant. A node with no local disk comes alive the moment a cable is plugged in: no manual pre-registration, no vendor lock-in.
+
+**Our Manifesto:** [Manifesto.md](./Manifesto.md) — *My Definition of Cloud Native* (English; Chinese original: [Manifesto_zh-CN.md](./Manifesto_zh-CN.md)).
 
 The project has evolved from a diskless-boot proof of concept into a complete control plane: new machines are auto-registered the moment they plug in, and adding a system disk or switching the default OS is a few clicks in the Web UI. **All truly means All. Ready truly means Production-Ready.**
 
@@ -75,7 +77,7 @@ Highlights:
 
 ## Roadmap
 
-The vision: a cross-platform, cross-architecture, cloud-native stateless computing foundation. See **[ROADMAP.md](./ROADMAP.md)** for the full plan (Phase 1–4).
+The vision: a cross-platform, cross-architecture cloud-native meta-protocol spanning every compute layer — one stateless semantics, self-similarly nested across bare metal and hypervisors alike, compute bound to no specific hardware, cloud within cloud at every level. See **[ROADMAP.md](./ROADMAP.md)** for the full plan (Phase 1–4).
 
 **Phase 1 — Core System Breakthrough is complete**: Debian 12, Ubuntu 22.04 LTS, and Windows 11 24H2/25H2 full chains validated, with the distributed control plane and Web UI already landed.
 
