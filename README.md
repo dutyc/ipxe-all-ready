@@ -94,6 +94,8 @@ This does not mean mastering every line of iPXE syntax, nor hand-writing iSCSI l
 
 **The AI can handle the syntax, but architecture understanding must be done by a human brain.** If the design logic behind a PR cannot be clearly articulated by its contributor, we will reject the merge. If you don't understand the architecture yet, filing an Issue or Idea is more valuable than submitting a PR — an Issue is a signal that doesn't pollute the codebase; a PR is a solution that requires depth.
 
+Our full AI-assistance policy statement, including the real-world case behind it (the complete PR #3 record), lives in [AI_POLICY.md](./AI_POLICY.md) (English; Chinese original: [AI_POLICY_zh-CN.md](./AI_POLICY_zh-CN.md)).
+
 This is not a rejection of tools, but a commitment to the project's long-term quality. We welcome every companion willing to understand the architecture, and thank every user who provides real usage feedback.
 
 ## License

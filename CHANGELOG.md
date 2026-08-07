@@ -195,6 +195,7 @@
 - Control Plane：`GET/PUT /settings/auto-register` —— 全局自动注册开关运行时切换：环境变量 `IPXE_CP_AUTO_REGISTER` 降级为**启动默认值**，运行时状态持久化到 `state/settings.json`（重启保留、优先于环境变量、立即生效）；关闭后新 MAC 不再自动注册（已注册 Worker 不受影响）；切换写入操作日志（`settings.auto_register`）
 - WebUI：Workers 页面工具栏新增「自动注册」开关按钮（状态点指示开/关、点击即切换、加载/切换失败显示错误信息）；i18n 中英文案同步
 - 文档：控制面 API 参考中英两版新增 5.1 章节 `GET/PUT /settings/auto-register`（含两种配置方式对比表：环境变量 vs 运行时 API），第 3 节端点概览与第 5 节配置表同步更新；《项目环境部署》中英两版新增 1.4.1「自动注册开关」小节（部署时环境变量固定 vs 部署后 WebUI/API 运行时切换，含手动注册提醒）
+- 文档：新增仓库根目录 `AI_POLICY_zh-CN.md` / `AI_POLICY.md`（《对 AI 辅助的态度》中英双语立场声明——「总设计师与施工队」边界、语法归 AI / 架构归人脑、PR #3 自动化扫描器误报真实案例记录）；README 两版「参与贡献 · 关于 AI 辅助」段落末尾引用（中文完整引用；英文正式引用，含中文原文互指）
 
 ### 变更
 

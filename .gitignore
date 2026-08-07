@@ -28,6 +28,7 @@ Thumbs.db
 .stignore
 .idea/
 .vscode/
+email-reply-rtl8125.html
 *.sublime-project
 *.sublime-workspace
 webui/deploy/public/install/debian/12/netboot
