@@ -64,7 +64,7 @@ def healthz():
     return {"status": "ok"}
 
 
-@app.get("/boot-vars")
+@app.get("/boot-vars", dependencies=[Depends(verify_control_token)])
 def boot_vars(
     mac: str | None = None,
     hostname: str | None = None,
