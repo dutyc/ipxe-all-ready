@@ -94,6 +94,8 @@ curl -s "$BASE_URL/workers" \
 |---|---|---|
 | `GET` | `/healthz` | 健康检查 |
 | `GET` | `/boot-vars` | iPXE 启动变量动态注入，不鉴权 |
+| `GET` | `/settings/auto-register` | 查询全局自动注册开关（运行时状态，见 5.1） |
+| `PUT` | `/settings/auto-register` | 切换全局自动注册开关（持久化、立即生效，见 5.1） |
 | `GET` | `/agents` | 查询 Agent 列表与能力 |
 | `POST` | `/agents` | 注册新 Agent（写入 agents.yml，重复 id 返回 409） |
 | `POST` | `/agents/probe` | 探测 Agent 并自动推导注册参数（预览，不写文件） |
@@ -209,7 +211,7 @@ os=windows -> menu_default=windows
 
 | 变量 | 默认 | 说明 |
 |---|---:|---|
-| `IPXE_CP_AUTO_REGISTER` | `true` | 关闭后新 MAC 不再自动注册（返回空脚本） |
+| `IPXE_CP_AUTO_REGISTER` | `true` | 自动注册的**启动默认值**；运行时可用 `GET/PUT /settings/auto-register` 切换（持久化到 `state/settings.json`，重启保留，优先于环境变量，见 5.1） |
 | `IPXE_CP_AUTO_BOOT_TIMEOUT` | `1` | reboot 循环的菜单超时（毫秒） |
 
 自动注册全程有操作日志（`auto_register`），失败会回滚台账并返回空脚本，下次请求重试，不影响 iPXE 引导。
@@ -326,6 +328,59 @@ agents:
 ```
 
 如果没有配置 `iscsi_server`，Control Plane 会退回使用 `base_url` 的 host 部分；但当 `base_url` 是 `host.docker.internal` 时，这个值不适合给物理 Worker 使用。
+
+### 5.1 GET/PUT /settings/auto-register
+
+#### 说明
+
+全局自动注册开关：控制**新 MAC** 首次请求 `/boot-vars` 时是否自动注册为 Worker（自动注册流程见 5 节）。关闭后新 MAC 返回空脚本，需管理员手动注册（`POST /workers`）。**已注册 Worker 不受影响**——开关只作用于新 MAC。
+
+启用/禁用有两种方式，运行时 API 优先于环境变量：
+
+| 方式 | 生效时机 | 持久性 | 优先级 |
+|---|---|---|---|
+| 环境变量 `IPXE_CP_AUTO_REGISTER=true/false`（compose 环境，见上方配置表） | 容器启动时 | 随 compose 配置 | 低（启动默认值） |
+| `PUT /settings/auto-register` | 立即 | `state/settings.json`，重启保留 | 高 |
+
+#### GET /settings/auto-register
+
+查询当前生效值：运行时状态（`state/settings.json`）优先，未设置时回退环境变量默认。
+
+**响应**：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `enabled` | bool | 当前是否自动注册 |
+
+```json
+{"enabled": true}
+```
+
+#### PUT /settings/auto-register
+
+切换开关并持久化，立即生效；写入操作日志（`settings.auto_register`）。
+
+**请求体**：
+
+| 字段 | 必填 | 类型 | 说明 |
+|---|---|---|---|
+| `enabled` | 是 | bool | `false` = 关闭自动注册（新 MAC 不再自动登记） |
+
+**响应**：同 GET，返回切换后的 `{"enabled": bool}`。
+
+#### curl
+
+```bash
+# 启用
+curl -X PUT http://<host>:4839/settings/auto-register \
+  -H "Authorization: Bearer $CP_TOKEN" -H "Content-Type: application/json" \
+  -d '{"enabled": true}'
+
+# 禁用
+curl -X PUT http://<host>:4839/settings/auto-register \
+  -H "Authorization: Bearer $CP_TOKEN" -H "Content-Type: application/json" \
+  -d '{"enabled": false}'
+```
 
 ---
 

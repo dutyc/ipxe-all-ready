@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { getWorkers, getAgents, createWorker, batchCreateWorkerDisks, batchDeleteWorkers, getMasters } from '../api/client'
+import { getWorkers, getAgents, createWorker, batchCreateWorkerDisks, batchDeleteWorkers, getMasters, getAutoRegister, setAutoRegister } from '../api/client'
 import { useI18n } from '../i18n'
 import Button from '../components/Button'
 import Input from '../components/Input'
@@ -32,6 +32,10 @@ export default function Workers() {
   const [workers, setWorkers] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  // ===== 全局自动注册开关（运行时设置，立即生效并持久化） =====
+  const [autoRegister, setAutoRegisterState] = useState(null)
+  const [autoRegisterBusy, setAutoRegisterBusy] = useState(false)
+  const [autoRegisterError, setAutoRegisterError] = useState(null)
   const [filter, setFilter] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -272,9 +276,33 @@ export default function Workers() {
 
   const hasDisk = (w) => Array.isArray(w.disks) && w.disks.length > 0
 
+  const fetchAutoRegister = useCallback(async () => {
+    try {
+      const res = await getAutoRegister()
+      setAutoRegisterState(res.enabled)
+    } catch (e) {
+      setAutoRegisterError(e.message)
+    }
+  }, [])
+
   useEffect(() => {
     fetchWorkers()
-  }, [fetchWorkers])
+    fetchAutoRegister()
+  }, [fetchWorkers, fetchAutoRegister])
+
+  // 切换全局自动注册开关：false 后新 MAC 不再自动注册（已注册 Worker 不受影响）
+  const handleToggleAutoRegister = async () => {
+    setAutoRegisterBusy(true)
+    setAutoRegisterError(null)
+    try {
+      const res = await setAutoRegister(!autoRegister)
+      setAutoRegisterState(res.enabled)
+    } catch (e) {
+      setAutoRegisterError(e.message)
+    } finally {
+      setAutoRegisterBusy(false)
+    }
+  }
 
   const handleCreate = async (e) => {
     e.preventDefault()
@@ -516,6 +544,23 @@ export default function Workers() {
 
         <div className="workers-main">
           <div className="workers-toolbar">
+            <button
+              className={`auto-register-toggle ${autoRegister ? 'art-on' : 'art-off'}`}
+              onClick={handleToggleAutoRegister}
+              disabled={autoRegister === null || autoRegisterBusy}
+              title={t('workers.autoRegister.hint')}
+            >
+              <span className="art-dot" />
+              {t('workers.autoRegister.label')}:{' '}
+              {autoRegister === null
+                ? t('workers.autoRegister.unknown')
+                : autoRegister
+                  ? t('workers.autoRegister.on')
+                  : t('workers.autoRegister.off')}
+            </button>
+            {autoRegisterError && (
+              <span className="workers-toolbar-error">{autoRegisterError}</span>
+            )}
             <input
               className="workers-filter"
               placeholder={t('workers.filter')}

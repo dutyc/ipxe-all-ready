@@ -15,6 +15,7 @@ class Settings:
     agents_file: Path = Path(os.getenv("IPXE_CP_AGENTS_FILE", "config/agents.yml"))
     workers_file: Path = Path(os.getenv("IPXE_CP_WORKERS_FILE", "state/workers.yml"))
     operations_file: Path = Path(os.getenv("IPXE_CP_OPERATIONS_FILE", "state/operations.jsonl"))
+    settings_file: Path = Path(os.getenv("IPXE_CP_SETTINGS_FILE", "state/settings.json"))
     dnsmasq_hosts_file: Path = Path(os.getenv("IPXE_CP_DNSMASQ_HOSTS_FILE", "dnsmasq/dhcp-hosts.conf"))
     dnsmasq_container: str = os.getenv("IPXE_CP_DNSMASQ_CONTAINER", "ipxe-dnsmasq")
     dnsmasq_reload: bool = _bool_env("IPXE_CP_DNSMASQ_RELOAD", True)

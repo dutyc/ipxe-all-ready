@@ -35,6 +35,34 @@ class FileStateStore:
         _atomic_write_text(self.workers_file, yaml.safe_dump(data, sort_keys=True, allow_unicode=False))
 
 
+class RuntimeSettings:
+    """运行时设置（布尔开关）：文件存在则覆盖环境变量默认值（进程内立即生效、重启保留），
+    文件不存在时回退环境变量默认。
+    """
+
+    def __init__(self, path: Path):
+        self.path = path
+        self._lock = threading.RLock()
+
+    @contextmanager
+    def locked(self):
+        with self._lock:
+            yield
+
+    def get(self, key: str, default: bool) -> bool:
+        data = _load_yaml(self.path, {})
+        if key in data:
+            return bool(data[key])
+        return default
+
+    def set(self, key: str, value: bool) -> bool:
+        with self._lock:
+            data = _load_yaml(self.path, {})
+            data[key] = bool(value)
+            _atomic_write_text(self.path, yaml.safe_dump(data, sort_keys=True))
+            return bool(value)
+
+
 class OperationLog:
     def __init__(self, path: Path):
         self.path = path

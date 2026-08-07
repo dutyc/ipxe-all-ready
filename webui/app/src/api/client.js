@@ -71,6 +71,15 @@ export function bootVars(params) {
   return request('/boot-vars', { params });
 }
 
+// ===== Settings =====
+export function getAutoRegister() {
+  return request('/settings/auto-register');
+}
+
+export function setAutoRegister(enabled) {
+  return request('/settings/auto-register', { method: 'PUT', body: { enabled } });
+}
+
 // ===== Agents =====
 export function getAgents(live = true) {
   return request('/agents', { params: { live } });

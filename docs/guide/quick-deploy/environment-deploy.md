@@ -103,6 +103,24 @@ VITE_CP_TOKEN=your-token
 > Note: `VITE_` variables are injected at build time. After modification you need to rebuild the WebUI: `cd webui/app && npm install && npm run build`.  
 > If you skip this section (leave the Token empty), no rebuild is necessary.
 
+### 1.4.1 Auto-register Switch (optional; on by default)
+
+A new MAC is auto-registered as a Worker on its first `/boot-vars` request (zero-touch; enabled by default). To turn it off (e.g. during a mass machine rollout where you want to register machines manually first), there are two ways:
+
+**Option 1: Fixed at deploy time (env var)** — append to `control_plane/control_plane.env`; takes effect at container startup:
+
+```env
+# false = disable auto-registration (new MACs get an empty script and wait for manual registration)
+IPXE_CP_AUTO_REGISTER=false
+```
+
+**Option 2: Runtime toggle (WebUI button / API)** — switch anytime after deployment; takes effect immediately and persists (`state/settings.json`, survives restarts), taking precedence over the env var:
+
+- WebUI: the "Auto-register" button in the Workers page toolbar (dark = on, light = off)
+- API: `PUT /settings/auto-register` (see API Reference 5.1)
+
+> The switch only affects **new MACs**: when off, unregistered machines must be registered manually via the "Add Worker" form in the WebUI or `POST /workers`; existing Workers are unaffected.
+
 ### 1.5 Start the Controller
 
 ```bash

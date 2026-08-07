@@ -43,6 +43,13 @@ const zh = {
     windowsIsoPlaceholder: 'Win11_24H2.iso',
     createBtn: '创建',
     creating: '创建中...',
+    autoRegister: {
+      label: '自动注册',
+      on: '开',
+      off: '关',
+      unknown: '未知',
+      hint: '控制新 MAC 首次请求 /boot-vars 时是否自动注册为 Worker：立即生效并持久化（重启保留）；环境变量 IPXE_CP_AUTO_REGISTER 为启动默认值',
+    },
     filter: '筛选...',
     count: '{count} 个',
     noMatch: '无匹配节点。',

@@ -94,6 +94,8 @@ Notes:
 |---|---|---|
 | `GET` | `/healthz` | Health check |
 | `GET` | `/boot-vars` | Dynamic iPXE boot variable injection, no auth required |
+| `GET` | `/settings/auto-register` | Get the global auto-register switch (runtime state, see 5.1) |
+| `PUT` | `/settings/auto-register` | Toggle the global auto-register switch (persisted, takes effect immediately, see 5.1) |
 | `GET` | `/agents` | List Agents and their capabilities |
 | `POST` | `/agents` | Register a new Agent (writes agents.yml; 409 if id exists) |
 | `POST` | `/agents/probe` | Probe an Agent and auto-derive registration parameters (preview, no file writes) |
@@ -207,7 +209,7 @@ Configuration (environment variables):
 
 | Variable | Default | Description |
 |---|---:|---|
-| `IPXE_CP_AUTO_REGISTER` | `true` | When set to `false`, new MACs are no longer automatically registered (returns an empty script). |
+| `IPXE_CP_AUTO_REGISTER` | `true` | **Startup default** for auto-registration; the runtime value can be toggled via `GET/PUT /settings/auto-register` (persisted to `state/settings.json`, survives restarts, takes precedence over the env var, see 5.1) |
 | `IPXE_CP_AUTO_BOOT_TIMEOUT` | `1` | Menu timeout in milliseconds during the reboot loop. |
 
 The entire auto-registration process is logged as operations (`auto_register`). On failure, the inventory is rolled back and an empty script is returned, so the next request will retry without affecting the iPXE boot process.
@@ -324,6 +326,59 @@ agents:
 ```
 
 If `iscsi_server` is not configured, the Control Plane falls back to the host portion of `base_url`. However, when `base_url` is `host.docker.internal`, this value is not suitable for physical Workers.
+
+### 5.1 GET/PUT /settings/auto-register
+
+#### Description
+
+The global auto-register switch controls whether a **new MAC** is auto-registered as a Worker on its first `/boot-vars` request (see the auto-registration flow in Section 5). When disabled, new MACs receive an empty script and must be registered manually via `POST /workers`. **Existing Workers are unaffected** — the switch only applies to new MACs.
+
+There are two ways to enable/disable auto-registration; the runtime API takes precedence over the env var:
+
+| Method | Takes effect | Persistence | Priority |
+|---|---|---|---|
+| Env var `IPXE_CP_AUTO_REGISTER=true/false` (compose environment, see config table above) | Container startup | With compose config | Low (startup default) |
+| `PUT /settings/auto-register` | Immediately | `state/settings.json`, survives restarts | High |
+
+#### GET /settings/auto-register
+
+Queries the effective value: runtime state (`state/settings.json`) takes precedence; falls back to the env var default when unset.
+
+**Response**:
+
+| Field | Type | Description |
+|---|---|---|
+| `enabled` | bool | Whether auto-registration is currently on |
+
+```json
+{"enabled": true}
+```
+
+#### PUT /settings/auto-register
+
+Toggles the switch and persists it; takes effect immediately; recorded as an operation (`settings.auto_register`).
+
+**Request body**:
+
+| Field | Required | Type | Description |
+|---|---|---|---|
+| `enabled` | Yes | bool | `false` = disable auto-registration (new MACs are no longer auto-registered) |
+
+**Response**: same as GET, returns the new `{"enabled": bool}`.
+
+#### curl
+
+```bash
+# Enable
+curl -X PUT http://<host>:4839/settings/auto-register \
+  -H "Authorization: Bearer $CP_TOKEN" -H "Content-Type: application/json" \
+  -d '{"enabled": true}'
+
+# Disable
+curl -X PUT http://<host>:4839/settings/auto-register \
+  -H "Authorization: Bearer $CP_TOKEN" -H "Content-Type: application/json" \
+  -d '{"enabled": false}'
+```
 
 ---
 

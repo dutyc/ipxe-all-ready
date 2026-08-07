@@ -103,6 +103,24 @@ VITE_CP_TOKEN=你的token
 > 注意：`VITE_` 变量在构建时注入，修改后需重新构建 WebUI：`cd webui/app && npm install && npm run build`。
 > 若跳过本节（Token 留空），则无需构建。
 
+### 1.4.1 自动注册开关（可选，默认开启）
+
+新 MAC 首次请求 `/boot-vars` 时自动注册为 Worker（零接触，默认开启）。需要关闭时（例如批量接入机器期间先手动注册、防止自动登记），有两种方式：
+
+**方式一：部署时固定（环境变量）**——`control_plane/control_plane.env` 追加，容器启动时生效：
+
+```env
+# false = 关闭自动注册（新 MAC 返回空脚本，等待手动注册）
+IPXE_CP_AUTO_REGISTER=false
+```
+
+**方式二：运行时切换（WebUI 按钮 / API）**——部署后随时切换，立即生效并持久化（`state/settings.json`），重启保留，优先级高于环境变量：
+
+- WebUI：Workers 页面工具栏「自动注册」按钮（深色 = 开，浅色 = 关）
+- API：`PUT /settings/auto-register`（详见 API 参考 5.1）
+
+> 开关只影响**新 MAC**：关闭后未注册机器需在 WebUI「添加 Worker」或 `POST /workers` 手动注册；已注册 Worker 不受影响。
+
 ### 1.5 启动 Controller
 
 ```bash

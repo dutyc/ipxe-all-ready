@@ -90,10 +90,16 @@ class BatchCreateWorkerDiskRequest(BaseModel):
 
 class SetWorkerDefaultBootRequest(BaseModel):
     """设置 Worker 默认启动配置。os=默认系统（须与已挂系统盘一致）；
-    menu_default/menu_timeout=菜单项覆盖；传 null 清除对应项。推导链：default_os > boot.menu_default > exit。"""
+    menu_default/menu_timeout=菜单项覆盖；传 null 清除对应项。推导链：default_os > boot.menu_default > reboot。"""
     os: str | None = None
     menu_default: str | None = None
     menu_timeout: int | None = None
+
+
+class SetAutoRegisterRequest(BaseModel):
+    """运行时切换全局自动注册开关。enabled=false 后新 MAC 不再自动注册为 Worker。
+    持久化到 state/settings.json，优先于环境变量 IPXE_CP_AUTO_REGISTER（后者为启动默认）。"""
+    enabled: bool
 
 
 class CreateDiskLunRequest(BaseModel):

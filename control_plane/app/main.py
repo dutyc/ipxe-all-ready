@@ -20,11 +20,12 @@ from .models import (
     CreateWorkerDiskRequest,
     CreateWorkerRequest,
     ProbeAgentRequest,
+    SetAutoRegisterRequest,
     SetWorkerDefaultBootRequest,
     UpdateAgentRequest,
 )
 from .scheduler import AgentRegistry
-from .state import FileStateStore, OperationLog
+from .state import FileStateStore, OperationLog, RuntimeSettings
 
 
 log = logging.getLogger("control-plane")
@@ -47,6 +48,7 @@ store = FileStateStore(settings.workers_file)
 operations = OperationLog(settings.operations_file)
 agents = AgentRegistry(settings.agents_file, settings.agent_timeout)
 dnsmasq = DnsmasqHosts(settings.dnsmasq_hosts_file, settings.dnsmasq_container, settings.dnsmasq_reload)
+runtime_settings = RuntimeSettings(settings.settings_file)
 
 
 def verify_control_token(request: Request) -> None:
@@ -76,6 +78,20 @@ def boot_vars(
     if output_format == "json":
         return JSONResponse(_boot_vars_json(payload))
     return Response(_boot_vars_ipxe(payload), media_type="text/plain")
+
+
+@app.get("/settings/auto-register", dependencies=[Depends(verify_control_token)])
+def get_auto_register():
+    """查询全局自动注册开关：运行时状态（state/settings.json）优先，未设置时回退环境变量默认。"""
+    return {"enabled": runtime_settings.get("auto_register", settings.auto_register)}
+
+
+@app.put("/settings/auto-register", dependencies=[Depends(verify_control_token)])
+def set_auto_register(req: SetAutoRegisterRequest):
+    """切换全局自动注册开关（持久化，立即生效；enabled=false 后新 MAC 不再自动注册）。"""
+    enabled = runtime_settings.set("auto_register", req.enabled)
+    _record("settings.auto_register", "ok", enabled=enabled)
+    return {"enabled": enabled}
 
 
 @app.get("/agents", dependencies=[Depends(verify_control_token)])
@@ -965,7 +981,7 @@ def _next_auto_hostname(workers: dict[str, Any]) -> str:
 def _auto_register_worker(mac: str) -> tuple[str, dict[str, Any]] | None:
     """新 MAC 自动注册身份：顺序分配 hostname，写台账 + dhcp 绑定 + HUP。
     失败返回 None（不阻断 iPXE，下次请求重试）。"""
-    if not settings.auto_register:
+    if not runtime_settings.get("auto_register", settings.auto_register):
         return None
     try:
         mac = _canonical_mac(mac)

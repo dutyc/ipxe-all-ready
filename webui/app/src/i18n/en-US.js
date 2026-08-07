@@ -43,6 +43,13 @@ const en = {
     windowsIsoPlaceholder: 'Win11_24H2.iso',
     createBtn: 'Create Worker',
     creating: 'Creating...',
+    autoRegister: {
+      label: 'Auto-register',
+      on: 'On',
+      off: 'Off',
+      unknown: '—',
+      hint: 'Controls whether a new MAC is auto-registered as a Worker on first /boot-vars request. Takes effect immediately and persists across restarts; env var IPXE_CP_AUTO_REGISTER remains the startup default.',
+    },
     filter: 'Filter workers...',
     count: '{count} worker(s)',
     noMatch: 'No matching workers.',

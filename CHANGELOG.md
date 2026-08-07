@@ -192,6 +192,9 @@
 
 - Agent：母盘克隆新增 ZFS 支持——存储目录位于 ZFS（OpenZFS ≥ 2.2）且母盘与克隆盘在同一数据集时，`FICLONE` 文件级 reflink 秒级克隆（与 btrfs 同路径，零额外磁盘占用）；ZFS < 2.2 或跨数据集（`st_dev` 不同）时自动回退全量拷贝，并在日志中给出明确诊断（区分「版本过低」与「跨数据集」两类原因）；新增 `_fs_type()`（解析 `/proc/self/mounts` 最长挂载点匹配）与 `_same_fs()`（`st_dev` 比较）
 - Agent：`GET /capabilities` 新增 `fs_type` 字段（存储目录文件系统类型：btrfs / zfs / xfs / ext4 ...），`clone` 描述按文件系统类型区分（ZFS 标注 OpenZFS ≥ 2.2 与同数据集约束；xfs 标注需 reflink 特性；其余标注仅全量拷贝）；控制面 `GET /agents` 随 `capabilities` 透传
+- Control Plane：`GET/PUT /settings/auto-register` —— 全局自动注册开关运行时切换：环境变量 `IPXE_CP_AUTO_REGISTER` 降级为**启动默认值**，运行时状态持久化到 `state/settings.json`（重启保留、优先于环境变量、立即生效）；关闭后新 MAC 不再自动注册（已注册 Worker 不受影响）；切换写入操作日志（`settings.auto_register`）
+- WebUI：Workers 页面工具栏新增「自动注册」开关按钮（状态点指示开/关、点击即切换、加载/切换失败显示错误信息）；i18n 中英文案同步
+- 文档：控制面 API 参考中英两版新增 5.1 章节 `GET/PUT /settings/auto-register`（含两种配置方式对比表：环境变量 vs 运行时 API），第 3 节端点概览与第 5 节配置表同步更新；《项目环境部署》中英两版新增 1.4.1「自动注册开关」小节（部署时环境变量固定 vs 部署后 WebUI/API 运行时切换，含手动注册提醒）
 
 ### 变更
 
@@ -203,6 +206,7 @@
 - 文档：措辞修正——README 英文版 `copy-paste runbooks`、中文快速部署文档「可照抄」、英文 API 占位页 `copy-paste curl` 统一改为中性表述（step-by-step / 可直接执行 / directly executable）
 - 文档：控制面 API 参考**中英两版**（7.0/7.3 章节）补强「默认启动系统」概念与字段语义——新增「是干什么的」说明（多盘模型下决定 iPXE 菜单超时后自动选中的启动项 + `/boot-vars` 默认启动盘投影；`os` 是菜单项 ID 而非盘名，合法值同建盘 7.1 枚举、不区分大小写）；`menu_timeout` 补 `0` = 无限等待永不自动选择（iPXE 官方语义）；7.0 修正错误示例（注册后无盘实际返回 `menu-default reboot` + 1ms，而非 exit/5000）并区分已配置/未配置两种超时默认值；7.3 与 7.0 `boot` 字段为同一台账字段的覆盖关系；英文版第 3 行残留 `copy-paste` 措辞一并修正
 - 文档：README 两版徽章行首新增 **Cloud Native - True Cloud Native** 徽章（定位宣言的直观呈现）
+- Control Plane：`SetWorkerDefaultBootRequest` 注释推导链修正（`exit` → `reboot`，与 `_menu_default_for` 实际行为一致）
 
 ### 修复
 
