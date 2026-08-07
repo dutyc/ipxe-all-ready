@@ -133,7 +133,7 @@ Edit `iscsi-server/docker-compose.yml` and change the **host-side path** of both
       - /pool1/iscsi_img:/home/iscsi_img   # must match the mapping above
 ```
 
-> **btrfs is strongly recommended for the storage filesystem**: when cloning a golden image, the Agent prefers reflink (FICLONE, copy-on-write); on btrfs a clone completes in seconds and consumes almost no extra space. If the directory sits on a filesystem without reflink support (ext4 / xfs), the Agent automatically falls back to a full copy, so clone time grows linearly with the image size (e.g. copying a 60 GB golden image takes several minutes). Format example: `mkfs.btrfs -f /dev/sdb1` and mount it as the storage directory.
+> **btrfs or ZFS (OpenZFS ≥ 2.2) is strongly recommended for the storage filesystem**: when cloning a golden image, the Agent prefers reflink (FICLONE, copy-on-write); on btrfs a clone completes in seconds and consumes almost no extra space. ZFS (OpenZFS ≥ 2.2) supports file-level reflink as well — instant clones, provided the master and the work disk live in the **same dataset** (ZFS < 2.2 or cross-dataset falls back to a full copy). If the directory sits on a filesystem without reflink support (ext4 / xfs), the Agent automatically falls back to a full copy, so clone time grows linearly with the image size (e.g. copying a 60 GB golden image takes several minutes). Format examples: `mkfs.btrfs -f /dev/sdb1`, or a ZFS pool with the storage directory on one dataset.
 
 **Single storage node hardware bottlenecks** (basis for scaling out):
 

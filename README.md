@@ -1,6 +1,6 @@
 # iPXE-All-Ready
 
-![iPXE](https://img.shields.io/badge/iPXE-Network%20Boot-111111) ![iSCSI](https://img.shields.io/badge/iSCSI-Diskless%20Storage-0f766e) ![Control Plane](https://img.shields.io/badge/Control%20Plane-FastAPI-2563eb) ![Agent](https://img.shields.io/badge/Agent-STGT%20%2F%20LIO-7c3aed) ![dnsmasq](https://img.shields.io/badge/DHCP-dnsmasq-334155) ![License](https://img.shields.io/badge/License-Apache%202.0-green)
+![Cloud Native](https://img.shields.io/badge/Cloud%20Native-True%20Cloud%20Native-18181b) ![iPXE](https://img.shields.io/badge/iPXE-Network%20Boot-111111) ![iSCSI](https://img.shields.io/badge/iSCSI-Diskless%20Storage-0f766e) ![Control Plane](https://img.shields.io/badge/Control%20Plane-FastAPI-2563eb) ![Agent](https://img.shields.io/badge/Agent-STGT%20%2F%20LIO-7c3aed) ![dnsmasq](https://img.shields.io/badge/DHCP-dnsmasq-334155) ![License](https://img.shields.io/badge/License-Apache%202.0-green)
 
 [中文版](./README.zh-CN.md) | [English](./README.md)
 
@@ -24,9 +24,10 @@ Three roles with clearly separated responsibilities, following the **control pla
 
 - **Zero-touch provisioning** — New machines auto-register on first boot; a few clicks in the Web UI assigns a system disk and a default OS.
 - **Multi-OS per worker** — One machine, multiple system disks (Windows / Ubuntu / Debian / CentOS / ESXi), switchable online without touching the hardware.
-- **Instant-on boot** — Debian 12, Ubuntu 22.04 LTS, and Windows 11 24H2/25H2 validated end-to-end over iPXE + iSCSI.
+- **Instant-on boot** — Debian 11/12/13, Ubuntu 22.04/24.04/26.04 and Windows 11 23H2/24H2/25H2 validated end-to-end over iPXE + iSCSI.
 - **No black boxes** — `debootstrap` and `dism++` bypass official installer limits (Subiquity / ADK); every link of the boot chain is transparent and auditable.
 - **Files as the source of truth** — No database: `agents.yml`, `workers.yml`, `dhcp-hosts.conf`, and `operations.jsonl` are diff-able and manually repairable.
+- **API-first** — Every Control Plane capability is exposed as REST; the Web UI itself is just a client of this API. Third-party systems and automation scripts are peers of the Web UI — integrate everything through the [API Reference](https://ipxe.lecreate.asia/guide/api/control-plane-api).
 - **100% open-source toolchain** — iPXE, stgt/LIO, dnsmasq, FastAPI, React, VitePress. No vendor lock-in.
 
 ## Quick Start
@@ -55,9 +56,9 @@ docker compose up -d
 ```
 
 * Web UI: `http://<controller-ip>:4838`
-* Control Plane API: `http://<controller-ip>:4839`
+* Control Plane API: `http://<controller-ip>:4839` — open REST API, **directly callable by third-party systems and automation scripts** (auth / registration / disk provisioning / batch deploy / status queries; full contracts in the API Reference below)
 
-Worker images are then delivered via the copy-paste runbooks below.
+Worker images are then delivered via the step-by-step runbooks below.
 
 ## Documentation
 
@@ -65,21 +66,17 @@ Full architecture deep-dives, per-OS deployment walkthroughs, and quick-deploy r
 
 **[ipxe.lecreate.asia](https://ipxe.lecreate.asia)** | **[中文文档](https://ipxe.lecreate.asia/zh/)**
 
-Highlights:
+**Get started:**
 
-* [Ch1: Architecture & Core Link](https://ipxe.lecreate.asia/guide/architecture) — the iPXE + iSCSI boot state machine and dynamic variable chain
-* [Ch2: Windows 11 Diskless Walkthrough](https://ipxe.lecreate.asia/guide/windows-11) — `dism++` driver injection + virtual optical-drive install
-* [Ch3: Debian 12 Diskless Walkthrough](https://ipxe.lecreate.asia/guide/debian-12) — netboot installer and VM image conversion routes
-* [Ch4: Debian-family iBFT Boot](https://ipxe.lecreate.asia/guide/debian-12-ibft) — the six-link iBFT chain with source-level evidence
-* [Control Plane Capabilities](https://ipxe.lecreate.asia/guide/control-plane) — scheduling model, API contracts, and Web UI
-* [Barriers We Have Broken Through](https://ipxe.lecreate.asia/guide/barriers) — the black boxes cracked along the way
-* [Quick Deploy Runbooks](https://ipxe.lecreate.asia/guide/quick-deploy/environment-deploy) — copy-paste environment setup, Windows & Debian-family master-image clones
+* [Quick Deploy Runbooks](https://ipxe.lecreate.asia/guide/quick-deploy/environment-deploy) — step-by-step environment setup, Windows & Debian-family master-image clones
+* [API Reference](https://ipxe.lecreate.asia/guide/api/control-plane-api) — full Control Plane & Agent endpoint contracts; start here for third-party integration
+* [Exploration](https://ipxe.lecreate.asia/guide/preface) — architecture deep-dives, diskless boot principles, and the barriers we broke through (Ch1–Ch4 + Control Plane Capabilities + Barriers)
 
 ## Roadmap
 
 The vision: a cross-platform, cross-architecture cloud-native meta-protocol spanning every compute layer — one stateless semantics, self-similarly nested across bare metal and hypervisors alike, compute bound to no specific hardware, cloud within cloud at every level. See **[ROADMAP.md](./ROADMAP.md)** for the full plan (Phase 1–4).
 
-**Phase 1 — Core System Breakthrough is complete**: Debian 12, Ubuntu 22.04 LTS, and Windows 11 24H2/25H2 full chains validated, with the distributed control plane and Web UI already landed.
+**Phase 1 — Core System Breakthrough is complete**: Debian 11/12/13, Ubuntu 22.04/24.04/26.04 and Windows 11 23H2/24H2/25H2 full chains validated, with the distributed control plane and Web UI already landed.
 
 ## Community & Contributing
 

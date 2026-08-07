@@ -192,6 +192,7 @@ def probe_agent(req: ProbeAgentRequest, request: Request):
         "iscsi_server": urlparse(base_url).hostname or base_url,
         "enabled": True,
         "backend": backend,
+        "fs_type": caps.get("fs_type", ""),
         "base_iqn": caps.get("base_iqn", ""),
         "clone": caps.get("clone", ""),
         "empty_disk": caps.get("empty_disk", ""),

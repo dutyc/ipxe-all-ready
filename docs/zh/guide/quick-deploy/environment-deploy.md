@@ -133,7 +133,7 @@ curl http://localhost:4839/healthz        # Control Plane
       - /pool1/iscsi_img:/home/iscsi_img   # 两处必须一致
 ```
 
-> **文件系统强烈建议 btrfs**：克隆母盘时 Agent 优先使用 reflink（FICLONE 写时复制），btrfs 下克隆秒级完成、几乎不占额外空间；若目录落在 ext4 / xfs 等不支持 reflink 的文件系统上，会自动回退为全量拷贝，克隆时间随母盘大小线性增长（如 60GB 母盘约数分钟）。
+> **文件系统强烈建议 btrfs 或 ZFS（OpenZFS ≥ 2.2）**：克隆母盘时 Agent 优先使用 reflink（FICLONE 写时复制），btrfs 下克隆秒级完成、几乎不占额外空间；ZFS（OpenZFS ≥ 2.2）同样支持文件级 reflink 秒级克隆，但要求母盘与克隆盘落在**同一数据集**内（ZFS < 2.2 或跨数据集时自动回退全量拷贝）；若目录落在 ext4 / xfs 等不支持 reflink 的文件系统上，会自动回退为全量拷贝，克隆时间随母盘大小线性增长（如 60GB 母盘约数分钟）。
 
 **单台存储节点的硬件瓶颈**（扩容依据）：
 

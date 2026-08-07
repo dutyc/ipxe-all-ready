@@ -75,11 +75,46 @@ def _reflink(src: str, dst: str) -> bool:
         os.close(dst_fd)
 
 
+def _fs_type(path: str) -> str:
+    """返回 path 所在挂载点的文件系统类型（解析 /proc/self/mounts，最长挂载点匹配）。"""
+    real = os.path.realpath(path)
+    best, best_len = "unknown", -1
+    try:
+        with open("/proc/self/mounts", "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) < 3:
+                    continue
+                mnt = parts[1].replace("\\040", " ")
+                fstype = parts[2]
+                if len(mnt) > best_len and (real == mnt or real.startswith(mnt.rstrip("/") + "/") or mnt == "/"):
+                    best, best_len = fstype, len(mnt)
+    except OSError:
+        pass
+    return best
+
+
+def _same_fs(src: str, dst: str) -> bool:
+    """源与目标是否同一文件系统（ZFS 各数据集 st_dev 不同，文件级 reflink 要求同数据集）。"""
+    try:
+        return os.stat(src).st_dev == os.stat(dst).st_dev
+    except OSError:
+        return False
+
+
 def _clone_master(master_path: str, backing: str) -> None:
     if _reflink(master_path, backing):
         log.info(f"clone by reflink (instant): {backing}")
     else:
-        log.info(f"clone by copy (reflink unsupported here): {backing}")
+        # 诊断回退原因：ZFS 需 OpenZFS >= 2.2 且母盘与克隆盘在同一数据集才支持文件级 reflink
+        fs = _fs_type(backing)
+        if fs == "zfs":
+            if not _same_fs(master_path, backing):
+                log.warning(f"clone by copy (ZFS reflink requires master and work disk in the same dataset): {backing}")
+            else:
+                log.warning(f"clone by copy (ZFS file-level reflink requires OpenZFS >= 2.2): {backing}")
+        else:
+            log.warning(f"clone by copy (reflink unsupported on {fs}): {backing}")
         shutil.copy(master_path, backing)
 
 
@@ -605,7 +640,15 @@ def list_masters():
 def capabilities():
     caps = backend.capabilities()
     caps["base_iqn"] = IQN_BASE
-    caps["clone"] = "reflink (FICLONE) -> shutil.copy fallback"
+    # 文件系统类型决定克隆方式：btrfs / ZFS(>=2.2 同数据集) / xfs(reflink 特性) 走 FICLONE 秒级，其余回退全量拷贝
+    fs = _fs_type(DISK_DIR)
+    caps["fs_type"] = fs
+    if fs == "zfs":
+        caps["clone"] = "reflink (FICLONE on OpenZFS >= 2.2, master and work disk in the same dataset) -> shutil.copy fallback"
+    elif fs in ("btrfs", "xfs"):
+        caps["clone"] = "reflink (FICLONE; xfs requires the reflink feature enabled) -> shutil.copy fallback"
+    else:
+        caps["clone"] = f"full copy only (reflink unsupported on {fs})"
     caps["empty_disk"] = "truncate (sparse)"
     return caps
 

@@ -157,6 +157,7 @@ const zh = {
     iscsiServer: 'iSCSI 数据面',
     cdSupport: '光驱支持',
     diskRole: '磁盘角色',
+    fsType: '文件系统',
     clone: '克隆方式',
     emptyDisk: '新建磁盘',
     tags: '标签',
@@ -195,7 +196,10 @@ const zh = {
     adding: '添加中...',
     cancel: '取消',
     capLabels: {
+      'reflink (FICLONE on OpenZFS >= 2.2, master and work disk in the same dataset) -> shutil.copy fallback': '秒级快照 (ZFS reflink，母盘与克隆盘须同数据集)，失败退化为复制',
+      'reflink (FICLONE; xfs requires the reflink feature enabled) -> shutil.copy fallback': '秒级快照 (reflink；xfs 需启用 reflink 特性)，失败退化为复制',
       'reflink (FICLONE) -> shutil.copy fallback': '秒级快照 (reflink)，失败退化为复制',
+      'full copy only': '仅全量拷贝 (reflink 不支持)',
       'truncate (sparse)': '稀疏文件 (truncate)',
       'saveconfig (auto-load on start)': '自动保存 (启动加载)',
     },

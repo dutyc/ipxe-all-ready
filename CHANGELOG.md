@@ -8,7 +8,7 @@
 - **新增**：新功能、新端点、新配置项
 - **变更**：行为调整、接口变更、数据模型调整
 - **修复**：缺陷修复
-- 涉及多个模块的改动，按模块分条列出；接口变更同时需同步 `control_plane/Control_Plane_API_Docs.md`
+- 涉及多个模块的改动，按模块分条列出；接口变更同时需同步 `docs/zh/guide/api/control-plane-api.md`（控制面 API 参考，文档站唯一权威）
 
 ---
 
@@ -183,3 +183,28 @@
 
 - 文档：README 两版与文档站中英文首页 tagline、ROADMAP 的定位表述对齐《我的云原生定义》宣言——由「企业级无状态（Stateless）计算节点交付平台 / Enterprise-grade diskless computing platform / 云原生的无状态计算基础设施底座」统一改为「真正的云原生实现：把无状态贯彻到算力层本身，算力不绑定任何具体硬件，可丢弃、可替换、可瞬间重建」；路线图愿景改为「贯穿所有计算层的云原生元协议——同一套无状态语义自相似地嵌套于物理机与 hypervisor 每一层，层层皆云」；中英文同步
 - 文档：新增仓库根目录 `Manifesto_zh-CN.md`（《我的云原生定义》宣言，由《我的云原生定义.md》重命名，移除文首对话残留）与英文全量翻译版 `Manifesto.md`（九章完整翻译，与中文版互为镜像）；README 中英文版定位段后新增宣言引用
+
+---
+
+## 2026-08-07
+
+### 新增
+
+- Agent：母盘克隆新增 ZFS 支持——存储目录位于 ZFS（OpenZFS ≥ 2.2）且母盘与克隆盘在同一数据集时，`FICLONE` 文件级 reflink 秒级克隆（与 btrfs 同路径，零额外磁盘占用）；ZFS < 2.2 或跨数据集（`st_dev` 不同）时自动回退全量拷贝，并在日志中给出明确诊断（区分「版本过低」与「跨数据集」两类原因）；新增 `_fs_type()`（解析 `/proc/self/mounts` 最长挂载点匹配）与 `_same_fs()`（`st_dev` 比较）
+- Agent：`GET /capabilities` 新增 `fs_type` 字段（存储目录文件系统类型：btrfs / zfs / xfs / ext4 ...），`clone` 描述按文件系统类型区分（ZFS 标注 OpenZFS ≥ 2.2 与同数据集约束；xfs 标注需 reflink 特性；其余标注仅全量拷贝）；控制面 `GET /agents` 随 `capabilities` 透传
+
+### 变更
+
+- 文档：《项目环境部署》2.1「准备 img 存储目录」存储文件系统建议由「强烈建议 btrfs」扩展为「btrfs 或 ZFS（OpenZFS ≥ 2.2）」，补充 ZFS 文件级 reflink 的同一数据集约束与 ZFS < 2.2 / 跨数据集回退语义；文档站中英文首页「母盘克隆秒级交付」与控制面文档（中英）的 btrfs 表述同步扩展；`iscsi-server/API_Reference.md` `/capabilities` 章节同步 `fs_type` / `clone` 字段说明；中英文档同步
+- WebUI：Agents 页面 Agent 卡片新增「文件系统」展示（`capabilities.fs_type`，等宽字体），注册/编辑探测结果新增 `fs_type` 标签；Control Plane `POST /agents/probe` 返回新增 `fs_type` 字段（透传 Agent `/capabilities`）；`Control_Plane_API_Docs.md` 两处示例同步
+- 文档：API 文档迁入文档站——`control_plane/Control_Plane_API_Docs.md` 与 `iscsi-server/API_Reference.md` 移至 `docs/zh/guide/api/`（`control-plane-api.md` / `agent-api.md`，标题中文化），文档站新增「API 参考 / API Reference」栏目（中英侧边栏 + 导航栏），英文版为占位页（结构骨架 + 指向中文权威版，不全量翻译）；原文件删除，文档站成为唯一权威；README 两版官方文档列表新增 API 参考链接，快速开始端口区强调 Control Plane API 为开放 REST 接口、第三方系统与自动化脚本可直接调用
+- 文档：两份 API 文档与 README 两版强调 **API 优先（API-first）调用准则**——控制面全部能力以 REST API 为第一接口，WebUI 本身只是该 API 的一个客户端；第三方系统与自动化脚本与 WebUI 平等，一律优先调用 Control Plane API（Agent API 为控制面与存储节点间的内部契约，不作为第三方入口）；英文占位页同步
+- 文档：README 两版官方文档列表重构——原理探索系列（第一～四章 + 控制面能力详解 + 已攻克的壁垒）折叠为单个「原理探索 / Exploration」入口（指向专栏首页前言），「快速部署手册」与「API 参考」置顶为直达入口
+- 文档：措辞修正——README 英文版 `copy-paste runbooks`、中文快速部署文档「可照抄」、英文 API 占位页 `copy-paste curl` 统一改为中性表述（step-by-step / 可直接执行 / directly executable）
+- 文档：控制面 API 参考**中英两版**（7.0/7.3 章节）补强「默认启动系统」概念与字段语义——新增「是干什么的」说明（多盘模型下决定 iPXE 菜单超时后自动选中的启动项 + `/boot-vars` 默认启动盘投影；`os` 是菜单项 ID 而非盘名，合法值同建盘 7.1 枚举、不区分大小写）；`menu_timeout` 补 `0` = 无限等待永不自动选择（iPXE 官方语义）；7.0 修正错误示例（注册后无盘实际返回 `menu-default reboot` + 1ms，而非 exit/5000）并区分已配置/未配置两种超时默认值；7.3 与 7.0 `boot` 字段为同一台账字段的覆盖关系；英文版第 3 行残留 `copy-paste` 措辞一并修正
+- 文档：README 两版徽章行首新增 **Cloud Native - True Cloud Native** 徽章（定位宣言的直观呈现）
+
+### 修复
+
+- 文档：API 文档端口号修正——`docs/zh/guide/api/agent-api.md` 全部 curl 示例与 Base URL 由错误的 `localhost:4841` 改为 `4840`（iscsi-server compose 实际映射 `4840:8080`），`control-plane-api.md` 的 `GET /agents` 返回示例 base_url 同步修正；全仓库 4841 零残留
+- WebUI：capLabels 克隆方式文案映射缺失 ZFS/xfs/仅全量拷贝新文案（ZFS 支持上线后 UI 直接显示英文原文）——补齐映射并将匹配逻辑改为前缀匹配（动态文案 `full copy only (reflink unsupported on <fs>)` 归并到静态条目）

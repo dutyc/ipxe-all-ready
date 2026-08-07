@@ -1,6 +1,8 @@
-# Control Plane API Reference
+# 控制面 API 参考
 
 本文档描述当前 Control Plane 已实现的 HTTP 接口、请求参数、返回结构，以及可直接复制执行的 `curl` 测试命令。
+
+> **API 优先（API-first）设计**：Control Plane 的全部能力都以 REST API 为第一接口——Web 管理界面（WebUI）本身也只是这套 API 的一个客户端，与任何第三方系统、自动化脚本完全平等。调用准则：**一切面向控制面**——第三方集成始终调用 Control Plane API，不绕过控制面直接操作 Agent 或数据面。
 
 Control Plane 是 Controller 节点上的常驻 HTTP 服务，负责：
 
@@ -361,7 +363,7 @@ curl -s "$BASE_URL/agents?live=false" \
 [
   {
     "id": "storage-lio-01",
-    "base_url": "http://10.0.0.11:4841",
+    "base_url": "http://10.0.0.11:4840",
     "role": {
       "disk": true,
       "cd": false
@@ -374,6 +376,7 @@ curl -s "$BASE_URL/agents?live=false" \
     "health": "ok",
     "capabilities": {
       "backend": "lio",
+      "fs_type": "btrfs",
       "cd": false,
       "persistent": "saveconfig (auto-load on start)",
       "base_iqn": "iqn.2026-07.com.controller",
@@ -485,6 +488,7 @@ curl -s -X POST "$BASE_URL/agents/probe" \
   "iscsi_server": "host.docker.internal",
   "enabled": true,
   "backend": "stgt",
+  "fs_type": "btrfs",
   "base_iqn": "iqn.2026-07.com.controller",
   "clone": "reflink (FICLONE) -> shutil.copy fallback",
   "empty_disk": "truncate (sparse)",
@@ -586,19 +590,19 @@ docker exec ipxe-dnsmasq killall -HUP dnsmasq
 | `hostname` | 否 | 主机名。不传时默认等于 `worker_id` |
 | `arch` | 否 | 架构。不传时默认 `x86_64` |
 | `windows_iso` | 否 | Windows 安装期 ISO 文件名。传入即在注册时额外创建安装光驱 target |
-| `boot` | 否 | iPXE 菜单默认项与超时配置；不传则由 `/boot-vars` 按 OS 和全局默认值推导 |
+| `boot` | 否 | iPXE 菜单默认项与超时配置；不传则由 `/boot-vars` 按默认启动系统和全局默认值推导。与 7.3 `default-os` 端点写的是同一组台账字段，后设覆盖先设 |
 
 ### `boot` 字段
 
 | 字段 | 必填 | 说明 |
 |---|---:|---|
-| `menu_default` | 否 | iPXE 主菜单默认项，如 `ubuntu`、`debian`、`windows`、`exit` |
-| `menu_timeout` | 否 | iPXE 菜单超时，单位毫秒，如 `5000` |
+| `menu_default` | 否 | iPXE 主菜单默认项（菜单超时后自动选中启动），合法值见 7.3 合法值表；不区分大小写，如 `ubuntu`、`debian`、`windows`、`exit` |
+| `menu_timeout` | 否 | iPXE 菜单超时，单位毫秒，如 `5000`；传 `0` 表示菜单无限等待、永不自动选择 |
 
 不传 `boot` 时：
 
 - `menu_default` 默认使用 `default_os`（建盘后单独设置，见 7.3）；未设置时默认 `reboot`（循环重启等待配置，见 5 节）；
-- `menu_timeout` 默认使用 `IPXE_CP_BOOT_MENU_TIMEOUT`，当前默认 `5000`。
+- `menu_timeout` 已配置默认启动时默认使用 `IPXE_CP_BOOT_MENU_TIMEOUT`（当前 `5000`）；处于 `reboot` 循环时固定用 `IPXE_CP_AUTO_BOOT_TIMEOUT`（当前 `1` 毫秒，见 5 节）。
 
 因此大多数 Worker 不需要传 `boot`。例如：
 
@@ -609,11 +613,11 @@ docker exec ipxe-dnsmasq killall -HUP dnsmasq
 }
 ```
 
-注册后 Worker 还没有系统盘，`/boot-vars` 会返回：
+注册后 Worker 还没有系统盘，`/boot-vars` 会返回 `menu-default reboot` + 1 毫秒超时——Worker 进入快速重启循环，等待管理员建盘/配置默认启动系统：
 
 ```ipxe
-set menu-default exit
-set menu-timeout 5000
+set menu-default reboot
+set menu-timeout 1
 ```
 
 创建系统盘后，调用 `PUT /workers/{worker_id}/default-os`（见 7.3）设置默认启动系统，`menu-default` 随即切换为该系统的菜单项（如 `ubuntu`）。
@@ -893,13 +897,17 @@ curl -s -X POST "$BASE_URL/workers/worker-win-build/luns/disk" \
 
 ### 说明
 
-设置 Worker 的默认启动配置（可设可清）。`/boot-vars` 的 `menu_default` 推导链：
+**「默认启动系统」是干什么的**：一台 Worker 可以挂多块系统盘（同一系统至多一块，如 `ubuntu` + `windows`）。每次开机，iPXE 菜单在超时后会自动选中某一项启动——本端点配置的默认启动系统决定自动选中哪一项，同时决定 `/boot-vars` 投影哪块盘的连接信息（`base_iqn` / `iscsi_server` 取默认启动盘，见 5 节）。不设置时菜单自动选 `reboot`，配合 1 毫秒超时循环重启，等待管理员完成配置，避免静默进错系统。
+
+**注意**：`os` 不是系统盘的任意名称，而是 menu.ipxe 操作系统菜单项的 ID（与建盘 7.1 的 `os` 同枚举），与已挂系统盘一一对应。
+
+`/boot-vars` 的 `menu_default` 推导链：
 
 ```text
 default_os（本端点 os 字段，优先）-> boot.menu_default（本端点 menu_default 字段）-> reboot（未配置，循环重启等待）
 ```
 
-请求体三个字段可单独或组合传，至少传一个；传 `null`（或空字符串）表示清除对应项。可重复调用，后设覆盖先设。
+请求体三个字段可单独或组合传，至少传一个；传 `null`（或空字符串）表示清除对应项。可重复调用，后设覆盖先设——与注册时传入的 `boot`（见 7.0）写的是同一组台账字段。
 
 要求：
 
@@ -917,9 +925,9 @@ default_os（本端点 os 字段，优先）-> boot.menu_default（本端点 men
 
 | 字段 | 必填 | 说明 |
 |---|---:|---|
-| `os` | 否 | 默认启动的系统，须与该 Worker 已挂载系统盘一致，如 `ubuntu`；传 `null` 清除 |
-| `menu_default` | 否 | iPXE 主菜单默认项，见下方合法值表；传 `null` 清除 |
-| `menu_timeout` | 否 | 菜单超时毫秒数，非负整数；传 `null` 清除 |
+| `os` | 否 | 默认启动的系统（菜单项 ID，不是盘名）——仅允许 `windows` `ubuntu` `debian` `centos` `esxi`（与建盘 7.1 同枚举），不区分大小写（自动转小写），须与该 Worker 已挂系统盘一致；传 `null` 清除 |
+| `menu_default` | 否 | iPXE 主菜单默认项（菜单超时后自动选中），见下方合法值表；不区分大小写（自动转小写）；传 `null` 清除 |
+| `menu_timeout` | 否 | 菜单超时毫秒数，非负整数；传 `0` 表示菜单无限等待、永不自动选择（等人工按键）；传 `null` 清除，恢复默认 `IPXE_CP_BOOT_MENU_TIMEOUT`（当前 `5000`） |
 
 ### `menu_default` 合法值（menu.ipxe 主菜单 item ID）
 
@@ -1485,7 +1493,7 @@ curl -s "$BASE_URL/agents/storage-lio-01/luns" \
 
 ### 14.2 POST /agents/{agent_id}/luns/disk
 
-在指定 Agent 上创建磁盘 LUN。传 `master` 走母盘克隆（优先 btrfs reflink 秒级），传 `size` 建空白盘（sparse）。Agent 未配置 `role.disk` 时返回 `400 agent ... not configured for disk role`。
+在指定 Agent 上创建磁盘 LUN。传 `master` 走母盘克隆（优先 btrfs / ZFS(≥2.2) reflink 秒级），传 `size` 建空白盘（sparse）。Agent 未配置 `role.disk` 时返回 `400 agent ... not configured for disk role`。
 
 #### Path 参数
 

@@ -16,7 +16,7 @@ When a new MAC first requests `/boot-vars`, the Control Plane automatically assi
 
 ### Worker Lifecycle Closed Loop (Two-Step Creation)
 
-`POST /workers` registers identity only (hostname + MAC binding); `POST /workers/{id}/luns/disk` then creates the system disk — assembling the IQN, selecting a disk Agent, creating a blank disk or cloning from a golden image (btrfs reflink, seconds), writing the ledger and the `dnsmasq` binding, and reloading via HUP.
+`POST /workers` registers identity only (hostname + MAC binding); `POST /workers/{id}/luns/disk` then creates the system disk — assembling the IQN, selecting a disk Agent, creating a blank disk or cloning from a golden image (btrfs or ZFS ≥ 2.2 reflink, seconds), writing the ledger and the `dnsmasq` binding, and reloading via HUP.
 
 ### Multi-OS per Worker (disks Array Model)
 
@@ -40,7 +40,7 @@ Both stgt and LIO backends are integrated into the Agent, and the LIO server is 
 
 ### Storage Performance
 
-Cloning from a golden image to a work disk completes in seconds on btrfs via reflink. Measured data blocks are shared with zero additional disk footprint.
+Cloning from a golden image to a work disk completes in seconds on btrfs or ZFS (OpenZFS ≥ 2.2) via reflink. Measured data blocks are shared with zero additional disk footprint.
 
 ## Web Management UI
 

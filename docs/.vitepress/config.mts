@@ -18,7 +18,8 @@ export default defineConfig({
         nav: [
           { text: 'Home', link: '/' },
           { text: 'Exploration', link: '/guide/preface' },
-          { text: 'Quick Deploy', link: '/guide/quick-deploy/environment-deploy' } // 导航栏指向各专栏首页
+          { text: 'Quick Deploy', link: '/guide/quick-deploy/environment-deploy' },
+          { text: 'API Reference', link: '/guide/api/control-plane-api' } // 导航栏指向各专栏首页
         ],
         sidebar: [
           {
@@ -42,6 +43,14 @@ export default defineConfig({
               { text: 'Windows Master Image (Clone)', link: '/guide/quick-deploy/windows-quick-deploy' },
               { text: 'Debian-family Master Image (Clone)', link: '/guide/quick-deploy/debian-quick-deploy' },
             ]
+          },
+          {
+            text: 'API Reference',
+            collapsed: false,
+            items: [
+              { text: 'Control Plane API', link: '/guide/api/control-plane-api' },
+              { text: 'Agent API', link: '/guide/api/agent-api' },
+            ]
           }
         ]
       }
@@ -54,7 +63,8 @@ export default defineConfig({
         nav: [
           { text: '首页', link: '/zh/' },
           { text: '原理探索', link: '/zh/guide/preface' },
-          { text: '快速部署', link: '/zh/guide/quick-deploy/environment-deploy' } // 导航栏默认指向原理探索专栏首页(前言)
+          { text: '快速部署', link: '/zh/guide/quick-deploy/environment-deploy' },
+          { text: 'API 参考', link: '/zh/guide/api/control-plane-api' } // 导航栏默认指向原理探索专栏首页(前言)
         ],
         sidebar: [
           {
@@ -77,6 +87,14 @@ export default defineConfig({
               { text: '项目环境部署', link: '/zh/guide/quick-deploy/environment-deploy' },
               { text: 'Windows 无盘快速部署（母盘克隆）', link: '/zh/guide/quick-deploy/windows-quick-deploy' },
               { text: 'Debian 系无盘快速部署（母盘克隆）', link: '/zh/guide/quick-deploy/debian-quick-deploy' },
+            ]
+          },
+          {
+            text: 'API 参考',
+            collapsed: false,
+            items: [
+              { text: '控制面 API 参考', link: '/zh/guide/api/control-plane-api' },
+              { text: 'Agent API 参考', link: '/zh/guide/api/agent-api' },
             ]
           }
         ]

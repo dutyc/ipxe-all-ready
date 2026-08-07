@@ -13,7 +13,10 @@ function AgentCard({ agent, t, onEdit }) {
   const capLabel = (key) => {
     const val = agent.capabilities?.[key]
     if (!val) return t('agents.unknown')
-    return t('agents.capLabels')[val] || val
+    const labels = t('agents.capLabels')
+    // 前缀匹配：动态文案（如 full copy only (reflink unsupported on ext4)）归并到静态条目
+    const hit = Object.keys(labels).find((k) => val.startsWith(k))
+    return hit ? labels[hit] : val
   }
   return (
     <Card className="agent-card">
@@ -40,6 +43,10 @@ function AgentCard({ agent, t, onEdit }) {
         <div className="agent-prop">
           <span className="ap-label">{t('agents.backend')}</span>
           <span className="ap-value">{agent.capabilities?.backend || t('agents.unknown')}</span>
+        </div>
+        <div className="agent-prop">
+          <span className="ap-label">{t('agents.fsType')}</span>
+          <span className="ap-value ap-mono">{agent.capabilities?.fs_type || t('agents.unknown')}</span>
         </div>
         <div className="agent-prop">
           <span className="ap-label">{t('agents.baseUrl')}</span>
@@ -220,6 +227,9 @@ function AgentForm({ mode, agentId, initial, onClose, onSaved }) {
           <div className="probe-meta">
             {probe.backend && (
               <span className="agent-tag">{t('agents.probeBackend')}: {probe.backend}</span>
+            )}
+            {probe.fs_type && (
+              <span className="agent-tag">{t('agents.fsType')}: {probe.fs_type}</span>
             )}
             {probe.base_iqn && (
               <span className="agent-tag">{t('agents.probeBaseIqn')}: {probe.base_iqn}</span>

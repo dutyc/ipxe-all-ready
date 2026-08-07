@@ -1,11 +1,13 @@
-# Agent API Reference
+# Agent API 参考
 
 本文档整理当前 Agent 已实现的 HTTP 接口，面向 Control Plane 调用与部署联调使用。
+
+> **调用准则**：Agent API 是 Control Plane 与存储节点之间的**内部契约**，主要调用方是 Control Plane。第三方集成请**优先调用 Control Plane API**（见[控制面 API 参考](./control-plane-api)）——WebUI 与第三方系统平等，都只面向控制面。
 
 本地验证 Base URL：
 
 ```text
-http://localhost:4841
+http://localhost:4840
 ```
 
 实际部署时请替换为对应存储节点上的 Agent 地址。
@@ -101,7 +103,7 @@ IQN 含有冒号。作为 query 参数传递时，建议使用 `curl -G --data-u
 请求：
 
 ```bash
-curl -s http://localhost:4841/healthz
+curl -s http://localhost:4840/healthz
 ```
 
 响应：
@@ -160,7 +162,7 @@ iqn.2026-07.com.controller:worker-02.Ubuntu
 ```bash
 TOKEN=$(grep IPXE_AGENT_TOKEN .env | cut -d= -f2)
 
-curl -s -X POST http://localhost:4841/lun/disk \
+curl -s -X POST http://localhost:4840/lun/disk \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"iqn":"iqn.2026-07.com.controller:worker-02.Ubuntu","master":"_tpl_Ubuntu.img"}'
@@ -180,7 +182,7 @@ curl -s -X POST http://localhost:4841/lun/disk \
 ### 5.5 示例：创建空盘
 
 ```bash
-curl -s -X POST http://localhost:4841/lun/disk \
+curl -s -X POST http://localhost:4840/lun/disk \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"iqn":"iqn.2026-07.com.controller:worker-99.Ubuntu","size":"20G"}'
@@ -218,7 +220,7 @@ curl -s -X POST http://localhost:4841/lun/disk \
 ### 6.3 示例
 
 ```bash
-curl -s -X POST http://localhost:4841/lun/cd \
+curl -s -X POST http://localhost:4840/lun/cd \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"iso":"worker-01.Windows.iso"}'
@@ -254,7 +256,7 @@ curl -s -X POST http://localhost:4841/lun/cd \
 ### 7.3 示例
 
 ```bash
-curl -s -X POST http://localhost:4841/lun/scan \
+curl -s -X POST http://localhost:4840/lun/scan \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -293,7 +295,7 @@ curl -s -X POST http://localhost:4841/lun/scan \
 curl -s -X DELETE -G \
   --data-urlencode 'iqn=iqn.2026-07.com.controller:worker-99.Ubuntu' \
   -H "Authorization: Bearer $TOKEN" \
-  http://localhost:4841/lun
+  http://localhost:4840/lun
 ```
 
 响应：
@@ -312,7 +314,7 @@ curl -s -X DELETE -G \
   --data-urlencode 'iqn=iqn.2026-07.com.controller:worker-99.Ubuntu' \
   --data-urlencode 'delete_file=true' \
   -H "Authorization: Bearer $TOKEN" \
-  http://localhost:4841/lun
+  http://localhost:4840/lun
 ```
 
 ## 9. GET /lun
@@ -322,7 +324,7 @@ curl -s -X DELETE -G \
 请求：
 
 ```bash
-curl -s -H "Authorization: Bearer $TOKEN" http://localhost:4841/lun
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:4840/lun
 ```
 
 `stgt` 响应示例：
@@ -359,10 +361,10 @@ curl -s -H "Authorization: Bearer $TOKEN" http://localhost:4841/lun
 请求：
 
 ```bash
-curl -s -H "Authorization: Bearer $TOKEN" http://localhost:4841/capabilities
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:4840/capabilities
 ```
 
-`stgt` 示例：
+`stgt` 示例（btrfs 存储）：
 
 ```json
 {
@@ -370,12 +372,13 @@ curl -s -H "Authorization: Bearer $TOKEN" http://localhost:4841/capabilities
   "cd": true,
   "persistent": "auto-scan on startup",
   "base_iqn": "iqn.2026-07.com.controller",
-  "clone": "reflink (FICLONE) -> shutil.copy fallback",
+  "fs_type": "btrfs",
+  "clone": "reflink (FICLONE; xfs requires the reflink feature enabled) -> shutil.copy fallback",
   "empty_disk": "truncate (sparse)"
 }
 ```
 
-`lio` 示例：
+`lio` 示例（ZFS 存储）：
 
 ```json
 {
@@ -383,10 +386,16 @@ curl -s -H "Authorization: Bearer $TOKEN" http://localhost:4841/capabilities
   "cd": false,
   "persistent": "saveconfig (auto-load on start)",
   "base_iqn": "iqn.2026-07.com.controller",
-  "clone": "reflink (FICLONE) -> shutil.copy fallback",
+  "fs_type": "zfs",
+  "clone": "reflink (FICLONE on OpenZFS >= 2.2, master and work disk in the same dataset) -> shutil.copy fallback",
   "empty_disk": "truncate (sparse)"
 }
 ```
+
+| 字段 | 说明 |
+|---|---|
+| `fs_type` | 存储目录（`IPXE_DISK_DIR`）所在文件系统的类型（btrfs / zfs / xfs / ext4 ...），解析 `/proc/self/mounts` 最长挂载点匹配得到；控制面 `GET /agents` 会随 `capabilities` 透传 |
+| `clone` | 母盘克隆方式：btrfs 与 xfs（需 reflink 特性）走 FICLONE 秒级 reflink；ZFS 需 OpenZFS ≥ 2.2 且母盘与克隆盘在同一数据集（否则自动回退全量拷贝 `shutil.copy`）；其余文件系统仅全量拷贝 |
 
 ## 11. GET /logs
 
@@ -409,7 +418,7 @@ IPXE_LOG_FILE=/var/log/ipxe-agent/ops.jsonl
 
 ```bash
 curl -s -H "Authorization: Bearer $TOKEN" \
-  'http://localhost:4841/logs?since=1&limit=100' | python3 -m json.tool
+  'http://localhost:4840/logs?since=1&limit=100' | python3 -m json.tool
 ```
 
 响应：
@@ -457,7 +466,7 @@ Agent 启动后后台线程每 30 秒扫描一次镜像目录并缓存清单，�
 
 ```bash
 curl -s -H "Authorization: Bearer $TOKEN" \
-  http://localhost:4841/masters | python3 -m json.tool
+  http://localhost:4840/masters | python3 -m json.tool
 ```
 
 ### 12.2 响应

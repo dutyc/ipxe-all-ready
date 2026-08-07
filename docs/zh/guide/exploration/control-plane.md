@@ -16,7 +16,7 @@
 
 ### Worker 生命周期闭环（两步创建）
 
-`POST /workers` 只注册身份（hostname + MAC 绑定），`POST /workers/{id}/luns/disk` 再创建系统盘——自动拼接 IQN、选择 disk Agent、创建空白盘或从母盘克隆（btrfs reflink 秒级）、写入台账与 `dnsmasq` 绑定并 HUP 重载。
+`POST /workers` 只注册身份（hostname + MAC 绑定），`POST /workers/{id}/luns/disk` 再创建系统盘——自动拼接 IQN、选择 disk Agent、创建空白盘或从母盘克隆（btrfs / ZFS≥2.2 reflink 秒级）、写入台账与 `dnsmasq` 绑定并 HUP 重载。
 
 ### 一机多系统（disks 数组模型）
 
@@ -40,7 +40,7 @@ stgt 与 LIO 双后端均已接入 Agent，LIO 服务端已容器化；后端差
 
 ### 存储性能
 
-母盘到工作盘的克隆在 btrfs 上以 reflink 秒级完成，实测数据块共享、零额外磁盘占用。
+母盘到工作盘的克隆在 btrfs / ZFS（≥2.2）上以 reflink 秒级完成，实测数据块共享、零额外磁盘占用。
 
 ## Web 管理界面
 

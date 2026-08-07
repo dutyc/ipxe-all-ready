@@ -1,6 +1,6 @@
 # iPXE-All-Ready
 
-![iPXE](https://img.shields.io/badge/iPXE-Network%20Boot-111111) ![iSCSI](https://img.shields.io/badge/iSCSI-Diskless%20Storage-0f766e) ![Control Plane](https://img.shields.io/badge/Control%20Plane-FastAPI-2563eb) ![Agent](https://img.shields.io/badge/Agent-STGT%20%2F%20LIO-7c3aed) ![dnsmasq](https://img.shields.io/badge/DHCP-dnsmasq-334155) ![Web UI](https://img.shields.io/badge/Web%20UI-React-18181b) ![License](https://img.shields.io/badge/License-Apache%202.0-green)
+![Cloud Native](https://img.shields.io/badge/Cloud%20Native-True%20Cloud%20Native-18181b) ![iPXE](https://img.shields.io/badge/iPXE-Network%20Boot-111111) ![iSCSI](https://img.shields.io/badge/iSCSI-Diskless%20Storage-0f766e) ![Control Plane](https://img.shields.io/badge/Control%20Plane-FastAPI-2563eb) ![Agent](https://img.shields.io/badge/Agent-STGT%20%2F%20LIO-7c3aed) ![dnsmasq](https://img.shields.io/badge/DHCP-dnsmasq-334155) ![Web UI](https://img.shields.io/badge/Web%20UI-React-18181b) ![License](https://img.shields.io/badge/License-Apache%202.0-green)
 
 [中文版](./README.zh-CN.md) | [English](./README.md)
 
@@ -24,9 +24,10 @@
 
 - **零接触自动注册（Zero-touch Provisioning）**——新机器插电即被识别与注册，管理员在 Web 界面挂盘、设定默认系统，机器自动进入目标系统，全程零人工预注册。
 - **一机多系统**——一台 Worker 可挂载多块系统盘（Windows / Ubuntu / Debian / CentOS / ESXi），随时在线切换默认启动系统，无需触碰机器。
-- **秒级启动**——Debian 12、Ubuntu 22.04 LTS 与 Windows 11 24H2/25H2 经 iPXE + iSCSI 全链路验证，一套底座全平台覆盖。
+- **秒级启动**——Debian 11/12/13, Ubuntu 22.04/24.04/26.04 和 Windows 11 23H2/24H2/25H2 经 iPXE + iSCSI 全链路验证，一套底座全平台覆盖。
 - **拒绝黑盒**——基于 `debootstrap` 与 `dism++` 绕过官方安装器（Subiquity / ADK）限制，引导链每一环都透明可控，真正的基础设施即代码。
 - **文件即真相**——不引入数据库：`agents.yml`、`workers.yml`、`dhcp-hosts.conf`、`operations.jsonl` 承载全部控制面状态，透明、可 diff、可手工修复。
+- **API 优先（API-first）**——控制面全部能力经 REST API 开放，Web 界面本身也只是这套 API 的一个客户端；第三方系统与自动化脚本与 WebUI 平等，从 [API 参考](https://ipxe.lecreate.asia/zh/guide/api/control-plane-api) 即可集成全部能力。
 - **100% 纯开源工具链**——iPXE、stgt/LIO、dnsmasq、FastAPI、React、VitePress 全部基于开源组件构成，无厂商锁定，完整可审计。
 
 ## 快速开始
@@ -53,7 +54,7 @@ docker compose up -d
 ```
 
 * Web 管理界面：`http://<controller-ip>:4838`
-* Control Plane API：`http://<controller-ip>:4839`
+* Control Plane API：`http://<controller-ip>:4839`——开放 REST 接口，**第三方系统与自动化脚本可直接调用**（鉴权 / 注册 / 建盘 / 批量部署 / 状态查询全覆盖，完整接口契约见下方「API 参考」）
 
 Worker 镜像交付请阅读下方快速部署文档。
 
@@ -63,21 +64,17 @@ Worker 镜像交付请阅读下方快速部署文档。
 
 **[ipxe.lecreate.asia](https://ipxe.lecreate.asia)** | **[中文文档](https://ipxe.lecreate.asia/zh/)**
 
-核心章节：
+**直达入口：**
 
-* [第一章：架构设计与核心链路](https://ipxe.lecreate.asia/zh/guide/exploration/architecture)——iPXE + iSCSI 启动状态机与动态变量传递链
-* [第二章：Windows 11 无盘系统全流程实战](https://ipxe.lecreate.asia/zh/guide/exploration/windows-11)——`dism++` 万能驱动注入 + 虚拟光驱安装
-* [第三章：Debian 12 无盘系统全流程实战](https://ipxe.lecreate.asia/zh/guide/exploration/debian-12)——netboot 安装与母盘封装全链路
-* [第四章：Debian 系 iBFT 无盘启动](https://ipxe.lecreate.asia/zh/guide/exploration/debian-12-ibft)——iBFT 六环链路与源码级证据链
-* [控制面能力详解](https://ipxe.lecreate.asia/zh/guide/exploration/control-plane)——调度模型、API 契约与 Web 管理界面
-* [我们已经攻克的壁垒](https://ipxe.lecreate.asia/zh/guide/exploration/barriers)——一路踩过并填平的黑盒深坑
-* [快速部署手册](https://ipxe.lecreate.asia/zh/guide/quick-deploy/environment-deploy)——环境部署、Windows 与 Debian 系母盘克隆，可照抄
+* [快速部署手册](https://ipxe.lecreate.asia/zh/guide/quick-deploy/environment-deploy)——环境部署、Windows 与 Debian 系母盘克隆
+* [API 参考](https://ipxe.lecreate.asia/zh/guide/api/control-plane-api)——控制面与 Agent 完整接口契约，第三方集成从这里开始
+* [原理探索](https://ipxe.lecreate.asia/zh/guide/preface)——架构设计、无盘启动原理与攻坚记录
 
 ## 路线图
 
 最终目标：构建跨平台、跨架构、贯穿所有计算层的云原生元协议——同一套无状态语义自相似地嵌套于物理机与 hypervisor 每一层，算力不绑定任何具体硬件，层层皆云。完整的阶段规划（Phase 1~4）与近期推进事项见 **[ROADMAP.md](./ROADMAP.md)**。
 
-目前，**Phase 1 核心系统攻坚已全面收官**——Debian 12、Ubuntu 22.04 LTS 以及 Windows 11 24H2/25H2 的全链路已经彻底打通，分布式控制面与 Web 管理界面同步落地。
+目前，**Phase 1 核心系统攻坚已全面收官**——Debian 11/12/13, Ubuntu 22.04/24.04/26.04 和 Windows 11 23H2/24H2/25H2 的全链路已经彻底打通，分布式控制面与 Web 管理界面同步落地。
 
 ## 参与贡献
 
