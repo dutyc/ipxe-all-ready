@@ -173,3 +173,39 @@
 .agent-modal .create-form {
   margin-bottom: 0;
 }
+
+/* ===== iscsi_server collapse (add/edit agent form) ===== */
+.iscsi-collapse {
+  margin-bottom: 16px;
+}
+
+.iscsi-collapse-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  background: none;
+  border: none;
+  font-size: 13px;
+  color: var(--gray-600);
+  cursor: pointer;
+}
+
+.iscsi-collapse-toggle:hover {
+  color: var(--black);
+}
+
+.iscsi-collapse-arrow {
+  display: inline-block;
+  font-size: 10px;
+  color: var(--gray-500);
+  transition: transform var(--transition);
+}
+
+.iscsi-collapse-toggle.open .iscsi-collapse-arrow {
+  transform: rotate(90deg);
+}
+
+.iscsi-collapse-body {
+  margin-top: 10px;
+}

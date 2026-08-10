@@ -12,7 +12,7 @@ The project has evolved from a diskless-boot proof of concept into a complete co
 
 ## Architecture
 
-![Architecture Design](./assets/architecture.svg)
+![Architecture Design](./assets/architecture-en.svg)
 
 Three roles with clearly separated responsibilities, following the **control plane / data plane** split:
 
@@ -29,6 +29,14 @@ Three roles with clearly separated responsibilities, following the **control pla
 - **Files as the source of truth** — No database: `agents.yml`, `workers.yml`, `dhcp-hosts.conf`, and `operations.jsonl` are diff-able and manually repairable.
 - **API-first** — Every Control Plane capability is exposed as REST; the Web UI itself is just a client of this API. Third-party systems and automation scripts are peers of the Web UI — integrate everything through the [API Reference](https://ipxe.lecreate.asia/guide/api/control-plane-api).
 - **100% open-source toolchain** — iPXE, stgt/LIO, dnsmasq, FastAPI, React, VitePress. No vendor lock-in.
+
+## Cloud-Native Firmware Repo
+
+The iPXE firmware that runs on every Worker at the bottom of the boot chain is built from our companion repo **[iPXE-Stateless](https://github.com/dutyc/ipxe-stateless)** — truly **cloud-native firmware**:
+
+- **The firmware itself is stateless** — clients store nothing; on power-on they fetch configuration via DHCP, chain-load boot scripts, and enter the OS disklessly, exactly matching the "disposable and instantly replaceable" semantics of a stateless compute node
+- **The repo is stateless too** — no iPXE source is vendored, only patch diffs and build assets; the firmware can be rebuilt against any new upstream baseline in one command, forever fork-free
+- **Stateless adaptation across the board** — full RTL8125 native driver takeover (the stock SNP driver hangs on iSCSI attach, so native drivers are mandatory for diskless boot), snponly local-boot fallback, and a fixed debug build; the artifacts plug straight into the [boot.ipxe](./tftp/boot.ipxe) chain
 
 ## Quick Start
 

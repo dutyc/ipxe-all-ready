@@ -8,6 +8,9 @@ services:
     network_mode: host          
     cap_add:
       - NET_ADMIN              
+    # 直接运行 dnsmasq 二进制，绕过镜像默认的 webproc 包装器：
+    # jpillora/dnsmasq 默认 ENTRYPOINT=webproc，会在 8080 起 web 管理面板（host 网络下占用宿主 8080），本项目不需要
+    entrypoint: ["/usr/sbin/dnsmasq"]
     volumes:
       - ./dnsmasq/dnsmasq.conf:/etc/dnsmasq.conf
       - ./dnsmasq/dhcp-hosts.conf:/etc/dnsmasq.d/dhcp-hosts.conf

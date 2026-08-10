@@ -213,3 +213,34 @@
 
 - 文档：API 文档端口号修正——`docs/zh/guide/api/agent-api.md` 全部 curl 示例与 Base URL 由错误的 `localhost:4841` 改为 `4840`（iscsi-server compose 实际映射 `4840:8080`），`control-plane-api.md` 的 `GET /agents` 返回示例 base_url 同步修正；全仓库 4841 零残留
 - WebUI：capLabels 克隆方式文案映射缺失 ZFS/xfs/仅全量拷贝新文案（ZFS 支持上线后 UI 直接显示英文原文）——补齐映射并将匹配逻辑改为前缀匹配（动态文案 `full copy only (reflink unsupported on <fs>)` 归并到静态条目）
+
+---
+
+## 2026-08-09
+
+### 新增
+
+- WebUI：添加 / 编辑 Agent 表单新增「iSCSI 数据面地址（可选）」折叠填写框——位于探测前的表单区（Agent ID / API 地址 / Token 之后），默认折叠，点击标题展开/收起（▶ 箭头旋转指示）；编辑模式该 Agent 已配置数据面地址时默认展开；探测成功后自动展开，展示探测推导的地址（base_url 主机名，Worker 侧常不可达），便于现场改为存储节点局域网 IP；中英文案同步
+
+### 变更
+
+- WebUI：探测结果区不再重复显示「iSCSI 数据面地址」输入框（该参数统一收敛到探测前的折叠框）；探测填充逻辑调整——探测前手填的数据面地址优先保留，不再被探测推导值（base_url 主机名）覆盖
+
+---
+
+## 2026-08-10
+
+### 新增
+
+- **Control Plane：`PUT /workers/{worker_id}/mac` —— 修改 Worker 的 MAC 地址绑定**（hostname 不变）：校验新 MAC 格式与占用（已被其他 hostname 绑定返回 `409`），更新 `dnsmasq/dhcp-hosts.conf` 并 HUP 重载（保持 inode 不变，重载立即可见）；审计记录 `worker.mac.update`（含 `old_mac`/`new_mac`/`changed`/`client`，即修改历史，`GET /operations` 可查），MAC 相同时 `changed=false` 不触发重载
+- **WebUI：Worker 详情页「身份」卡片新增 MAC 绑定修改**——MAC 行显示当前绑定值 +「修改 MAC」按钮，编辑态提供输入框 / 保存 / 取消，保存失败显示错误（含 409 占用提示），并展示审计提示文案；对接 `PUT /workers/{worker_id}/mac`，保存后刷新台账
+
+### 变更
+
+- **README 中英双版新增「云原生固件仓库」小节**——在「核心能力」与「快速开始」之间引导读者了解配套固件仓库 [iPXE-Stateless](https://github.com/dutyc/ipxe-stateless)：固件本身无状态（DHCP 取配置、链式加载、无盘进系统）、仓库亦无状态（只维护补丁与构建资产、可随新基线重建）、全系无状态适配（RTL8125 native 驱动 / snponly 本地引导兜底 / debug 构建修复）
+- **禁用 dnsmasq 容器的 8080 web 管理面板**：`jpillora/dnsmasq` 镜像默认 `ENTRYPOINT=webproc`，会在 8080 启动 web 管理面板（host 网络下直接占用宿主 8080）；compose 覆盖 `entrypoint: ["/usr/sbin/dnsmasq"]` 直接运行 dnsmasq 二进制，完全绕过 webproc；文档验证方式同步改为检查 67/69 UDP 端口监听（`ss -lunp`）
+
+### 修复
+
+- **Control Plane：dnsmasq 主机名绑定写入后不生效（重启 Worker / 手动 `killall -HUP dnsmasq` 均无效，重建容器才生效）**：根因是 `DnsmasqHosts._write_lines` 复用 `_atomic_write_text` 的 rename 原子写（mkstemp + os.replace），每次写入都更换文件 inode；而 `dhcp-hosts.conf` 在 docker-compose 中以**文件级 bind mount**（`./dnsmasq/dhcp-hosts.conf:/etc/dnsmasq.d/dhcp-hosts.conf`）挂载进容器，挂载锁定的是写入瞬间的 inode——rename 后容器内仍指向旧 inode，dnsmasq 永远读不到新绑定，只有重建容器重新挂载才生效；已改为直接截断写原文件（保持 inode 不变），文件级挂载语义不再被破坏，HUP 重载恢复有效
+- **WebUI：删除确认框被容器边界裁剪（只能看到一点点）**：根因是 `ConfirmAction` 确认框用 `position: absolute` 在触发按钮下方展开，而 Worker 详情页系统盘卡片（`.detail-card`）设置了 `overflow: hidden`，展开部分被裁剪；批量删除侧边栏（230px 宽 + `overflow-y: auto`）同样存在该隐患。已将 `ConfirmAction` 改为**固定遮罩层 + 居中弹窗**（`position: fixed` 覆盖全屏，`z-index: 200`），不再依赖触发按钮的定位上下文，任何容器都无法裁剪；同时修复点击 disabled 按钮也会弹出确认框的问题（trigger 内 Button 禁用时不弹窗）

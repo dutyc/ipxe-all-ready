@@ -158,7 +158,13 @@ cd /opt/ipxe-all-ready
 docker compose up -d
 ```
 
-After the services are up, you can verify that DHCP and TFTP are running by capturing packets or accessing port 8080 of the Controller (if the dnsmasq status panel is configured).
+After the services are up, you can verify that DHCP and TFTP are running by capturing packets or checking that dnsmasq listens on UDP ports 67/69:
+
+```bash
+ss -lunp | grep -E ':(67|69)\b'
+# Expected: dnsmasq listening on 67 (DHCP) and 69 (TFTP)
+```
+
 Next, verify that the HTTP endpoint is correctly serving boot files such as `wimboot`:
 
 ```bash

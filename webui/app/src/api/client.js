@@ -164,6 +164,11 @@ export function setWorkerDefaultBoot(workerId, data) {
   return request(`/workers/${workerId}/default-os`, { method: 'PUT', body: data });
 }
 
+export function updateWorkerMac(workerId, mac) {
+  // 修改 MAC 绑定（hostname 不变），审计记录旧/新 MAC
+  return request(`/workers/${workerId}/mac`, { method: 'PUT', body: { mac } });
+}
+
 export function getWorkerStatus(workerId) {
   return request(`/workers/${workerId}/status`);
 }

@@ -10,6 +10,7 @@ import {
   setWorkerDefaultBoot,
   getAgents,
   getMasters,
+  updateWorkerMac,
 } from '../api/client'
 import { useI18n } from '../i18n'
 import Button from '../components/Button'
@@ -52,6 +53,11 @@ export default function WorkerDetail() {
   const [bootForm, setBootForm] = useState({ os: '', menu_default: '', menu_timeout: '', clear_timeout: false })
   const [savingBoot, setSavingBoot] = useState(false)
   const [bootSaveError, setBootSaveError] = useState(null)
+  // MAC 绑定编辑（修改后审计记录旧/新 MAC）
+  const [macEdit, setMacEdit] = useState(false)
+  const [macValue, setMacValue] = useState('')
+  const [macSaving, setMacSaving] = useState(false)
+  const [macError, setMacError] = useState(null)
 
   // menu.ipxe 主菜单 item ID（与后端 MENU_ITEMS 一致）
   const MENU_OPTIONS = [
@@ -257,6 +263,21 @@ export default function WorkerDetail() {
     }
   }
 
+  const handleSaveMac = async () => {
+    setMacSaving(true)
+    setMacError(null)
+    try {
+      const w = await updateWorkerMac(id, macValue.trim())
+      setWorker(w)
+      setMacEdit(false)
+      setMacValue('')
+    } catch (err) {
+      setMacError(err.message)
+    } finally {
+      setMacSaving(false)
+    }
+  }
+
   if (loading) return <p className="page-loading">{t('common.loading')}</p>
   if (error) return <p className="page-error">{error}</p>
   if (!worker) return <EmptyState message={t('workerDetail.notFoundMsg')} />
@@ -294,7 +315,38 @@ export default function WorkerDetail() {
       <Card className="detail-card">
         <InfoRow label={t('workerDetail.workerId')} value={worker.worker_id} mono />
         <InfoRow label={t('workerDetail.hostname')} value={worker.hostname} mono />
-        <InfoRow label={t('workerDetail.mac')} value={mac} mono />
+        <div className="info-row">
+          <span className="info-label">{t('workerDetail.mac')}</span>
+          {macEdit ? (
+            <span className="mac-edit-fields">
+              <Input
+                name="mac_edit"
+                value={macValue}
+                onChange={(e) => setMacValue(e.target.value)}
+                placeholder={t('workers.macPlaceholder')}
+              />
+              <Button onClick={handleSaveMac} disabled={macSaving}>
+                {macSaving ? t('workerDetail.macSaving') : t('workerDetail.macSave')}
+              </Button>
+              <Button variant="ghost" onClick={() => { setMacEdit(false); setMacError(null) }} disabled={macSaving}>
+                {t('workers.cancel')}
+              </Button>
+            </span>
+          ) : (
+            <span className="mac-display">
+              <span className="info-value info-mono">{mac || '—'}</span>
+              <Button
+                variant="ghost"
+                className="mac-edit-btn"
+                onClick={() => { setMacValue(mac || ''); setMacEdit(true) }}
+              >
+                {t('workerDetail.macEdit')}
+              </Button>
+            </span>
+          )}
+        </div>
+        {macEdit && <p className="mac-edit-hint">{t('workerDetail.macHint')}</p>}
+        {macError && <p className="mac-edit-error">{macError}</p>}
         <InfoRow
           label={t('workerDetail.os')}
           value={disks.map((d) => d.os).join(', ') || t('workerDetail.noDisk')}

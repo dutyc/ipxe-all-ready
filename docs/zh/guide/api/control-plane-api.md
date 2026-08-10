@@ -111,6 +111,7 @@ curl -s "$BASE_URL/workers" \
 | `POST` | `/workers/luns/disk/batch` | 批量给多个 Worker 创建系统盘（每项指定存储节点） |
 | `DELETE` | `/workers/{worker_id}/luns/disk/{os}` | 删除 Worker 单个系统盘（保留/删除 .img 文件） |
 | `PUT` | `/workers/{worker_id}/default-os` | 设置 Worker 默认启动配置（系统 / 菜单项 / 超时） |
+| `PUT` | `/workers/{worker_id}/mac` | 修改 Worker 的 MAC 绑定（更新 dnsmasq 绑定并 HUP 重载，审计旧/新 MAC，见 7.5） |
 | `GET` | `/workers` | 列出 Worker |
 | `GET` | `/workers/{worker_id}` | 查询单个 Worker |
 | `GET` | `/workers/{worker_id}/status` | 查询 Worker 台账与实时状态 |
@@ -1085,6 +1086,50 @@ curl -s -X DELETE "$BASE_URL/workers/worker-01/luns/disk/ubuntu?delete_file=true
 | `400` | `os` 非法 |
 | `401` | 缺少 Token 或 Token 错误 |
 | `404` | Worker 不存在，或该 Worker 没有此系统盘 |
+
+---
+
+## 7.5 PUT /workers/{worker_id}/mac
+
+### 说明
+
+修改指定 Worker 的 **MAC 地址绑定**（hostname 不变）：Control Plane 会：
+
+1. 校验 Worker 存在（不存在时返回 `404`）
+2. 校验新 MAC 格式（非法返回 `400`）；**新 MAC 已被其他 hostname 占用时返回 `409`**（不写入，防止一 MAC 多 Worker）
+3. 更新 `dnsmasq/dhcp-hosts.conf` 中该 hostname 的绑定并 HUP 重载 dnsmasq（保持文件 inode 不变，文件级 bind mount 下重载立即可见）
+4. **审计记录 `worker.mac.update`（含 `old_mac` / `new_mac` / `changed` / `client`）**——即修改历史，可通过 `GET /operations` 查询；新 MAC 与旧 MAC 相同时 `changed=false`，不触发重载
+
+> **注意**：`workers.yml` 台账不存 MAC，MAC 唯一权威在 `dnsmasq/dhcp-hosts.conf`，本端点直接改绑定文件；改完后 Worker 需重新获取 DHCP 租约（重启网卡 / 重新 PXE 启动）才会使用新 MAC 对应身份。
+
+### Body 参数
+
+| 参数 | 必填 | 说明 |
+|---|---:|---|
+| `mac` | 是 | 新 MAC 地址，格式 `XX:XX:XX:XX:XX:XX`（大小写均可，统一规范化） |
+
+### 示例
+
+```bash
+curl -s -X PUT "$BASE_URL/workers/worker-01/mac" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"mac": "00:0c:29:b9:8b:01"}'
+```
+
+### 成功返回
+
+返回该 Worker 的完整台账（`mac` 字段为更新后的实时反查结果）。
+
+### 常见错误
+
+| HTTP 状态码 | 常见原因 |
+|---:|---|
+| `400` | `mac` 格式非法 |
+| `401` | 缺少 Token 或 Token 错误 |
+| `404` | Worker 不存在，或该 hostname 在 dnsmasq 中无绑定 |
+| `409` | 新 MAC 已被其他 hostname 占用 |
+| `500` | dnsmasq 重载失败（绑定文件已更新） |
 
 ---
 

@@ -149,6 +149,10 @@ const en = {
     clearTimeout: 'Clear timeout',
     saveBoot: 'Save',
     savingBoot: 'Saving...',
+    macEdit: 'Edit MAC',
+    macSave: 'Save',
+    macSaving: 'Saving...',
+    macHint: 'Updates the dnsmasq binding and reloads; audit logs old/new MAC',
     bootNothing: 'Set at least one of os / menu_default / menu_timeout',
   },
   agents: {
@@ -195,6 +199,7 @@ const en = {
     tokenLabel: 'Token',
     tokenPlaceholder: 'Agent token or ${ENV} placeholder (optional)',
     iscsiServerPlaceholder: '192.168.1.5 (optional, defaults to base_url host)',
+    iscsiCollapseLabel: 'iSCSI Server Address (optional)',
     roleDisk: 'Disk role (can create system disks)',
     roleCd: 'CD role (can mount ISO)',
     tagsInput: 'Tags (comma separated)',

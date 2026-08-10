@@ -158,7 +158,13 @@ cd /opt/ipxe-all-ready
 docker compose up -d
 ```
 
-服务启动后，可以通过抓包或访问 Controller 的 8080 端口（若配置了 dnsmasq 状态面板）来验证 DHCP 和 TFTP 服务的运行状态。
+服务启动后，可以通过抓包或检查 Controller 的 67/69 UDP 端口监听来验证 DHCP 和 TFTP 服务的运行状态：
+
+```bash
+ss -lunp | grep -E ':(67|69)\b'
+# 预期看到 dnsmasq 监听 67（DHCP）与 69（TFTP）
+```
+
 随后，验证 HTTP 端点是否正常分发 `wimboot` 等引导文件：
 
 ```bash

@@ -107,6 +107,8 @@ function AgentForm({ mode, agentId, initial, onClose, onSaved }) {
     enabled: initial?.enabled ?? true,
   }))
   const [probe, setProbe] = useState(null)
+  // iscsi_server 折叠框：默认折叠（编辑模式已有值时展开），探测成功后自动展开供确认/修改
+  const [iscsiOpen, setIscsiOpen] = useState(() => Boolean(initial?.iscsi_server))
   const [probing, setProbing] = useState(false)
   const [probeError, setProbeError] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -130,11 +132,13 @@ function AgentForm({ mode, agentId, initial, onClose, onSaved }) {
         ...(isEdit ? { agent_id: agentId } : {}),
       })
       setProbe(result)
+      setIscsiOpen(true) // 探测推导了数据面地址（base_url 主机名），展开以便确认或改为 Worker 可达的局域网 IP
       setForm((prev) => ({
         ...prev,
         role_disk: result.role.disk,
         role_cd: result.role.cd,
-        iscsi_server: result.iscsi_server || prev.iscsi_server,
+        // 探测前已手填的数据面地址优先保留，未被探测推导值覆盖
+        iscsi_server: prev.iscsi_server || result.iscsi_server,
         tags: result.tags.join(', '),
       }))
     } catch (err) {
@@ -206,6 +210,28 @@ function AgentForm({ mode, agentId, initial, onClose, onSaved }) {
           placeholder={isEdit ? t('agents.tokenKeepPlaceholder') : t('agents.tokenPlaceholder')}
         />
       </div>
+      <div className="iscsi-collapse">
+        <button
+          type="button"
+          className={`iscsi-collapse-toggle${iscsiOpen ? ' open' : ''}`}
+          onClick={() => setIscsiOpen((v) => !v)}
+          aria-expanded={iscsiOpen}
+        >
+          <span className="iscsi-collapse-arrow">▶</span>
+          {t('agents.iscsiCollapseLabel')}
+        </button>
+        {iscsiOpen && (
+          <div className="iscsi-collapse-body">
+            <Input
+              label={t('agents.iscsiServer')}
+              name="iscsi_server"
+              value={form.iscsi_server}
+              onChange={setField('iscsi_server')}
+              placeholder={t('agents.iscsiServerPlaceholder')}
+            />
+          </div>
+        )}
+      </div>
       {probeError && <p className="create-error">{probeError}</p>}
       <div className="create-actions">
         <Button
@@ -240,13 +266,6 @@ function AgentForm({ mode, agentId, initial, onClose, onSaved }) {
           </div>
           <p className="create-hint">{t('agents.probeMeta')}</p>
           <div className="create-form-grid">
-            <Input
-              label={t('agents.iscsiServer')}
-              name="iscsi_server"
-              value={form.iscsi_server}
-              onChange={setField('iscsi_server')}
-              placeholder={t('agents.iscsiServerPlaceholder')}
-            />
             <Input
               label={t('agents.tagsInput')}
               name="tags"

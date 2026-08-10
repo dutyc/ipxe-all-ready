@@ -54,7 +54,6 @@
   font-weight: 600;
   padding: 9px 14px;
   border: 1px solid var(--gray-300);
-  border-radius: 4px;
   cursor: pointer;
   white-space: nowrap;
   background: var(--gray-25);
@@ -301,7 +300,6 @@
 /* ===== 存储节点标签（右侧边栏） ===== */
 .storage-tag {
   border: 1px solid var(--gray-300);
-  border-radius: 8px;
   padding: 10px 12px;
   margin-bottom: 10px;
   background: #fff;
@@ -439,7 +437,6 @@
   font-size: 11px;
   color: var(--black);
   border: 1px solid var(--gray-300);
-  border-radius: 10px;
   padding: 1px 8px;
   background: #fff;
   white-space: nowrap;

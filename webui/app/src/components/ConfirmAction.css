@@ -1,5 +1,4 @@
 .confirm-wrap {
-  position: relative;
   display: inline-block;
 }
 
@@ -7,13 +6,22 @@
   cursor: pointer;
 }
 
+/* 固定遮罩层 + 居中弹窗：不依赖触发按钮的定位上下文，
+ * 任何容器（overflow: hidden / 滚动侧边栏）都无法裁剪确认框 */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
 .confirm-box {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: 30;
-  width: 300px;
-  max-width: calc(100vw - 48px);
+  width: 420px;
+  max-width: 100%;
   padding: 18px 20px;
   background: var(--gray-25);
   border: 1px solid var(--border);

@@ -18,6 +18,11 @@ class CreateWorkerRequest(BaseModel):
     boot: BootSpec | None = None
 
 
+class UpdateWorkerMacRequest(BaseModel):
+    """修改 Worker 的 MAC 绑定（hostname 不变）：更新 dnsmasq/dhcp-hosts.conf 中该 hostname 的绑定。"""
+    mac: str
+
+
 class CreateWorkerDiskRequest(BaseModel):
     """给指定 Worker 创建系统盘 LUN（母盘克隆或空白盘）。os 为该盘对应的系统，决定 IQN 后缀与文件名。"""
     type: Literal["master", "empty"]

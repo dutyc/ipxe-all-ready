@@ -68,6 +68,41 @@
   color: var(--gray-700);
 }
 
+/* ===== MAC 绑定编辑（修改 MAC 绑定） ===== */
+.mac-display {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.mac-edit-btn {
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.mac-edit-fields {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mac-edit-fields .field {
+  flex: 1;
+  min-width: 0;
+}
+
+.mac-edit-hint {
+  font-size: 12px;
+  color: #71717a;
+  padding: 0 24px 12px;
+}
+
+.mac-edit-error {
+  font-size: 12px;
+  color: #b00020;
+  padding: 0 24px 12px;
+}
+
 /* ===== Disk card actions (删除系统盘) ===== */
 .disk-card-actions {
   display: flex;

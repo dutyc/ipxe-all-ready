@@ -30,6 +30,14 @@
 - **API 优先（API-first）**——控制面全部能力经 REST API 开放，Web 界面本身也只是这套 API 的一个客户端；第三方系统与自动化脚本与 WebUI 平等，从 [API 参考](https://ipxe.lecreate.asia/zh/guide/api/control-plane-api) 即可集成全部能力。
 - **100% 纯开源工具链**——iPXE、stgt/LIO、dnsmasq、FastAPI、React、VitePress 全部基于开源组件构成，无厂商锁定，完整可审计。
 
+## 云原生固件仓库
+
+引导链最底层——Worker 通电后运行的 iPXE 固件，来自我们的配套仓库 **[iPXE-Stateless](https://github.com/dutyc/ipxe-stateless)**，一套真正的**云原生固件**：
+
+- **固件本身无状态**——客户端不保存任何状态，通电即通过 DHCP 获取配置、链式加载引导脚本、无盘进入系统，与算力节点「可丢弃、可替换」的语义完全一致
+- **固件仓库亦无状态**——不包含 iPXE 源码，只维护差异补丁与构建资产，可随时基于新的上游基线一键重建，永不与上游分叉
+- **全系无状态适配**——RTL8125 全系 native 驱动接管（固件 SNP 驱动在 iSCSI 挂载场景存在挂起缺陷，无盘引导必须 native 驱动）、snponly 本地引导兜底、debug 构建修复；产物与 [boot.ipxe](./tftp/boot.ipxe) 引导链即插即用
+
 ## 快速开始
 
 > 前置条件：一台 Linux 主机（推荐 Debian 12 / Ubuntu 22.04）作为 Controller 节点，安装 Docker Engine。完整的硬件基线、网络规划与存储布局见[项目环境部署文档](https://ipxe.lecreate.asia/zh/guide/quick-deploy/environment-deploy)。

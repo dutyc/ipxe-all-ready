@@ -23,6 +23,7 @@ from .models import (
     SetAutoRegisterRequest,
     SetWorkerDefaultBootRequest,
     UpdateAgentRequest,
+    UpdateWorkerMacRequest,
 )
 from .scheduler import AgentRegistry
 from .state import FileStateStore, OperationLog, RuntimeSettings
@@ -445,6 +446,46 @@ def create_worker(req: CreateWorkerRequest, request: Request):
             _record("create_worker", "failed", worker_id=worker_id, client=client_host, error=str(exc))
             _persist_failed_worker(data, worker_id, hostname, arch, None, cd_record, str(exc))
             raise HTTPException(500, str(exc)) from exc
+
+
+@app.put("/workers/{worker_id}/mac", dependencies=[Depends(verify_control_token)])
+def update_worker_mac(worker_id: str, req: UpdateWorkerMacRequest, request: Request):
+    """修改 Worker 的 MAC 绑定（hostname 不变）：更新 dnsmasq/dhcp-hosts.conf 并 HUP 重载。
+    审计记录 worker.mac.update（含旧/新 MAC，即修改历史）。新 MAC 已被其他 Worker 占用时 409。"""
+    worker_id = _canonical_id(worker_id)
+    new_mac = _canonical_mac(req.mac)
+
+    with store.locked():
+        data = store.load_workers()
+        record = data["workers"].get(worker_id)
+        if not record:
+            raise HTTPException(404, f"worker not found: {worker_id}")
+        hostname = record["hostname"]
+        client_host = _client_host(request)
+        _record("worker.mac.update", "started", worker_id=worker_id, client=client_host)
+        try:
+            old_mac = dnsmasq.replace_binding(hostname, new_mac)
+        except ValueError as exc:
+            _record("worker.mac.update", "failed", worker_id=worker_id, client=client_host, error=str(exc))
+            raise HTTPException(409, str(exc)) from exc
+        if old_mac is None:
+            _record("worker.mac.update", "failed", worker_id=worker_id, client=client_host,
+                    error=f"no dnsmasq binding for hostname: {hostname}")
+            raise HTTPException(409, f"no dnsmasq binding for hostname: {hostname}")
+        if old_mac == new_mac:
+            _record("worker.mac.update", "ok", worker_id=worker_id, hostname=hostname,
+                    old_mac=old_mac, new_mac=new_mac, changed=False, client=client_host)
+            return _enrich_worker(worker_id, record)
+        try:
+            dnsmasq_result = dnsmasq.reload()
+        except Exception as exc:
+            _record("worker.mac.update", "failed", worker_id=worker_id, client=client_host,
+                    old_mac=old_mac, new_mac=new_mac, error=f"dnsmasq reload failed: {exc}")
+            raise HTTPException(500, f"dnsmasq reload failed: {exc}") from exc
+        _record("worker.mac.update", "ok", worker_id=worker_id, hostname=hostname,
+                old_mac=old_mac, new_mac=new_mac, changed=True, client=client_host)
+        _record("dnsmasq.reload", "ok", worker_id=worker_id, result=dnsmasq_result)
+        return _enrich_worker(worker_id, record)
 
 
 @app.post("/workers/{worker_id}/luns/disk", status_code=201, dependencies=[Depends(verify_control_token)])

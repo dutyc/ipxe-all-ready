@@ -13,6 +13,18 @@ export default function ConfirmAction({
   const [open, setOpen] = useState(false)
   const [extra, setExtra] = useState({})
 
+  // 按钮 disabled 时不弹窗（trigger 内 Button 可能带 disabled）
+  const handleOpen = (e) => {
+    const btn = e.target.closest('button')
+    if (btn && btn.disabled) return
+    setOpen(true)
+  }
+
+  const handleClose = () => {
+    setOpen(false)
+    setExtra({})
+  }
+
   const handleConfirm = () => {
     onConfirm(extra)
     setOpen(false)
@@ -21,35 +33,37 @@ export default function ConfirmAction({
 
   return (
     <div className="confirm-wrap">
-      <span onClick={() => setOpen(true)} className="confirm-trigger">
+      <span onClick={handleOpen} className="confirm-trigger">
         {trigger}
       </span>
       {open && (
-        <div className="confirm-box">
-          <p className="confirm-msg">{message}</p>
-          {extraFields && (
-            <div className="confirm-extra">
-              {extraFields.map((f) => (
-                <label key={f.name} className="confirm-check">
-                  <input
-                    type="checkbox"
-                    checked={!!extra[f.name]}
-                    onChange={(e) =>
-                      setExtra((prev) => ({ ...prev, [f.name]: e.target.checked }))
-                    }
-                  />
-                  <span>{f.label}</span>
-                </label>
-              ))}
+        <div className="confirm-overlay" onClick={handleClose}>
+          <div className="confirm-box" onClick={(e) => e.stopPropagation()}>
+            <p className="confirm-msg">{message}</p>
+            {extraFields && (
+              <div className="confirm-extra">
+                {extraFields.map((f) => (
+                  <label key={f.name} className="confirm-check">
+                    <input
+                      type="checkbox"
+                      checked={!!extra[f.name]}
+                      onChange={(e) =>
+                        setExtra((prev) => ({ ...prev, [f.name]: e.target.checked }))
+                      }
+                    />
+                    <span>{f.label}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+            <div className="confirm-actions">
+              <Button variant="danger" onClick={handleConfirm}>
+                {t('workerDetail.confirm')}
+              </Button>
+              <Button variant="ghost" onClick={handleClose}>
+                {t('workers.cancel')}
+              </Button>
             </div>
-          )}
-          <div className="confirm-actions">
-            <Button variant="danger" onClick={handleConfirm}>
-              {t('workerDetail.confirm')}
-            </Button>
-            <Button variant="ghost" onClick={() => setOpen(false)}>
-              {t('workers.cancel')}
-            </Button>
           </div>
         </div>
       )}

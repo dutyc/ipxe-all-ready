@@ -149,6 +149,10 @@ const zh = {
     clearTimeout: '清除超时设置',
     saveBoot: '保存配置',
     savingBoot: '保存中...',
+    macEdit: '修改 MAC',
+    macSave: '保存',
+    macSaving: '保存中...',
+    macHint: '修改后更新 dnsmasq 绑定并重载，审计记录旧/新 MAC',
     bootNothing: '至少设置一项（os / menu_default / menu_timeout）',
   },
   agents: {
@@ -195,6 +199,7 @@ const zh = {
     tokenLabel: 'Token',
     tokenPlaceholder: 'Agent Token 或 ${ENV} 占位（可选）',
     iscsiServerPlaceholder: '192.168.1.5（可选，缺省用 base_url 主机名）',
+    iscsiCollapseLabel: 'iSCSI 数据面地址（可选）',
     roleDisk: '磁盘角色（可建系统盘）',
     roleCd: '光驱角色（可挂载 ISO）',
     tagsInput: '标签（逗号分隔）',

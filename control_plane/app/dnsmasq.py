@@ -1,10 +1,9 @@
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
 import docker
-
-from .state import _atomic_write_text
 
 
 MAC_RE = re.compile(r"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$")
@@ -62,6 +61,29 @@ class DnsmasqHosts:
             self._write_lines(kept)
         return removed
 
+    def replace_binding(self, hostname: str, new_mac: str) -> str | None:
+        """将该 hostname 的绑定 MAC 替换为 new_mac，返回旧 MAC；hostname 无绑定返回 None。
+        新 MAC 已被其他 hostname 占用时抛 ValueError（不写入）。"""
+        new_mac = normalize_mac(new_mac)
+        lines = self._read_lines()
+        old_mac: str | None = None
+        new_lines: list[str] = []
+        for line in lines:
+            binding = _parse_binding(line)
+            if binding and binding.hostname == hostname:
+                old_mac = binding.mac
+                new_lines.append(f"{new_mac},{hostname}")
+            elif binding and binding.mac == new_mac:
+                raise ValueError(f"mac already bound to {binding.hostname}: {new_mac}")
+            else:
+                new_lines.append(line)
+        if old_mac is None:
+            return None
+        if old_mac == new_mac:
+            return old_mac
+        self._write_lines(new_lines)
+        return old_mac
+
     def reload(self) -> dict[str, str]:
         if not self.reload_enabled:
             return {"status": "skipped", "reason": "disabled"}
@@ -86,7 +108,14 @@ class DnsmasqHosts:
 
     def _write_lines(self, lines: list[str]) -> None:
         text = "\n".join(lines).rstrip() + "\n" if lines else ""
-        _atomic_write_text(self.hosts_file, text)
+        # 直接截断写原文件，保持 inode 不变（不用 rename 原子替换）：
+        # dhcp-hosts.conf 以文件级 bind mount 挂载进 dnsmasq 容器，rename 会更换 inode，
+        # 容器内仍指向旧 inode，导致 dnsmasq 永远读不到新绑定（重建容器才生效）。
+        self.hosts_file.parent.mkdir(parents=True, exist_ok=True)
+        with self.hosts_file.open("w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
 
 
 def normalize_mac(mac: str) -> str:
