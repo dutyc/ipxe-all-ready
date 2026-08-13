@@ -43,6 +43,13 @@ mkdir -p /pool1/iscsi_img        # Image directory (stores disk files; path can 
 
 ### 1.2 Modify the dnsmasq Subnet
 
+For a first-time deployment, copy the example templates first (docker-compose mounts the following config files via file-level bind mounts; if missing, a directory is created inside the container and the config will not take effect):
+
+```bash
+cp dnsmasq/dnsmasq.conf.example dnsmasq/dnsmasq.conf
+cp dnsmasq/dhcp-hosts.conf.example dnsmasq/dhcp-hosts.conf
+```
+
 Edit `dnsmasq/dnsmasq.conf` and adjust according to your actual network environment:
 
 ```conf

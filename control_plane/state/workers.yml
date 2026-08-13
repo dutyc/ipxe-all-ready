@@ -1,7 +1,0 @@
-workers:
-  worker-01:
-    arch: x86_64
-    cd: null
-    disks: []
-    hostname: worker-01
-    state: registered

@@ -43,8 +43,12 @@ webui/app/.env
 # 本地运行时配置（含真实 token），仓库只保留 *.example 模板
 iscsi-server/.env
 control_plane/config/agents.yml
+control_plane/control_plane.env
 
-# 运行时日志与租约（容器/Agent 运行生成，不入库）
+# 运行时状态、日志与租约（容器/Agent 运行生成，不入库）
 control_plane/state/operations.jsonl
+control_plane/state/workers.yml
 iscsi-server/agent/logs/ops.jsonl
 dnsmasq/dnsmasq.leases
+dnsmasq/dhcp-hosts.conf
+dnsmasq/dnsmasq.conf

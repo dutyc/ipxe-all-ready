@@ -18,6 +18,9 @@
 
 - **《项目环境部署》1.3 节固件来源改为 ipxe-stateless（中英同步）**——不再从 iPXE 官方发布站 boot.ipxe.org 下载，改为从配套固件仓库 [iPXE-Stateless](https://github.com/dutyc/ipxe-stateless) 的 [Releases](https://github.com/dutyc/ipxe-stateless/releases) 页面下载最新 release；以正式语气说明不建议使用官方固件的动因（官方构建未包含高性能网卡原生驱动，RTL8125/RTL8126 仅能走 UNDI/SNP 兼容路径，引导可能失败）；以表格列明所需资产与放入 `tftp/` 后的文件名（`undionly.kpxe` + `pxe-uefi-snponly.efi` → `snponly.efi` + `pxe-uefi-ipxe.efi` → `ipxe.efi`，可选 `*-debug.efi` 调试版，去 `pxe-uefi-` 前缀匹配 dnsmasq 分发名）；`ipxe-legacy.efi` 随新产物移除；下载步骤精简为指引（不再提供逐条 wget / sha256sum / mv 命令）；UEFI 引导异常排查流程更新（先换 `ipxe.efi`，仍异常用调试版抓日志，替换前备份、定位后换回正式版）
 - **README 两版「云原生固件仓库」小节精简**——参照 ipxe-stateless 仓库「项目定位」的概况风格，将 1 句引言 + 3 条要点列表压缩为一句全局概况，不含技术细节：与主仓库同一理念的一体两面（主仓库让算力无状态，固件仓库让引导固件无状态）
+- **workers.yml 移出版本库，纳入 .gitignore**——`control_plane/state/workers.yml` 为控制面运行时台账（Worker 注册状态），提交会打乱部署环境；经 `git rm --cached` 从索引移除（工作区文件保留），并加入 .gitignore 运行时区块（注释同步改为「运行时状态、日志与租约」），与 `operations.jsonl` 同等对待
+- **dhcp-hosts.conf 改为示例模板入库，主文件不再 push**——新增 `dnsmasq/dhcp-hosts.conf.example` 模板（含格式说明与示例绑定、复制命令），`dnsmasq/dhcp-hosts.conf`（MAC → hostname 运行时绑定）经 `git rm --cached` 移出版本库并纳入 .gitignore；部署者须先 `cp dhcp-hosts.conf.example dhcp-hosts.conf` 再填写真实绑定（docker-compose 以文件级 bind mount 挂载该文件，缺失时容器侧会生成目录导致 hostsfile 失效）
+- **dnsmasq.conf 改为示例模板入库，主文件不再 push**——新增 `dnsmasq/dnsmasq.conf.example` 模板（环境相关项标注「[按实际修改]」：网卡名、DHCP 地址池、网关，引导链架构配置原样保留），`dnsmasq/dnsmasq.conf`（含真实网段）经 `git rm --cached` 移出版本库并纳入 .gitignore；环境部署文档 1.2 节同步补充首次部署先复制模板的步骤（文件级 bind mount 下缺失会生成目录导致配置不生效）
 
 ---
 

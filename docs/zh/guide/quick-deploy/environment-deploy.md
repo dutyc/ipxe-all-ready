@@ -43,6 +43,13 @@ mkdir -p /pool1/iscsi_img        # 镜像目录（存盘文件，路径可自定
 
 ### 1.2 修改 dnsmasq 网段
 
+首次部署先复制示例模板（docker-compose 以文件级 bind mount 挂载以下配置文件，缺失时容器内会生成目录导致配置不生效）：
+
+```bash
+cp dnsmasq/dnsmasq.conf.example dnsmasq/dnsmasq.conf
+cp dnsmasq/dhcp-hosts.conf.example dnsmasq/dhcp-hosts.conf
+```
+
 编辑 `dnsmasq/dnsmasq.conf`，按实际网络环境修改：
 
 ```conf

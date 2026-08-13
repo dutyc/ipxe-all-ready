@@ -1,0 +1,4 @@
+# dhcp-hosts.conf 示例模板 —— 使用前复制为 dhcp-hosts.conf 并填入真实绑定
+# 复制：cp dhcp-hosts.conf.example dhcp-hosts.conf
+# 格式：dhcp-host=MAC,hostname
+# 示例：00:0c:29:b9:8b:2d,worker-02

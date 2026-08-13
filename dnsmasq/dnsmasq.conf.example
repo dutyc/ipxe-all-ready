@@ -1,9 +1,13 @@
-# 监听指定网卡（在 host 网络下有效，请替换为你的实际网卡名）
+# dnsmasq.conf 示例模板 —— 使用前复制为 dnsmasq.conf 并按实际网络环境修改
+# 复制：cp dnsmasq.conf.example dnsmasq.conf
+# 标注「按实际修改」的为环境相关项（网卡、网段、网关），其余为引导链架构配置，无需改动
+
+# 监听指定网卡（在 host 网络下有效，请替换为你的实际网卡名）[按实际修改]
 interface=ens33
 bind-interfaces
 dhcp-range=::,static
 
-# DHCP 地址池（根据你的实际网段修改）
+# DHCP 地址池（根据你的实际网段修改）[按实际修改]
 dhcp-range=192.168.1.50,192.168.1.100,255.255.255.0,12h
 dhcp-option=3,192.168.1.1
 dhcp-option=6,223.5.5.5
