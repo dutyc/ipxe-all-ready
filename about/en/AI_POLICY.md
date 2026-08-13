@@ -32,6 +32,7 @@ When you submit a Pull Request, you must be able to articulate the following que
 - What is the complete timing sequence of the iPXE boot chain from DHCP to kernel handoff? Does your code assume that an operating system is already running?
 - What does the design philosophy of "Files Are the Source of Truth" mean? Does your change introduce unnecessary databases or implicit state?
 - How does the dynamic variable transmission chain run through the entire boot cycle?
+- What is the position and impact of the iSCSI session keep-alive mechanism in the whole chain?
 
 **If the design logic behind a PR cannot be clearly articulated by the contributor themselves, we will refuse to merge it—no matter how beautifully the AI wrote the code or how perfectly the tests pass.**
 

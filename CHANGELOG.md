@@ -21,6 +21,14 @@
 - **workers.yml 移出版本库，纳入 .gitignore**——`control_plane/state/workers.yml` 为控制面运行时台账（Worker 注册状态），提交会打乱部署环境；经 `git rm --cached` 从索引移除（工作区文件保留），并加入 .gitignore 运行时区块（注释同步改为「运行时状态、日志与租约」），与 `operations.jsonl` 同等对待
 - **dhcp-hosts.conf 改为示例模板入库，主文件不再 push**——新增 `dnsmasq/dhcp-hosts.conf.example` 模板（含格式说明与示例绑定、复制命令），`dnsmasq/dhcp-hosts.conf`（MAC → hostname 运行时绑定）经 `git rm --cached` 移出版本库并纳入 .gitignore；部署者须先 `cp dhcp-hosts.conf.example dhcp-hosts.conf` 再填写真实绑定（docker-compose 以文件级 bind mount 挂载该文件，缺失时容器侧会生成目录导致 hostsfile 失效）
 - **dnsmasq.conf 改为示例模板入库，主文件不再 push**——新增 `dnsmasq/dnsmasq.conf.example` 模板（环境相关项标注「[按实际修改]」：网卡名、DHCP 地址池、网关，引导链架构配置原样保留），`dnsmasq/dnsmasq.conf`（含真实网段）经 `git rm --cached` 移出版本库并纳入 .gitignore；环境部署文档 1.2 节同步补充首次部署先复制模板的步骤（文件级 bind mount 下缺失会生成目录导致配置不生效）
+- **README 两版按 Kubernetes README 风格整体重构精简**——参照 kubernetes/kubernetes 经典 README 的「短段落 + 入口导航」风格：引言压缩为一段（去掉「PoC 演进史」段与「All/Ready」口号段）；Quick Start 压缩为最简命令（补充 `dnsmasq.conf` / `dhcp-hosts.conf` 模板复制步骤，去掉 WebUI token 构建与存储节点部署的可选步骤，外链部署手册）；Community & Contributing 的 AI 政策约 20 行压缩为一句核心要求 + 链接（完整政策保留在 AI_POLICY 文件）；Roadmap 去掉 Phase 状态段压缩为一句 + 链接；API 描述去重复化；License/Star History 保留；架构图引用与中英徽章行对齐
+- **README 原 AI 辅助描述整合进 AI_POLICY（中英同步）**——逐条比对 README 删除的 AI 政策描述与 AI_POLICY 现有内容，确认立场声明、核心原则、PR #3 案例均已覆盖，仅缺 README 原第 5 条架构理解要点「iSCSI 会话保活机制在整个链路中的位置与影响」，已补入 AI_POLICY 两版第二章的问题清单（现共 5 条，与 README 原清单一一对应，无内容丢失）
+- **Manifesto 标题改为「我们的云原生」，根目录文档分类整理入 about/（中英分目录）**——Manifesto 两版标题由「My/我的 Definition/云原生定义」改为「Our/我们的 Definition/云原生定义」（README 两版引用同步）；新建 `about/en/`（Manifesto、AI_POLICY、Barriers、ROADMAP）与 `about/zh/`（对应中文版）两个目录，经 `git mv` 分类存放，README/CHANGELOG/LICENSE 仍留根目录；README 引用路径全部更新，全仓库 git grep 确认无旧路径残留（文档站与根目录文档本就零引用，不受影响）
+- **README「架构」部分独立为 ARCHITECTURE.md（中英双版）**——README 的 Architecture 小节（架构图 + 三角色说明）拆出为 `about/en/ARCHITECTURE.md` 与 `about/zh/ARCHITECTURE.md`（架构图引用路径修正为相对新目录 `../../assets/`），README 只保留一句 + 双语链接，进一步贴近 K8S 纯入口风格
+- **about/zh/ 目录中文文档去除 _zh-CN 后缀（中英文件名统一）**——`about/zh/` 下 Manifesto / AI_POLICY / Barriers / ARCHITECTURE 四份中文文档文件名去掉 `_zh-CN` 后缀（目录已按语言区分，后缀冗余），README 两版与 CHANGELOG 当日条目中的引用路径同步更新，全仓库 grep 确认无 `_zh-CN.md` 引用残留
+- **README「核心特性」小节列表段落化（中英同步）**——6 条 bullet 列表改为一段话（K8S 风格短段落）：零手工开通、一机多系统、秒级启动、文件即真相、API 优先五个要点并入 3 句连续叙述，保留全部信息量但不再用列表形式
+- **README 两版引言定位修正（对齐宣言口径）**——重构时误将项目定位写回「云原生无盘计算平台 / cloud-native diskless computing platform」与「A diskless node」，与宣言「iPXE-All-Ready 从来不是一个简单的无盘项目」相悖（无盘只是表象，灵魂是无状态）；已改为「云原生无状态计算平台 / cloud-native stateless computing platform」与「A node」，措辞同步宣言「把无状态贯彻到算力层本身」（8-01 曾对齐过该口径，本次重构回退，已修正）
+- **README 徽章行改为动态徽章为主（K8S 风格，中英两版同步）**——原先 7 枚静态技术栈徽章（iPXE / iSCSI / Control Plane / Agent / dnsmasq 等，颜色杂乱且含「iSCSI-Diskless Storage」与宣言相悖文案）删除，保留宣言灵魂标签「Cloud Native-True Cloud Native」置首，其余替换为 4 枚动态/静态徽章：GitHub Stars（shields.io 动态实时）、Release（v0.1.2，自动读取最新 tag）、License（动态读取仓库 Apache-2.0）、Docs（静态链接文档站 ipxe.lecreate.asia，蓝色取项目主色），全部 URL 已验证返回 200
 
 ---
 

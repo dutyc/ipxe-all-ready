@@ -1,111 +1,67 @@
 # iPXE-All-Ready
 
-![Cloud Native](https://img.shields.io/badge/Cloud%20Native-True%20Cloud%20Native-18181b) ![iPXE](https://img.shields.io/badge/iPXE-Network%20Boot-111111) ![iSCSI](https://img.shields.io/badge/iSCSI-Diskless%20Storage-0f766e) ![Control Plane](https://img.shields.io/badge/Control%20Plane-FastAPI-2563eb) ![Agent](https://img.shields.io/badge/Agent-STGT%20%2F%20LIO-7c3aed) ![dnsmasq](https://img.shields.io/badge/DHCP-dnsmasq-334155) ![Web UI](https://img.shields.io/badge/Web%20UI-React-18181b) ![License](https://img.shields.io/badge/License-Apache%202.0-green)
+![Cloud Native](https://img.shields.io/badge/Cloud%20Native-True%20Cloud%20Native-18181b) [![Stars](https://img.shields.io/github/stars/dutyc/ipxe-all-ready)](https://github.com/dutyc/ipxe-all-ready/stargazers) [![Release](https://img.shields.io/github/v/release/dutyc/ipxe-all-ready)](https://github.com/dutyc/ipxe-all-ready/releases) [![License](https://img.shields.io/github/license/dutyc/ipxe-all-ready)](LICENSE) [![Docs](https://img.shields.io/badge/Docs-ipxe.lecreate.asia-2563eb)](https://ipxe.lecreate.asia)
 
 [中文版](./README.zh-CN.md) | [English](./README.md)
 
-**iPXE-All-Ready** 是一套基于纯开源工具链（iPXE + iSCSI）构建的真正的云原生实现：把「无状态」贯彻到算力层本身——计算节点不持有任何属于自己的持久状态，身份、系统、数据全部由网络与控制面在外部赋予，可丢弃、可替换、可瞬间重建。无本地硬盘的算力节点插网线即活，无需人工预注册，无厂商锁定。
+**iPXE-All-Ready** 是基于纯开源组件（iPXE + iSCSI + FastAPI + React）的云原生无状态计算平台，把无状态贯彻到算力层本身：计算节点自身不持有任何持久状态——身份、系统与数据均由网络和控制面外部授予，插上网线即活：自动注册、自动开通、零手工介入。
 
-**我们的宣言：** [Manifesto_zh-CN.md](./Manifesto_zh-CN.md)（《我的云原生定义》）——真正的云原生，是把「无状态」贯彻到算力层本身，从上到下，没有一块冰。
+阅读我们的宣言：**[about/zh/Manifesto.md](./about/zh/Manifesto.md)** —《我们的云原生》（English: [about/en/Manifesto.md](./about/en/Manifesto.md)）。
 
-本项目已从单纯的无盘启动验证，演进为一套完整的开源控制面：新机器插电即被自动识别与注册，挂载系统盘、切换默认启动系统在 Web 界面上几次点击即可完成。**All 是真的 All，Ready 是真的 Ready。**
+----
 
-## 架构总览
+## 架构
 
-![架构设计](./assets/architecture.svg)
+控制面 / 数据面分离与三个角色（Controller、iSCSI Server、Worker）详见 **[about/zh/ARCHITECTURE.md](./about/zh/ARCHITECTURE.md)**（English: [about/en/ARCHITECTURE.md](./about/en/ARCHITECTURE.md)）。
 
-三个职责清晰分离的角色，严格区分**控制面**（做决策、做调度）与**数据面**（搬数据）：
-
-* **Controller（控制端节点）**：集群的大脑。承载 Control Plane 常驻 HTTP 服务（Worker 生命周期编排、Agent 调度、存储台账、`dnsmasq` 绑定、启动变量投影），以及 DHCP/TFTP/HTTP 引导服务，全部容器化。
-* **iSCSI Server（存储节点）**：提供块存储。每个节点驻守一个 API Agent，经 `docker.sock` 调度本机的 stgt 或 LIO 后端；后端差异封装在 Agent 内，Control Plane 不感知。
-* **Worker（工作端）**：无本地硬盘的无状态算力节点。通电后 PXE 引导、挂载 iSCSI 系统盘、进入操作系统。块存储读写直接走 iSCSI 数据面，不经过控制面。
-
-## 核心能力
-
-- **零接触自动注册（Zero-touch Provisioning）**——新机器插电即被识别与注册，管理员在 Web 界面挂盘、设定默认系统，机器自动进入目标系统，全程零人工预注册。
-- **一机多系统**——一台 Worker 可挂载多块系统盘（Windows / Ubuntu / Debian / CentOS / ESXi），随时在线切换默认启动系统，无需触碰机器。
-- **秒级启动**——Debian 11/12/13, Ubuntu 22.04/24.04/26.04 和 Windows 11 23H2/24H2/25H2 经 iPXE + iSCSI 全链路验证，一套底座全平台覆盖。
-- **拒绝黑盒**——基于 `debootstrap` 与 `dism++` 绕过官方安装器（Subiquity / ADK）限制，引导链每一环都透明可控，真正的基础设施即代码。
-- **文件即真相**——不引入数据库：`agents.yml`、`workers.yml`、`dhcp-hosts.conf`、`operations.jsonl` 承载全部控制面状态，透明、可 diff、可手工修复。
-- **API 优先（API-first）**——控制面全部能力经 REST API 开放，Web 界面本身也只是这套 API 的一个客户端；第三方系统与自动化脚本与 WebUI 平等，从 [API 参考](https://ipxe.lecreate.asia/zh/guide/api/control-plane-api) 即可集成全部能力。
-- **100% 纯开源工具链**——iPXE、stgt/LIO、dnsmasq、FastAPI、React、VitePress 全部基于开源组件构成，无厂商锁定，完整可审计。
-
-## 云原生固件仓库
-
-引导链底层的 iPXE 固件由配套仓库 **[iPXE-Stateless](https://github.com/dutyc/ipxe-stateless)** 构建——与主仓库同一理念的一体两面：主仓库让算力无状态，固件仓库让引导固件无状态。
-
-## 快速开始
-
-> 前置条件：一台 Linux 主机（推荐 Debian 12 / Ubuntu 22.04）作为 Controller 节点，安装 Docker Engine。完整的硬件基线、网络规划与存储布局见[项目环境部署文档](https://ipxe.lecreate.asia/zh/guide/quick-deploy/environment-deploy)。
+## 快速上手
 
 ```bash
 git clone https://github.com/dutyc/ipxe-all-ready
 cd ipxe-all-ready
 
-# 1. 修改 dnsmasq/dnsmasq.conf：网卡名、网段、网关
-# 2. 准备控制面配置（仓库只跟踪 *.env.example 模板，含完整注释）：
 cp control_plane/control_plane.env.example control_plane/control_plane.env
-#    - 可选：设置 IPXE_CP_TOKEN 开启 API 鉴权（与 WebUI 的 VITE_CP_TOKEN 保持一致）
+cp dnsmasq/dnsmasq.conf.example dnsmasq/dnsmasq.conf
+cp dnsmasq/dhcp-hosts.conf.example dnsmasq/dhcp-hosts.conf
+# 修改 dnsmasq.conf：网卡名、网段、网关
 docker compose up -d
-
-# 3. （可选）Web 管理界面构建：自定义鉴权 Token 时
-#    cp webui/app/.env.example webui/app/.env，再 cd webui/app && npm run build
-
-# 4. （可选）存储节点：在存储机器上部署 iscsi-server 目录
-#    cp iscsi-server/.env.example iscsi-server/.env
-#    填写 IPXE_AGENT_TOKEN（须与控制面 agents.yml 中该节点的 token 一致）
-#    docker compose -f iscsi-server/docker-compose.yml up -d
 ```
 
-* Web 管理界面：`http://<controller-ip>:4838`
-* Control Plane API：`http://<controller-ip>:4839`——开放 REST 接口，**第三方系统与自动化脚本可直接调用**（鉴权 / 注册 / 建盘 / 批量部署 / 状态查询全覆盖，完整接口契约见下方「API 参考」）
+* Web 界面：`http://<controller-ip>:4838`
+* 控制面 API：`http://<controller-ip>:4839`
 
-Worker 镜像交付请阅读下方快速部署文档。
+存储节点部署与 Worker 母盘克隆，见分步式[部署手册](https://ipxe.lecreate.asia/zh/guide/quick-deploy/environment-deploy)。
 
-## 官方文档与实战指南
+## 核心特性
 
-完整的架构设计、底层原理解析以及各操作系统的部署实战，请访问我们的专属文档站：
+新机器首启自动注册，WebUI 点几下即可分配系统盘与默认系统；一台 Worker 可挂载多块系统盘（Windows / Ubuntu / Debian / CentOS / ESXi）随时在线切换，Debian 11/12/13、Ubuntu 22.04/24.04/26.04、Windows 11 23H2/24H2/25H2 经 iPXE + iSCSI 全链路验证。不引入数据库，控制面状态全部为可 diff、可手工修复的文件；全部能力经 REST 开放，Web 界面只是其中一个客户端。
 
-**[ipxe.lecreate.asia](https://ipxe.lecreate.asia)** | **[中文文档](https://ipxe.lecreate.asia/zh/)**
+## 文档
 
-**直达入口：**
+文档站：**[ipxe.lecreate.asia](https://ipxe.lecreate.asia/zh/)** | **[English](https://ipxe.lecreate.asia)**
 
-* [快速部署手册](https://ipxe.lecreate.asia/zh/guide/quick-deploy/environment-deploy)——环境部署、Windows 与 Debian 系母盘克隆
-* [API 参考](https://ipxe.lecreate.asia/zh/guide/api/control-plane-api)——控制面与 Agent 完整接口契约，第三方集成从这里开始
-* [原理探索](https://ipxe.lecreate.asia/zh/guide/preface)——架构设计、无盘启动原理与攻坚记录
-* [我们已经攻克的壁垒](./Barriers_zh-CN.md)——无盘之路上的黑盒与断头路逐一击破的记录（仅本仓库展示，不进文档站）
+- [快速部署手册](https://ipxe.lecreate.asia/zh/guide/quick-deploy/environment-deploy) — 环境搭建、Windows 与 Debian 母盘克隆
+- [API 参考](https://ipxe.lecreate.asia/zh/guide/api/control-plane-api) — 完整接口契约
+- [探索系列](https://ipxe.lecreate.asia/zh/guide/preface) — 架构深潜，第一~四章
+- [我们已经攻克的壁垒](./about/zh/Barriers.md) — 攻坚记录（仅 GitHub 展示）
+
+## 固件仓库
+
+引导链底层的 iPXE 固件由配套仓库 **[iPXE-Stateless](https://github.com/dutyc/ipxe-stateless)** 构建——与主仓库同一理念的一体两面：主仓库让算力无状态，固件仓库让引导固件无状态。
 
 ## 路线图
 
-最终目标：构建跨平台、跨架构、贯穿所有计算层的云原生元协议——同一套无状态语义自相似地嵌套于物理机与 hypervisor 每一层，算力不绑定任何具体硬件，层层皆云。完整的阶段规划（Phase 1~4）与近期推进事项见 **[ROADMAP.md](./ROADMAP.md)**。
+跨平台、跨架构的云原生元协议：一套无状态语义，在裸机与虚拟化层自相似地嵌套。完整规划见 **[ROADMAP.md](./about/en/ROADMAP.md)**。
 
-目前，**Phase 1 核心系统攻坚已全面收官**——Debian 11/12/13, Ubuntu 22.04/24.04/26.04 和 Windows 11 23H2/24H2/25H2 的全链路已经彻底打通，分布式控制面与 Web 管理界面同步落地。
+## 社区与贡献
 
-## 参与贡献
+欢迎 Star / Watch / Discussions / Pull Requests。本项目拥抱 AI 辅助开发，但有一条硬性要求：**AI 可以写语法，架构必须由人脑理解**。提交 PR 前请阅读 [AI_POLICY.md](./about/zh/AI_POLICY.md)。
 
-我们正在将无数个夜晚踩过的深坑封装为一套**开箱即用、经过严苛验证的完整方案**。你可以 **Star** / **Watch** 本项目、在 **Discussions** 中探讨技术方向，或提交 **Pull Request** 参与共建——提交 PR 前，请先阅读下方要求。
+## 许可证
 
-**关于 AI 辅助**：本项目不反对使用 AI 辅助生成代码——事实上，IPXE-All-Ready 本身就是在 Qwen、Codex、DeepSeek 等 AI 助手的协同下完成的，我们对 AI 辅助开发持开放态度。但对于社区贡献，我们有明确要求：**贡献者本人必须深刻理解项目的整体架构，而不仅仅是让 AI 去理解**。
+[Apache License 2.0](./LICENSE)
 
-这不要求你精通 iPXE 脚本的每一行语法，也不要求你能手写 iSCSI 登录报文，而是要求你理解：
-
-- 控制面与数据面为什么要分离，边界在哪里
-- iPXE 引导链从 DHCP 到内核接管的完整流程
-- 动态变量传递链如何贯穿整个引导周期
-- "文件即真相"的设计哲学，为什么不用数据库
-- iSCSI 会话保活机制在整个链路中的位置与影响
-
-**语法可以让 AI 搞定，但架构理解必须由人脑完成**。如果一份 PR 背后的设计逻辑不能被贡献者清晰阐述，我们会拒绝合并。不理解架构时，提个 Issue 或 Idea 比提交 PR 更有价值——Issue 是信号，不会污染代码库；PR 是方案，需要深刻。
-
-关于 AI 辅助的完整立场声明与真实案例（PR #3 记录）见 **[AI_POLICY_zh-CN.md](./AI_POLICY_zh-CN.md)**（《对 AI 辅助的态度》）。
-
-欢迎每一位愿意理解架构的同行者，也感谢每一位提供真实使用反馈的用户。
-
-## License
-
-本项目遵循 [Apache License 2.0](./LICENSE)
-
-## 项目成长轨迹
+## Star History
 
 <a href="https://www.star-history.com/?repos=dutyc%2Fipxe-all-ready&type=date&legend=top-left">
  <picture>

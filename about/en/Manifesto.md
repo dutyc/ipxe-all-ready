@@ -1,4 +1,4 @@
-# My Definition of Cloud Native
+# Our Definition of Cloud Native
 
 **By LECREATE**
 
