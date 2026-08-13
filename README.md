@@ -32,11 +32,7 @@ Three roles with clearly separated responsibilities, following the **control pla
 
 ## Cloud-Native Firmware Repo
 
-The iPXE firmware that runs on every Worker at the bottom of the boot chain is built from our companion repo **[iPXE-Stateless](https://github.com/dutyc/ipxe-stateless)** — truly **cloud-native firmware**:
-
-- **The firmware itself is stateless** — clients store nothing; on power-on they fetch configuration via DHCP, chain-load boot scripts, and enter the OS disklessly, exactly matching the "disposable and instantly replaceable" semantics of a stateless compute node
-- **The repo is stateless too** — no iPXE source is vendored, only patch diffs and build assets; the firmware can be rebuilt against any new upstream baseline in one command, forever fork-free
-- **Stateless adaptation across the board** — full RTL8125 native driver takeover (the stock SNP driver hangs on iSCSI attach, so native drivers are mandatory for diskless boot), snponly local-boot fallback, and a fixed debug build; the artifacts plug straight into the [boot.ipxe](./tftp/boot.ipxe) chain
+The iPXE firmware at the bottom of the boot chain is built by our companion repo **[iPXE-Stateless](https://github.com/dutyc/ipxe-stateless)** — two sides of the same philosophy: this repo makes compute stateless, the firmware repo makes boot firmware stateless.
 
 ## Quick Start
 

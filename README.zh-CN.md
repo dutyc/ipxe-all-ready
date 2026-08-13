@@ -32,11 +32,7 @@
 
 ## 云原生固件仓库
 
-引导链最底层——Worker 通电后运行的 iPXE 固件，来自我们的配套仓库 **[iPXE-Stateless](https://github.com/dutyc/ipxe-stateless)**，一套真正的**云原生固件**：
-
-- **固件本身无状态**——客户端不保存任何状态，通电即通过 DHCP 获取配置、链式加载引导脚本、无盘进入系统，与算力节点「可丢弃、可替换」的语义完全一致
-- **固件仓库亦无状态**——不包含 iPXE 源码，只维护差异补丁与构建资产，可随时基于新的上游基线一键重建，永不与上游分叉
-- **全系无状态适配**——RTL8125 全系 native 驱动接管（固件 SNP 驱动在 iSCSI 挂载场景存在挂起缺陷，无盘引导必须 native 驱动）、snponly 本地引导兜底、debug 构建修复；产物与 [boot.ipxe](./tftp/boot.ipxe) 引导链即插即用
+引导链底层的 iPXE 固件由配套仓库 **[iPXE-Stateless](https://github.com/dutyc/ipxe-stateless)** 构建——与主仓库同一理念的一体两面：主仓库让算力无状态，固件仓库让引导固件无状态。
 
 ## 快速开始
 

@@ -12,6 +12,15 @@
 
 ---
 
+## 2026-08-13
+
+### 变更
+
+- **《项目环境部署》1.3 节固件来源改为 ipxe-stateless（中英同步）**——不再从 iPXE 官方发布站 boot.ipxe.org 下载，改为从配套固件仓库 [iPXE-Stateless](https://github.com/dutyc/ipxe-stateless) 的 [Releases](https://github.com/dutyc/ipxe-stateless/releases) 页面下载最新 release；以正式语气说明不建议使用官方固件的动因（官方构建未包含高性能网卡原生驱动，RTL8125/RTL8126 仅能走 UNDI/SNP 兼容路径，引导可能失败）；以表格列明所需资产与放入 `tftp/` 后的文件名（`undionly.kpxe` + `pxe-uefi-snponly.efi` → `snponly.efi` + `pxe-uefi-ipxe.efi` → `ipxe.efi`，可选 `*-debug.efi` 调试版，去 `pxe-uefi-` 前缀匹配 dnsmasq 分发名）；`ipxe-legacy.efi` 随新产物移除；下载步骤精简为指引（不再提供逐条 wget / sha256sum / mv 命令）；UEFI 引导异常排查流程更新（先换 `ipxe.efi`，仍异常用调试版抓日志，替换前备份、定位后换回正式版）
+- **README 两版「云原生固件仓库」小节精简**——参照 ipxe-stateless 仓库「项目定位」的概况风格，将 1 句引言 + 3 条要点列表压缩为一句全局概况，不含技术细节：与主仓库同一理念的一体两面（主仓库让算力无状态，固件仓库让引导固件无状态）
+
+---
+
 ## 2026-08-12
 
 ### 新增
@@ -28,8 +37,6 @@
 - **控制面能力详解（中英）内容核对更新**——补齐 8-03 以来全部能力：MAC 绑定修改（`PUT /workers/{id}/mac` + `worker.mac.update` 审计历史）、单系统盘独立删除（`DELETE /workers/{id}/luns/disk/{os}`，delete_file / ignore_missing_target）、批量部署（`/workers/luns/disk/batch` 自动设默认启动 + `/workers/delete/batch` 统一 reload，WebUI 勾选 / 拖拽 / 均摊 / 接管）、自动注册运行时开关（`GET/PUT /settings/auto-register` + `state/settings.json`，环境变量降级为启动默认值）、Agent 注册 / 探测 / 在线编辑（probe 两步推导、enabled 停用）、母盘清单（`GET /masters` 聚合 + Agent 30 秒扫描缓存 + WebUI 下拉选母盘）、ZFS 克隆细节（同数据集 reflink、跨数据集 / 版本过低 / xfs/ext4 回退全量拷贝、`fs_type` 上报）、建盘按 `role.disk` + `enabled` 调度；设计原则补 `state/settings.json`；WebUI 各条目同步（批量模式、MAC 编辑、单盘删除、Agent 两步注册编辑、自动注册开关、母盘下拉）
 - **壁垒文章移出文档站，转为 GitHub 仓库展示**——《我们已经攻克的壁垒 / Barriers We Have Broken Through》经 `git mv` 从 `docs/{zh/}guide/exploration/` 移至仓库根目录（`Barriers_zh-CN.md` / `Barriers.md`，保留 Git 历史）；中英侧边栏条目移除，文档站内不再生成与引用该页面；README 两版官方文档列表新增根目录文件入口（原 Exploration 条目描述中的 Barriers 字样移除）
 - **壁垒文章内容更新（中英同步）**——新增「控制面与基础设施攻坚」分组 6 条（第 10–15 条）：dnsmasq 文件级 bind mount 的 inode 陷阱（rename 原子写换 inode 致 HUP 失效，改截断写保持 inode）、LIO 与 stgt 的 iSCSI root 连接符差异（`iscsi-sep` 按后端投影 + `isset` 守卫）、真实 iPXE 固件 `${mac:hexraw}` 展开为空（改 `${mac}` 后端归一化）、Zero-touch 自动注册静默失效（controller_ip 改 `${next-server}` 零硬编码）、WebUI 白屏 null 解引用（角色计算延后至空态分支后）、确认弹窗被容器 overflow 裁剪（改 fixed 全屏遮罩）；引言同步补控制面基建维度
-- **《项目环境部署》1.3 节固件来源改为 ipxe-stateless（中英同步）**——不再从 iPXE 官方发布站 boot.ipxe.org 下载，改为从配套固件仓库 [iPXE-Stateless](https://github.com/dutyc/ipxe-stateless) 的 [Releases](https://github.com/dutyc/ipxe-stateless/releases) 页面下载最新 release；以正式语气说明不建议使用官方固件的动因（官方构建未包含高性能网卡原生驱动，RTL8125/RTL8126 仅能走 UNDI/SNP 兼容路径，引导可能失败）；以表格列明所需资产与放入 `tftp/` 后的文件名（`undionly.kpxe` + `pxe-uefi-snponly.efi` → `snponly.efi` + `pxe-uefi-ipxe.efi` → `ipxe.efi`，可选 `*-debug.efi` 调试版，去 `pxe-uefi-` 前缀匹配 dnsmasq 分发名）；`ipxe-legacy.efi` 随新产物移除；下载步骤精简为指引（不再提供逐条 wget / sha256sum / mv 命令）；UEFI 引导异常排查流程更新（先换 `ipxe.efi`，仍异常用调试版抓日志，替换前备份、定位后换回正式版）
-
 ---
 
 ## 2026-08-01
