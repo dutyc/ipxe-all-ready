@@ -1,4 +1,6 @@
-# Chapter 2: End-to-End Walkthrough — Diskless Windows 11 24H2
+# Chapter 2: Technical Breakthrough — Diskless Windows 11 24H2
+
+> **Early Exploration Notice**: This article is a record of the project's early exploration. The described approach differs from the current architecture and is provided for low-level research reference only.
 
 This chapter details how to perform a diskless installation and boot of Windows 11 24H2 under the `iPXE-All-Ready` architecture. The entire process relies on Microsoft’s native iSCSI Boot protocol stack and achieves automated deployment through a customized PE environment, the official iPXE `wimboot` kernel, and dual‑Target storage mapping.
 

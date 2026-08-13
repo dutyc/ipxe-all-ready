@@ -54,27 +54,21 @@ dhcp-option=6,223.5.5.5                          # DNS
 
 ### 1.3 获取 iPXE 固件
 
-从 iPXE 官方发布站 [https://boot.ipxe.org/](https://boot.ipxe.org/) 下载启动固件（官方构建的 release 二进制，无需自行编译），需要以下文件（`x86_64-efi/` 为官网子目录）：
+启动固件从配套固件仓库 **[iPXE-Stateless](https://github.com/dutyc/ipxe-stateless) 的 [Releases](https://github.com/dutyc/ipxe-stateless/releases)** 页面下载最新 release（基于上游 iPXE 基线 `e6e51ccb` + 定制补丁构建，无需自行编译）。不建议使用 iPXE 官方发布站的固件：官方构建未包含高性能网卡原生驱动，RTL8125（2.5G）/ RTL8126（5G）机器仅能走 UNDI/SNP 兼容路径，引导可能失败；本仓库固件已内置上述网卡的原生驱动适配。
 
-```
-undionly.kpxe                    # BIOS 引导固件
-x86_64-efi/
-├── ipxe-legacy.efi              # UEFI 固件（旧版固件兼容，备选）
-├── ipxe.efi                     # UEFI 固件（标准版，备选）
-└── snponly.efi                  # UEFI 固件（SNP 精简版，dnsmasq 默认分发）
-```
+需要以下文件，从 Release 页面下载后放入 `tftp/` 根目录。release 资产为扁平命名，`pxe-uefi-` 前缀文件需去掉前缀重命名，以匹配 dnsmasq 分发名：
 
-下载后**统一放入 `tftp/` 根目录**，不要保留官网的 `x86_64-efi/` 子目录（`wget` 默认只取 URL 末尾文件名存到当前目录）：
+| Release 资产 | 放入 `tftp/` 的文件名 | 说明 |
+|---|---|---|
+| `undionly.kpxe` | `undionly.kpxe` | BIOS 固件（经网卡 UNDI 接口，兼容一切带 PXE ROM 的网卡） |
+| `pxe-uefi-snponly.efi` | `snponly.efi` | UEFI 固件（SNP 精简版，dnsmasq 默认分发） |
+| `pxe-uefi-ipxe.efi` | `ipxe.efi` | UEFI 固件（native + SNP 双通道，UEFI 引导异常时备选） |
+| `pxe-uefi-snponly-debug.efi` | `snponly-debug.efi` | （可选）调试版，输出 REALTEK 驱动日志，故障定位用 |
+| `pxe-uefi-ipxe-debug.efi` | `ipxe-debug.efi` | （可选）调试版，输出 REALTEK 驱动日志，故障定位用 |
 
-```bash
-cd tftp
-wget https://boot.ipxe.org/undionly.kpxe
-wget https://boot.ipxe.org/x86_64-efi/ipxe-legacy.efi
-wget https://boot.ipxe.org/x86_64-efi/ipxe.efi
-wget https://boot.ipxe.org/x86_64-efi/snponly.efi
-```
+调试版仅用于故障定位：替换前备份原固件，定位后换回正式版。
 
-`dnsmasq.conf` 已按架构识别分发固件：UEFI → `snponly.efi`，BIOS → `undionly.kpxe`，iPXE 二次请求 → `boot.ipxe`。个别机器 UEFI 引导异常时，可将 efi64 引导文件改为 `ipxe.efi` 或 `ipxe-legacy.efi` 试验。
+`dnsmasq.conf` 已按架构识别分发固件：UEFI → `snponly.efi`，BIOS → `undionly.kpxe`，iPXE 二次请求 → `boot.ipxe`。个别机器 UEFI 引导异常时，先将 efi64 引导文件改为 `ipxe.efi` 试验；仍异常可换用调试版抓取驱动日志定位。
 
 > **memdisk（可选，常规启动不需要）**：memdisk 仅用于「iPXE 直接引导 ISO 安装镜像」的旧方式（`kernel memdisk` + `initrd xxx.iso`），本项目常规无盘启动走 iSCSI sanboot，无需此文件。需要时从 [SYSLINUX 发布页](https://www.kernel.org/pub/linux/utils/boot/syslinux/) 下载发行包，解压取 `bios/memdisk/memdisk` 放入 `tftp/`：
 >

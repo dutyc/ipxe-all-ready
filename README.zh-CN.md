@@ -77,6 +77,7 @@ Worker 镜像交付请阅读下方快速部署文档。
 * [快速部署手册](https://ipxe.lecreate.asia/zh/guide/quick-deploy/environment-deploy)——环境部署、Windows 与 Debian 系母盘克隆
 * [API 参考](https://ipxe.lecreate.asia/zh/guide/api/control-plane-api)——控制面与 Agent 完整接口契约，第三方集成从这里开始
 * [原理探索](https://ipxe.lecreate.asia/zh/guide/preface)——架构设计、无盘启动原理与攻坚记录
+* [我们已经攻克的壁垒](./Barriers_zh-CN.md)——无盘之路上的黑盒与断头路逐一击破的记录（仅本仓库展示，不进文档站）
 
 ## 路线图
 

@@ -1,5 +1,4 @@
 # Foreword
-
 As early as 2023 I began exploring diskless booting. At first I noticed the PXE network boot option in the motherboard BIOS and became very curious about what it could do. Searching online led me to practical solutions like PXE bulk deployment. In 2025 I came across an IBM server and accidentally saw an iSCSI Target configuration entry in the BIOS. I had already studied iSCSI on my NAS — it can share a disk as a block device, and after mounting it you get an experience identical to a local disk. Since I had found iSCSI inside an enterprise server’s BIOS, wouldn’t it be possible to boot an operating system directly from an iSCSI disk? Enterprise-grade hardware certainly has comprehensive capabilities.
 
 Although I didn’t have the chance to investigate deeply on that server at the time, I realised something: if diskless booting were only accessible on enterprise hardware, then the approach clearly lacks universal applicability.

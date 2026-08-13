@@ -12,6 +12,26 @@
 
 ---
 
+## 2026-08-12
+
+### 新增
+
+- **文档站：新增《引导介质制作指南》（`docs/zh/guide/quick-deploy/boot-media.md`）**——快速部署专题第一篇，置顶于「项目环境部署」之上；涵盖 UEFI 直启（direct-uefi 手工 U 盘 / 本地 ESP）、GRUB 引导（grub-bios 的 GRUB2/GRUB Legacy/SYSLINUX 链式加载）、USB 整盘镜像（usb 的 Linux/Windows 写入）与选型指南，介绍 ipxe-stateless 固件六类构建产物中三类本地引导载体；叙述语气正式化（部署障碍、人工介入成本、Secure Boot 限制等表述）；英文侧边栏同步加「Boot Media」占位条目并创建占位页（翻译待后续补齐）；文档站默认入口（导航与首页 hero 按钮）仍指向「项目环境部署」
+
+### 变更
+
+- **原理探索系列：标题去「全流程」化 + 早期探索声明**——「Windows 11 24H2 无盘系统全流程实战」改为「Windows 11 无盘启动技术攻坚」、「Debian 12 无盘系统全流程实战」改为「Debian 12 无盘启动技术攻坚」（正文 H1 与中英侧边栏同步）；第一～三章（中文 3 篇 + 英文 3 篇）在文首统一加入早期探索声明，说明文章为项目早期探索记录、所述方案与当前架构存在差异、仅供底层研究参考；英文版占位页（`docs/guide/debian-12.md`）标题同步改为 Technical Breakthrough 并更新指向中文版的链接文案
+- **第三章（Debian 12 无盘启动技术攻坚）补写路线三并正式收尾**——新增 3.4 节「debootstrap 构建纯净骨架（思路）」：仅讲解工程定位与核心思路（最小化装配、底层依赖注入、UUID 寻址、自动化友好），不再提供逐步操作命令，实操引导至快速部署系列《Debian 系无盘快速部署（母盘克隆）》；文末「未完待续…」替换为「本章小结：从 no way 到三条路线跑通」，以三路线对比表收束 3.1 方法论，并抛出 per-worker initramfs 注入痛点以衔接第四章 iBFT 主题；英文占位页结构同步为三路线并注明 3.4 仅思路级覆盖
+- **英文文档目录与中文对齐：原理探索系列迁入 `exploration/` 子目录**——英文 6 篇（Ch1–Ch4、控制面、壁垒）经 `git mv` 从 `docs/guide/` 平铺结构迁入 `docs/guide/exploration/`（保留 Git 历史），与中文 `docs/zh/guide/exploration/` 完全对称；前言仍留 `docs/guide/preface.md`；侧边栏链接同步更新；旧路径不保留重定向（直接 404），标题风格维持英文 Ch1:/Ch2: 紧凑前缀不变
+- **文档站：清理 VitePress 脚手架示例页**——删除 `docs/api-examples.md`（Runtime API Examples）与 `docs/markdown-examples.md`（Markdown Extension Examples），两者为脚手架自带示例、全仓库无任何引用，文档站根目录仅保留 `index.md`
+- **早期探索声明范围收窄**——从第四章（iBFT 母盘克隆）、控制面能力详解、我们已经攻克的壁垒中英 6 篇文首移除「早期探索声明」：三者描述当前架构能力（iBFT 方案、控制面设计、已攻克壁垒），不属于早期探索记录；前言声明同步移除；声明仅保留于第一～三章（中英各 3 篇）
+- **控制面能力详解（中英）内容核对更新**——补齐 8-03 以来全部能力：MAC 绑定修改（`PUT /workers/{id}/mac` + `worker.mac.update` 审计历史）、单系统盘独立删除（`DELETE /workers/{id}/luns/disk/{os}`，delete_file / ignore_missing_target）、批量部署（`/workers/luns/disk/batch` 自动设默认启动 + `/workers/delete/batch` 统一 reload，WebUI 勾选 / 拖拽 / 均摊 / 接管）、自动注册运行时开关（`GET/PUT /settings/auto-register` + `state/settings.json`，环境变量降级为启动默认值）、Agent 注册 / 探测 / 在线编辑（probe 两步推导、enabled 停用）、母盘清单（`GET /masters` 聚合 + Agent 30 秒扫描缓存 + WebUI 下拉选母盘）、ZFS 克隆细节（同数据集 reflink、跨数据集 / 版本过低 / xfs/ext4 回退全量拷贝、`fs_type` 上报）、建盘按 `role.disk` + `enabled` 调度；设计原则补 `state/settings.json`；WebUI 各条目同步（批量模式、MAC 编辑、单盘删除、Agent 两步注册编辑、自动注册开关、母盘下拉）
+- **壁垒文章移出文档站，转为 GitHub 仓库展示**——《我们已经攻克的壁垒 / Barriers We Have Broken Through》经 `git mv` 从 `docs/{zh/}guide/exploration/` 移至仓库根目录（`Barriers_zh-CN.md` / `Barriers.md`，保留 Git 历史）；中英侧边栏条目移除，文档站内不再生成与引用该页面；README 两版官方文档列表新增根目录文件入口（原 Exploration 条目描述中的 Barriers 字样移除）
+- **壁垒文章内容更新（中英同步）**——新增「控制面与基础设施攻坚」分组 6 条（第 10–15 条）：dnsmasq 文件级 bind mount 的 inode 陷阱（rename 原子写换 inode 致 HUP 失效，改截断写保持 inode）、LIO 与 stgt 的 iSCSI root 连接符差异（`iscsi-sep` 按后端投影 + `isset` 守卫）、真实 iPXE 固件 `${mac:hexraw}` 展开为空（改 `${mac}` 后端归一化）、Zero-touch 自动注册静默失效（controller_ip 改 `${next-server}` 零硬编码）、WebUI 白屏 null 解引用（角色计算延后至空态分支后）、确认弹窗被容器 overflow 裁剪（改 fixed 全屏遮罩）；引言同步补控制面基建维度
+- **《项目环境部署》1.3 节固件来源改为 ipxe-stateless（中英同步）**——不再从 iPXE 官方发布站 boot.ipxe.org 下载，改为从配套固件仓库 [iPXE-Stateless](https://github.com/dutyc/ipxe-stateless) 的 [Releases](https://github.com/dutyc/ipxe-stateless/releases) 页面下载最新 release；以正式语气说明不建议使用官方固件的动因（官方构建未包含高性能网卡原生驱动，RTL8125/RTL8126 仅能走 UNDI/SNP 兼容路径，引导可能失败）；以表格列明所需资产与放入 `tftp/` 后的文件名（`undionly.kpxe` + `pxe-uefi-snponly.efi` → `snponly.efi` + `pxe-uefi-ipxe.efi` → `ipxe.efi`，可选 `*-debug.efi` 调试版，去 `pxe-uefi-` 前缀匹配 dnsmasq 分发名）；`ipxe-legacy.efi` 随新产物移除；下载步骤精简为指引（不再提供逐条 wget / sha256sum / mv 命令）；UEFI 引导异常排查流程更新（先换 `ipxe.efi`，仍异常用调试版抓日志，替换前备份、定位后换回正式版）
+
+---
+
 ## 2026-08-01
 
 ### 新增

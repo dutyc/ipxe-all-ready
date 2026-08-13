@@ -27,18 +27,18 @@ export default defineConfig({
             collapsed: false,
             items: [
               { text: 'Foreword', link: '/guide/preface' },
-              { text: 'Ch1: Architecture & Core Link', link: '/guide/architecture' },
-              { text: 'Ch2: Windows 11 E2E Deployment', link: '/guide/windows-11' },
-              { text: 'Ch3: Debian 12 Diskless Deployment', link: '/guide/debian-12' },
-              { text: 'Ch4: Debian-family iBFT Boot', link: '/guide/debian-12-ibft' },
-              { text: 'Control Plane Capabilities', link: '/guide/control-plane' },
-              { text: 'Barriers We Have Broken Through', link: '/guide/barriers' },
+              { text: 'Ch1: Architecture & Core Link', link: '/guide/exploration/architecture' },
+              { text: 'Ch2: Windows 11 Technical Breakthrough', link: '/guide/exploration/windows-11' },
+              { text: 'Ch3: Debian 12 Technical Breakthrough', link: '/guide/exploration/debian-12' },
+              { text: 'Ch4: Debian-family iBFT Boot', link: '/guide/exploration/debian-12-ibft' },
+              { text: 'Control Plane Capabilities', link: '/guide/exploration/control-plane' },
             ]
           },
           {
             text: 'Quick Deploy',
             collapsed: false,
             items: [
+              { text: 'Boot Media', link: '/guide/quick-deploy/boot-media' },
               { text: 'Environment Setup', link: '/guide/quick-deploy/environment-deploy' },
               { text: 'Windows Master Image (Clone)', link: '/guide/quick-deploy/windows-quick-deploy' },
               { text: 'Debian-family Master Image (Clone)', link: '/guide/quick-deploy/debian-quick-deploy' },
@@ -73,17 +73,17 @@ export default defineConfig({
             items: [
               { text: '前言', link: '/zh/guide/preface' },
               { text: '第一章：架构设计与核心链路', link: '/zh/guide/exploration/architecture' },
-              { text: '第二章: Windows 11 24H2 无盘系统全流程实战', link: '/zh/guide/exploration/windows-11' },
-              { text: '第三章：Debian 12 无盘部署全流程', link: '/zh/guide/exploration/debian-12' },
+              { text: '第二章：Windows 11 无盘启动技术攻坚', link: '/zh/guide/exploration/windows-11' },
+              { text: '第三章：Debian 12 无盘启动技术攻坚', link: '/zh/guide/exploration/debian-12' },
               { text: '第四章：Debian 系 iBFT 无盘启动', link: '/zh/guide/exploration/debian-12-ibft' },
               { text: '控制面能力详解', link: '/zh/guide/exploration/control-plane' },
-              { text: '我们已经攻克的壁垒', link: '/zh/guide/exploration/barriers' },
             ]
           },
           {
             text: '快速部署',
             collapsed: false,
             items: [
+              { text: '引导介质制作', link: '/zh/guide/quick-deploy/boot-media' },
               { text: '项目环境部署', link: '/zh/guide/quick-deploy/environment-deploy' },
               { text: 'Windows 无盘快速部署（母盘克隆）', link: '/zh/guide/quick-deploy/windows-quick-deploy' },
               { text: 'Debian 系无盘快速部署（母盘克隆）', link: '/zh/guide/quick-deploy/debian-quick-deploy' },

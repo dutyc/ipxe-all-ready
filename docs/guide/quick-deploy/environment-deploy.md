@@ -54,27 +54,21 @@ dhcp-option=6,223.5.5.5                          # DNS
 
 ### 1.3 Obtain iPXE Firmware
 
-Download the boot firmware from the official iPXE release site [https://boot.ipxe.org/](https://boot.ipxe.org/) (official prebuilt binaries, no compilation needed). The following files are required (`x86_64-efi/` is the official subdirectory):
+Download the boot firmware from the **[Releases](https://github.com/dutyc/ipxe-stateless/releases)** page of our companion firmware repo **[iPXE-Stateless](https://github.com/dutyc/ipxe-stateless)** (the latest release is built from upstream iPXE baseline `e6e51ccb` plus custom patches; no compilation needed). Using firmware from the official iPXE release site is not recommended: official builds ship no native drivers for high-speed NICs, so RTL8125 (2.5G) / RTL8126 (5G) machines can only fall back to the UNDI/SNP compatibility path and may fail to boot; our firmware includes native driver support for these NICs.
 
-```
-undionly.kpxe                    # BIOS boot firmware
-x86_64-efi/
-├── ipxe-legacy.efi              # UEFI firmware (legacy-firmware compatible, fallback)
-├── ipxe.efi                     # UEFI firmware (standard, fallback)
-└── snponly.efi                  # UEFI firmware (SNP-only, distributed by default)
-```
+The following files are required. Download them from the Release page and place them into the `tftp/` root directory. Release assets use flat names — strip the `pxe-uefi-` prefix so the filenames match what dnsmasq serves:
 
-Place all of them into the `tftp/` root directory — do not keep the official `x86_64-efi/` subdirectory (`wget` saves each file by its URL basename into the current directory):
+| Release asset | Filename in `tftp/` | Notes |
+|---|---|---|
+| `undionly.kpxe` | `undionly.kpxe` | BIOS firmware (UNDI interface; compatible with any NIC with a PXE ROM) |
+| `pxe-uefi-snponly.efi` | `snponly.efi` | UEFI firmware (SNP-only, distributed by default) |
+| `pxe-uefi-ipxe.efi` | `ipxe.efi` | UEFI firmware (native + SNP dual path, fallback for UEFI boot issues) |
+| `pxe-uefi-snponly-debug.efi` | `snponly-debug.efi` | (optional) debug build, REALTEK driver logs for troubleshooting |
+| `pxe-uefi-ipxe-debug.efi` | `ipxe-debug.efi` | (optional) debug build, REALTEK driver logs for troubleshooting |
 
-```bash
-cd tftp
-wget https://boot.ipxe.org/undionly.kpxe
-wget https://boot.ipxe.org/x86_64-efi/ipxe-legacy.efi
-wget https://boot.ipxe.org/x86_64-efi/ipxe.efi
-wget https://boot.ipxe.org/x86_64-efi/snponly.efi
-```
+Debug builds are for troubleshooting only: back up the original firmware before replacing it, and switch back to the release build once the issue is located.
 
-`dnsmasq.conf` is already configured to distribute firmware based on architecture detection: UEFI → `snponly.efi`, BIOS → `undionly.kpxe`, second iPXE request → `boot.ipxe`. If a machine fails to boot over UEFI, try switching the efi64 boot file to `ipxe.efi` or `ipxe-legacy.efi`.
+`dnsmasq.conf` is already configured to distribute firmware based on architecture detection: UEFI → `snponly.efi`, BIOS → `undionly.kpxe`, second iPXE request → `boot.ipxe`. If a machine fails to boot over UEFI, first switch the efi64 boot file to `ipxe.efi` and retry; if it still fails, use a debug build to capture REALTEK driver logs.
 
 > **memdisk (optional; not needed for regular boot)**: memdisk is only used for the legacy approach of booting ISO installation images directly via iPXE (`kernel memdisk` + `initrd xxx.iso`); this project boots diskless machines over iSCSI sanboot and does not need it. If required, download the SYSLINUX release package from the [SYSLINUX release page](https://www.kernel.org/pub/linux/utils/boot/syslinux/), extract it, and place `bios/memdisk/memdisk` into `tftp/`:
 >

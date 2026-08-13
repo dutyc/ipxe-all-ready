@@ -28,7 +28,7 @@ Thumbs.db
 .stignore
 .idea/
 .vscode/
-用户反馈文档
+user_report/
 *.sublime-project
 *.sublime-workspace
 webui/deploy/public/install/debian/12/netboot

@@ -78,7 +78,8 @@ Full architecture deep-dives, per-OS deployment walkthroughs, and quick-deploy r
 
 * [Quick Deploy Runbooks](https://ipxe.lecreate.asia/guide/quick-deploy/environment-deploy) — step-by-step environment setup, Windows & Debian-family master-image clones
 * [API Reference](https://ipxe.lecreate.asia/guide/api/control-plane-api) — full Control Plane & Agent endpoint contracts; start here for third-party integration
-* [Exploration](https://ipxe.lecreate.asia/guide/preface) — architecture deep-dives, diskless boot principles, and the barriers we broke through (Ch1–Ch4 + Control Plane Capabilities + Barriers)
+* [Exploration](https://ipxe.lecreate.asia/guide/preface) — architecture deep-dives and diskless boot principles (Ch1–Ch4 + Control Plane Capabilities)
+* [Barriers We Have Broken Through](./Barriers.md) — a standalone record of every technical wall we conquered (kept here on GitHub, not on the docs site)
 
 ## Roadmap
 

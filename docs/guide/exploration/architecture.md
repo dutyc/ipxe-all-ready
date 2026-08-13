@@ -1,5 +1,7 @@
 # Chapter 1: iPXE Diskless Architecture Design and Core Boot Chain
 
+> **Early Exploration Notice**: This article is a record of the project's early exploration. The described approach differs from the current architecture and is provided for low-level research reference only.
+
 ## 1.1 Why Not Use Existing Solutions?
 
 Diskless solutions on the market generally fall into two categories:
