@@ -46,6 +46,9 @@ iscsi-server/.env
 control_plane/config/agents.yml
 control_plane/control_plane.env
 
+# 内部架构规划（不入版本库）
+blueprint/
+
 # 运行时状态、日志与租约（容器/Agent 运行生成，不入库）
 control_plane/state/operations.jsonl
 control_plane/state/workers.yml
