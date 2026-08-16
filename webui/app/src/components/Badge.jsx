@@ -6,6 +6,7 @@ const VARIANT_MAP = {
   healthy: 'badge-ok',
   error: 'badge-error',
   installing: 'badge-warn',
+  partial: 'badge-warn',
   started: 'badge-warn',
   failed: 'badge-error',
 }

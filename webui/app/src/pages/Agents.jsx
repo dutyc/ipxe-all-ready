@@ -328,6 +328,10 @@ export default function Agents() {
   const [showAdd, setShowAdd] = useState(false)
   const [editAgent, setEditAgent] = useState(null)
 
+  // ===== 页面介绍弹层 =====
+  const [guideOpen, setGuideOpen] = useState(false)
+  const toggleGuide = () => setGuideOpen(!guideOpen)
+
   const fetch = async (liveMode) => {
     setLoading(true)
     setError(null)
@@ -379,6 +383,9 @@ export default function Agents() {
           >
             {t('agents.live')}: {live ? t('agents.on') : t('agents.off')}
           </Button>
+          <Button variant="ghost" onClick={toggleGuide}>
+            {t('agents.guide.btn')}
+          </Button>
         </div>
       </div>
 
@@ -412,6 +419,29 @@ export default function Agents() {
               <AgentCard agent={agent} t={t} onEdit={(a) => { setEditAgent(a); setShowAdd(false) }} />
             </Link>
           ))}
+        </div>
+      )}
+
+      {guideOpen && (
+        <div className="guide-overlay" onClick={toggleGuide}>
+          <div className="guide-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="guide-panel-title">{t('agents.guide.title')}</div>
+            {[
+              ['toolbarTitle', 'toolbarBody'],
+              ['cardTitle', 'cardBody'],
+              ['rowTitle', 'rowBody'],
+            ].map(([titleKey, bodyKey]) => (
+              <div className="guide-section" key={titleKey}>
+                <div className="guide-section-title">{t(`agents.guide.${titleKey}`)}</div>
+                <p className="guide-section-body">{t(`agents.guide.${bodyKey}`)}</p>
+              </div>
+            ))}
+            <div className="guide-actions">
+              <Button variant="primary" onClick={toggleGuide}>
+                {t('agents.guide.close')}
+              </Button>
+            </div>
+          </div>
         </div>
       )}
     </div>

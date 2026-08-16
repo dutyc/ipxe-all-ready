@@ -8,6 +8,7 @@ export default function Layout() {
   const NAV_ITEMS = [
     { to: '/', label: t('nav.dashboard'), exact: true },
     { to: '/workers', label: t('nav.workers') },
+    { to: '/devices', label: t('nav.devices') },
     { to: '/agents', label: t('nav.agents') },
     { to: '/operations', label: t('nav.operations') },
   ]

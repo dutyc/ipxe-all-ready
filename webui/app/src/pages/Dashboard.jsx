@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { getWorkers, getAgents, getOperations } from '../api/client'
+import { getWorkers, getAgents, getDevices, getOperations } from '../api/client'
 import { useI18n } from '../i18n'
 import Card from '../components/Card'
 import Badge from '../components/Badge'
@@ -19,7 +19,7 @@ function StatCard({ label, value, sub }) {
 
 export default function Dashboard() {
   const { t } = useI18n()
-  const [stats, setStats] = useState({ workers: 0, agents: 0, agentHealthy: 0 })
+  const [stats, setStats] = useState({ workers: 0, agents: 0, agentHealthy: 0, devices: 0 })
   const [recentOps, setRecentOps] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -28,15 +28,17 @@ export default function Dashboard() {
     let cancelled = false
     async function load() {
       try {
-        const [workers, agents, ops] = await Promise.all([
+        const [workers, agents, devices, ops] = await Promise.all([
           getWorkers().catch(() => []),
           getAgents(true).catch(() => []),
+          getDevices().catch(() => []),
           getOperations(0, 10).catch(() => ({ entries: [] })),
         ])
         if (cancelled) return
         const agentHealthy = agents.filter((a) => a.health === 'ok').length
         setStats({
           workers: Array.isArray(workers) ? workers.length : 0,
+          devices: Array.isArray(devices) ? devices.length : 0,
           agents: Array.isArray(agents) ? agents.length : 0,
           agentHealthy,
         })
@@ -61,6 +63,10 @@ export default function Dashboard() {
         <StatCard
           label={t('dashboard.workers')}
           value={loading ? '—' : stats.workers}
+        />
+        <StatCard
+          label={t('dashboard.devices')}
+          value={loading ? '—' : stats.devices}
         />
         <StatCard
           label={t('dashboard.agents')}

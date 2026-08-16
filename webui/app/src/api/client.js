@@ -132,6 +132,11 @@ export function createWorker(data) {
   return request('/workers', { method: 'POST', body: data });
 }
 
+export function batchCreateWorkers(data) {
+  // 批量创建：{ count, name_prefix, arch?, macs? } → { succeeded, skipped, failed }
+  return request('/workers/batch', { method: 'POST', body: data });
+}
+
 export function getWorkers() {
   return request('/workers');
 }
@@ -194,7 +199,44 @@ export function batchDeleteWorkers(workerIds, deleteDisk = false, ignoreMissing 
   });
 }
 
+// ===== Devices（设备池） =====
+export function getDevices(state = 'all') {
+  return request('/devices', { params: { state } });
+}
+
+export function getDevice(mac) {
+  return request(`/devices/${encodeURIComponent(mac)}`);
+}
+
+export function createDevice(data) {
+  return request('/devices', { method: 'POST', body: data });
+}
+
+export function importDevices(entries) {
+  return request('/devices/import', { method: 'POST', body: { entries } });
+}
+
+export function bindDevice(mac, workerId, force = false) {
+  return request(`/devices/${encodeURIComponent(mac)}/bind`, {
+    method: 'POST',
+    params: { worker_id: workerId, force },
+  });
+}
+
+export function unbindDevice(mac) {
+  return request(`/devices/${encodeURIComponent(mac)}/bind`, { method: 'DELETE' });
+}
+
+export function batchBindPreview(data) {
+  return request('/devices/bind/batch/preview', { method: 'POST', body: data });
+}
+
+export function batchBind(data) {
+  return request('/devices/bind/batch', { method: 'POST', body: data });
+}
+
 // ===== Operations =====
-export function getOperations(since = 0, limit = 50) {
-  return request('/operations', { params: { since, limit } });
+export function getOperations(since = 0, limit = 50, mac = null) {
+  const params = mac ? { since, limit, mac } : { since, limit };
+  return request('/operations', { params });
 }

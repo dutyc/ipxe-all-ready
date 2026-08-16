@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { getWorkers, getAgents, createWorker, batchCreateWorkerDisks, batchDeleteWorkers, getMasters, getAutoRegister, setAutoRegister } from '../api/client'
+import { getWorkers, getAgents, createWorker, batchCreateWorkers, batchCreateWorkerDisks, batchDeleteWorkers, getMasters } from '../api/client'
 import { useI18n } from '../i18n'
 import Button from '../components/Button'
 import Input from '../components/Input'
@@ -32,14 +32,17 @@ export default function Workers() {
   const [workers, setWorkers] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  // ===== 全局自动注册开关（运行时设置，立即生效并持久化） =====
-  const [autoRegister, setAutoRegisterState] = useState(null)
-  const [autoRegisterBusy, setAutoRegisterBusy] = useState(false)
-  const [autoRegisterError, setAutoRegisterError] = useState(null)
   const [filter, setFilter] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState(null)
+
+  // ===== 批量创建 Worker 模式（与批量系统盘/批量删除互斥） =====
+  const [batchCreateMode, setBatchCreateMode] = useState(false)
+  const [batchCreateForm, setBatchCreateForm] = useState({ count: '5', name_prefix: 'worker-', macs: '' })
+  const [bcSubmitting, setBcSubmitting] = useState(false)
+  const [bcError, setBcError] = useState(null)
+  const [bcResult, setBcResult] = useState(null)
 
   // ===== 批量创建模式 =====
   const [batchMode, setBatchMode] = useState(false)
@@ -59,6 +62,10 @@ export default function Workers() {
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState(null)
   const [deleteResult, setDeleteResult] = useState(null)
+
+  // ===== 页面介绍弹层 =====
+  const [guideOpen, setGuideOpen] = useState(false)
+  const toggleGuide = () => setGuideOpen(!guideOpen)
 
   const DISK_TYPE_OPTIONS = [
     { value: 'empty', label: t('workers.empty') },
@@ -93,11 +100,58 @@ export default function Workers() {
     setCreateError(null)
   }
 
-  // 进入/退出批量创建模式：进入时加载存储节点列表（不探活，健康状态由创建时后端校验）
+  // 进入/退出批量创建模式：与批量系统盘/批量删除互斥
+  const toggleBatchCreate = () => {
+    const next = !batchCreateMode
+    setBatchCreateMode(next)
+    if (next) {
+      setBatchMode(false)
+      setDeleteMode(false)
+    }
+    setBcError(null)
+    setBcResult(null)
+  }
+
+  // 批量创建 Worker：count + 命名规则；macs 可选（每行一个，行数须等于 count）
+  const handleBatchCreateWorkers = async (e) => {
+    e.preventDefault()
+    const count = parseInt(batchCreateForm.count, 10)
+    if (!count || count < 1 || count > 100) {
+      setBcError(t('workers.batchCreate.countInvalid'))
+      return
+    }
+    const macs = batchCreateForm.macs
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean)
+    if (macs.length > 0 && macs.length !== count) {
+      setBcError(t('workers.batchCreate.macsCountMismatch'))
+      return
+    }
+    setBcSubmitting(true)
+    setBcError(null)
+    setBcResult(null)
+    const body = { count, name_prefix: batchCreateForm.name_prefix.trim() }
+    if (macs.length > 0) body.macs = macs
+    try {
+      const res = await batchCreateWorkers(body)
+      setBcResult(res)
+      await fetchWorkers()
+    } catch (err) {
+      setBcError(err.message)
+    } finally {
+      setBcSubmitting(false)
+    }
+  }
+
+  // 进入/退出批量创建系统盘模式（与批量创建 Worker/批量删除互斥）
   const toggleBatch = async () => {
     const next = !batchMode
     setBatchMode(next)
-    if (next) setDeleteMode(false) // 与批量删除互斥
+    if (next) {
+      setDeleteMode(false) // 与批量删除互斥
+      setBatchCreateMode(false)
+    }
     setBatchError(null)
     setBatchResult(null)
     if (next) {
@@ -123,7 +177,10 @@ export default function Workers() {
   const toggleDelete = () => {
     const next = !deleteMode
     setDeleteMode(next)
-    if (next) setBatchMode(false)
+    if (next) {
+      setBatchMode(false)
+      setBatchCreateMode(false)
+    }
     setSelected([])
     setAnchor(null)
     setDeleteError(null)
@@ -276,33 +333,9 @@ export default function Workers() {
 
   const hasDisk = (w) => Array.isArray(w.disks) && w.disks.length > 0
 
-  const fetchAutoRegister = useCallback(async () => {
-    try {
-      const res = await getAutoRegister()
-      setAutoRegisterState(res.enabled)
-    } catch (e) {
-      setAutoRegisterError(e.message)
-    }
-  }, [])
-
   useEffect(() => {
     fetchWorkers()
-    fetchAutoRegister()
-  }, [fetchWorkers, fetchAutoRegister])
-
-  // 切换全局自动注册开关：false 后新 MAC 不再自动注册（已注册 Worker 不受影响）
-  const handleToggleAutoRegister = async () => {
-    setAutoRegisterBusy(true)
-    setAutoRegisterError(null)
-    try {
-      const res = await setAutoRegister(!autoRegister)
-      setAutoRegisterState(res.enabled)
-    } catch (e) {
-      setAutoRegisterError(e.message)
-    } finally {
-      setAutoRegisterBusy(false)
-    }
-  }
+  }, [fetchWorkers])
 
   const handleCreate = async (e) => {
     e.preventDefault()
@@ -335,6 +368,7 @@ export default function Workers() {
     return (
       (w.worker_id || '').toLowerCase().includes(term) ||
       (w.hostname || '').toLowerCase().includes(term) ||
+      (w.bound_device || '').toLowerCase().includes(term) ||
       (w.disk?.os || '').toLowerCase().includes(term)
     )
   })
@@ -347,6 +381,12 @@ export default function Workers() {
       <div className="page-header">
         <h2 className="page-title">{t('workers.title')}</h2>
         <div className="page-actions">
+          <Button
+            variant={batchCreateMode ? 'ghost' : 'primary'}
+            onClick={toggleBatchCreate}
+          >
+            {batchCreateMode ? t('workers.batchCreate.exit') : t('workers.batchCreate.enter')}
+          </Button>
           <Button
             variant={deleteMode ? 'ghost' : 'danger'}
             onClick={toggleDelete}
@@ -388,7 +428,6 @@ export default function Workers() {
               value={form.values.mac}
               onChange={form.update('mac')}
               placeholder={t('workers.macPlaceholder')}
-              required
             />
             <Input
               label={t('workers.windowsIso')}
@@ -404,6 +443,80 @@ export default function Workers() {
           <Button type="submit" disabled={creating}>
             {creating ? t('workers.creating') : t('workers.createBtn')}
           </Button>
+        </form>
+      )}
+
+      {batchCreateMode && (
+        <form className="create-form" onSubmit={handleBatchCreateWorkers}>
+          <div className="create-form-title">{t('workers.batchCreate.title')}</div>
+          <p className="create-hint">{t('workers.registerHint')}</p>
+
+          <div className="create-form-grid">
+            <Input
+              label={t('workers.batchCreate.count')}
+              name="count"
+              value={batchCreateForm.count}
+              onChange={(e) => setBatchCreateForm((p) => ({ ...p, count: e.target.value }))}
+              placeholder={t('workers.batchCreate.countPlaceholder')}
+              required
+            />
+            <Input
+              label={t('workers.batchCreate.namePrefix')}
+              name="name_prefix"
+              value={batchCreateForm.name_prefix}
+              onChange={(e) => setBatchCreateForm((p) => ({ ...p, name_prefix: e.target.value }))}
+              placeholder={t('workers.batchCreate.namePrefixPlaceholder')}
+              required
+            />
+          </div>
+          <div className="create-form-grid">
+            <div className="field">
+              <label className="field-label">{t('workers.batchCreate.macs')}</label>
+              <textarea
+                className="batch-create-macs"
+                value={batchCreateForm.macs}
+                onChange={(e) => setBatchCreateForm((p) => ({ ...p, macs: e.target.value }))}
+                placeholder={t('workers.batchCreate.macsPlaceholder')}
+                rows={5}
+              />
+              <p className="batch-hint">{t('workers.batchCreate.macsHint')}</p>
+            </div>
+          </div>
+
+          {bcError && <p className="create-error">{bcError}</p>}
+
+          <Button type="submit" disabled={bcSubmitting}>
+            {bcSubmitting ? t('workers.batchCreate.creating') : t('workers.batchCreate.create')}
+          </Button>
+
+          {bcResult && (
+            <div className="batch-result">
+              <div className="batch-result-title">{t('workers.batchCreate.resultTitle')}</div>
+              <div className="batch-result-stats">
+                <span className="br-ok">{t('workers.batchCreate.okCount', { n: bcResult.succeeded.length })}</span>
+                <span className="br-skip">{t('workers.batchCreate.skipCount', { n: bcResult.skipped.length })}</span>
+                <span className="br-fail">{t('workers.batchCreate.failCount', { n: bcResult.failed.length })}</span>
+              </div>
+              {bcResult.skipped.length > 0 && (
+                <ul className="batch-result-list">
+                  {bcResult.skipped.map((s) => (
+                    <li key={s.worker_id}>
+                      <b>{s.worker_id}</b>: {s.reason}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {bcResult.failed.length > 0 && (
+                <ul className="batch-result-list">
+                  {bcResult.failed.map((f) => (
+                    <li key={f.worker_id}>
+                      <b>{f.worker_id}</b>: {f.error}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </form>
       )}
 
@@ -544,23 +657,6 @@ export default function Workers() {
 
         <div className="workers-main">
           <div className="workers-toolbar">
-            <button
-              className={`auto-register-toggle ${autoRegister ? 'art-on' : 'art-off'}`}
-              onClick={handleToggleAutoRegister}
-              disabled={autoRegister === null || autoRegisterBusy}
-              title={t('workers.autoRegister.hint')}
-            >
-              <span className="art-dot" />
-              {t('workers.autoRegister.label')}:{' '}
-              {autoRegister === null
-                ? t('workers.autoRegister.unknown')
-                : autoRegister
-                  ? t('workers.autoRegister.on')
-                  : t('workers.autoRegister.off')}
-            </button>
-            {autoRegisterError && (
-              <span className="workers-toolbar-error">{autoRegisterError}</span>
-            )}
             <input
               className="workers-filter"
               placeholder={t('workers.filter')}
@@ -570,6 +666,9 @@ export default function Workers() {
             <span className="workers-count">
               {t('workers.count', { count: filtered.length })}
             </span>
+            <Button variant="ghost" onClick={toggleGuide}>
+              {t('workers.guide.btn')}
+            </Button>
           </div>
 
           {filtered.length === 0 ? (
@@ -580,6 +679,7 @@ export default function Workers() {
                 {(batchMode || deleteMode) && <span className="wh-check" />}
                 <span className="wh-id">{t('workers.id')}</span>
                 <span className="wh-host">{t('workers.hostname')}</span>
+                <span className="wh-bound">{t('workers.bound')}</span>
                 <span className="wh-os">{t('workers.os')}</span>
                 <span className="wh-state">{t('workers.state')}</span>
                 {batchMode && <span className="wh-assign">{t('workers.batch.nodesTitle')}</span>}
@@ -607,6 +707,10 @@ export default function Workers() {
                   )}
                   <span className="wr-id">{w.worker_id}</span>
                   <span className="wr-host">{w.hostname}</span>
+                  <span className="wr-bound">
+                    <span className="wr-bound-mac">{w.bound_device || '—'}</span>
+                    <Badge>{w.readiness || 'idle'}</Badge>
+                  </span>
                   <span className="wr-os">{(w.disks || []).map((d) => d.os).join(', ') || '—'}</span>
                   <span className="wr-state">
                     <Badge>{w.state || 'unknown'}</Badge>
@@ -705,6 +809,30 @@ export default function Workers() {
           </aside>
         )}
       </div>
+
+      {guideOpen && (
+        <div className="guide-overlay" onClick={toggleGuide}>
+          <div className="guide-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="guide-panel-title">{t('workers.guide.title')}</div>
+            {[
+              ['headerTitle', 'headerBody'],
+              ['filterTitle', 'filterBody'],
+              ['columnsTitle', 'columnsBody'],
+              ['rowTitle', 'rowBody'],
+            ].map(([titleKey, bodyKey]) => (
+              <div className="guide-section" key={titleKey}>
+                <div className="guide-section-title">{t(`workers.guide.${titleKey}`)}</div>
+                <p className="guide-section-body">{t(`workers.guide.${bodyKey}`)}</p>
+              </div>
+            ))}
+            <div className="guide-actions">
+              <Button variant="primary" onClick={toggleGuide}>
+                {t('workers.guide.close')}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
