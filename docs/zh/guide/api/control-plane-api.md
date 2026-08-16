@@ -94,6 +94,12 @@ curl -s "$BASE_URL/workers" \
 |---|---|---|
 | `GET` | `/healthz` | 健康检查 |
 | `GET` | `/boot-vars` | iPXE 启动变量动态注入，不鉴权 |
+| `GET` | `/devices/report` | iPXE 设备信息上报（不鉴权，11 字段，见 16.6） |
+| `GET` | `/devices` | 设备池列表（state 过滤，见 16.1） |
+| `GET` | `/devices/{mac}` | 单设备详情（见 16.2） |
+| `POST` | `/devices` | 手动注册设备入池（见 16.3） |
+| `POST` | `/devices/import` | 批量导入设备清单（见 16.4） |
+| `DELETE` | `/devices/{mac}` | 注销设备（吊销，见 16.5） |
 | `GET` | `/settings/auto-register` | 查询全局自动注册开关（运行时状态，见 5.1） |
 | `PUT` | `/settings/auto-register` | 切换全局自动注册开关（持久化、立即生效，见 5.1） |
 | `GET` | `/agents` | 查询 Agent 列表与能力 |
@@ -106,7 +112,8 @@ curl -s "$BASE_URL/workers" \
 | `POST` | `/agents/{agent_id}/luns/cd` | 在指定 Agent 上创建 CD（ISO 虚拟光驱）LUN |
 | `DELETE` | `/agents/{agent_id}/luns` | 删除指定 Agent 上的 LUN/target |
 | `POST` | `/agents/{agent_id}/luns/scan` | 触发指定 Agent 扫描镜像目录重建 target |
-| `POST` | `/workers` | 注册 Worker 身份（hostname + MAC 绑定） |
+| `POST` | `/workers` | 注册 Worker 身份（hostname 绑定；`mac` 可选，传了直接绑定设备） |
+| `POST` | `/workers/batch` | 批量创建 Worker（数量 + 命名规则，逐项独立，`macs` 可选直接绑定，见 7.6） |
 | `POST` | `/workers/{worker_id}/luns/disk` | 给指定 Worker 创建系统盘 LUN |
 | `POST` | `/workers/luns/disk/batch` | 批量给多个 Worker 创建系统盘（每项指定存储节点） |
 | `DELETE` | `/workers/{worker_id}/luns/disk/{os}` | 删除 Worker 单个系统盘（保留/删除 .img 文件） |
@@ -147,13 +154,13 @@ curl -s "$BASE_URL/healthz"
 
 给 iPXE 启动脚本读取 per-worker 启动变量。该接口不鉴权，只暴露受控内网启动所需变量。
 
-> **注意**：该端点有写副作用 —— 当请求来自未绑定的新 MAC 时，会**自动注册**该 Worker（见下文「自动注册」），其余情况只读。
+> **注意**：该端点**只读**（启动变量投影，无写副作用）。自动注册（新 MAC 入设备池）已收敛到 `GET /devices/report`（见 16.6），由 `boot.ipxe.cfg` 在请求 `/boot-vars` 之前先 `chain`。
 
-Control Plane 会根据 `mac` 或 `hostname` 查：
+Control Plane 按以下顺序识别设备并投影启动变量：
 
-1. `dnsmasq/dhcp-hosts.conf`
-2. `state/workers.yml`
-3. `config/agents.yml`
+1. `hostname` → `state/workers.yml`（hostname 或 worker_id）
+2. `mac` → `state/devices.yml`（设备台账）→ `bound_worker_id` → `state/workers.yml`
+3. `config/agents.yml`（默认启动盘的 Agent 数据面地址）
 
 然后返回该 Worker 对应的 iSCSI Server、默认菜单项和菜单超时。
 
@@ -175,8 +182,12 @@ Control Plane 会根据 `mac` 或 `hostname` 查：
 
 ```text
 hostname -> workers.yml（hostname 或 worker_id）
-hostname 未命中或未传 -> mac -> dnsmasq/dhcp-hosts.conf -> hostname -> workers.yml
-都未命中且 mac 已传 -> 自动注册（见下）
+hostname 未命中或未传 -> mac -> devices.yml（设备台账）-> bound_worker_id -> workers.yml
+未识别且 mac 已传 ->
+  - 设备在池中（pooled）-> reboot 循环（menu-default=reboot + 短超时），等待绑定
+  - 设备已吊销（revoked）-> 空脚本（菜单停留）
+  - 未知 MAC + 自动注册开 -> 入设备池（见下「自动注册」），返回 reboot 循环
+  - 未知 MAC + 自动注册关 -> 空脚本（菜单停留）
 ```
 
 ### 默认启动项规则
@@ -200,22 +211,24 @@ os=windows -> menu_default=windows
 
 ### 自动注册（Zero-touch Provisioning）
 
-新 Worker 开机时没有 hostname，iPXE 会带 `mac` 请求 `/boot-vars`。若该 MAC 未绑定，Control Plane 自动完成登记：
+新设备开机时没有身份，iPXE 先 `chain` `/devices/report`（11 字段上报，见 16.6）再请求 `/boot-vars`。若 MAC 未注册，Control Plane 只把它**收进设备池**（不再自动创建 Worker）：
 
-1. 按顺序生成 hostname（扫描台账 + dhcp 绑定中 `worker-N` 的最大序号 +1，格式 `worker-%02d`，编号从 `worker-01` 开始）
-2. 写入 `workers.yml`（`state=registered`，无系统盘）并绑定 `dnsmasq/dhcp-hosts.conf`（MAC -> hostname），触发 dnsmasq reload
-3. 返回 `menu-default=reboot` + 短超时，让机器立即重启
-4. 重启后 dnsmasq 下发 hostname，后续请求用 hostname 表明身份；在管理员创建系统盘并设置 `default_os` 之前，一直返回 `reboot` 循环重启
-5. 管理员配置完成后，下次重启即按 `default_os` 进入对应系统
+1. `GET /devices/report`：未知 MAC 且自动注册开启 → 写入 `state/devices.yml`（`state=pooled`，指纹入库，`source=ipxe`）
+2. `GET /boot-vars`：MAC 在池中未绑定 → 返回 `menu-default=reboot` + 短超时，循环重启等待管理员绑定
+3. 管理员将设备绑定到 Worker（WebUI / API，单绑 16.7、批量预览/执行 16.9/16.10）后，下次启动即按 Worker 配置正常引导
 
 控制项（环境变量）：
 
 | 变量 | 默认 | 说明 |
 |---|---:|---|
-| `IPXE_CP_AUTO_REGISTER` | `true` | 自动注册的**启动默认值**；运行时可用 `GET/PUT /settings/auto-register` 切换（持久化到 `state/settings.json`，重启保留，优先于环境变量，见 5.1） |
+| `IPXE_CP_AUTO_REGISTER` | `true` | 自动注册的**启动默认值**——语义为「新 MAC 是否自动入设备池」；运行时可用 `GET/PUT /settings/auto-register` 切换（持久化到 `state/settings.json`，重启保留，优先于环境变量，见 5.1） |
 | `IPXE_CP_AUTO_BOOT_TIMEOUT` | `1` | reboot 循环的菜单超时（毫秒） |
 
-自动注册全程有操作日志（`auto_register`），失败会回滚台账并返回空脚本，下次请求重试，不影响 iPXE 引导。
+自动注册全程有操作日志（`device.register`），失败回滚台账并返回空脚本，下次请求重试，不影响 iPXE 引导。
+
+### 防冒领（绑定即认证）
+
+请求带 `mac` 时，Control Plane 会校验该设备**绑定到了 hostname 命中的 Worker**（`bound_worker_id`）；不符合（绑定其他 Worker / 未绑定 / 未知设备）→ **拒绝下发**：返回空脚本，不泄露启动变量。不带 `mac`（仅 hostname）的请求无法校验身份，保持兼容放行。这使设备↔Worker 绑定成为开机时的认证边界：只有绑定的设备才能拿到该 Worker 的启动配置（如 `base_iqn` / `iscsi-server`）。
 
 ### Query 参数
 
@@ -334,7 +347,7 @@ agents:
 
 #### 说明
 
-全局自动注册开关：控制**新 MAC** 首次请求 `/boot-vars` 时是否自动注册为 Worker（自动注册流程见 5 节）。关闭后新 MAC 返回空脚本，需管理员手动注册（`POST /workers`）。**已注册 Worker 不受影响**——开关只作用于新 MAC。
+全局自动注册开关：控制**新 MAC** 是否自动进入设备池（自动注册流程见 5 节「自动注册」）。开启时，未知 MAC 请求 `/devices/report` 或 `/boot-vars` 会被写入 `state/devices.yml`（`state=pooled`）；关闭后新 MAC 返回空脚本，需管理员手动注册（`POST /devices` 或 `POST /devices/import`）。**已注册设备与已绑定 Worker 不受影响**——开关只作用于新 MAC。
 
 启用/禁用有两种方式，运行时 API 优先于环境变量：
 
@@ -365,7 +378,7 @@ agents:
 
 | 字段 | 必填 | 类型 | 说明 |
 |---|---|---|---|
-| `enabled` | 是 | bool | `false` = 关闭自动注册（新 MAC 不再自动登记） |
+| `enabled` | 是 | bool | `false` = 关闭自动注册（新 MAC 不再自动入设备池） |
 
 **响应**：同 GET，返回切换后的 `{"enabled": bool}`。
 
@@ -624,11 +637,16 @@ curl -s -X PUT "$BASE_URL/agents/storage-stgt-02" \
 
 ### 说明
 
-注册一台 Worker 的**身份**：hostname + MAC 绑定。**存储与身份分离**——本接口不创建任何系统盘，系统盘须另调 `POST /workers/{worker_id}/luns/disk`（见 7.1）。Control Plane 会：
+注册一台 Worker 的**身份**：hostname 绑定。**存储与身份分离**——本接口不创建任何系统盘，系统盘须另调 `POST /workers/{worker_id}/luns/disk`（见 7.1）。`mac` 现为**可选**：
 
-1. 校验 `worker_id`、`hostname`、`mac`
+- 不传 `mac` → 纯空转 Worker（仅 hostname 绑定，不授权任何设备），后续可用 `POST /devices/{mac}/bind`（16.7）绑定设备
+- 传 `mac` → 设备须已在设备池中（`state=pooled`），校验后直接绑定（一对一授权）；设备池外或已绑定 → `409`——**先注册，后绑定**
+
+Control Plane 会：
+
+1. 校验 `worker_id`、`hostname`；传了 `mac` 时校验 `mac`
 2. 写入 `state/workers.yml`（`disks` 为空数组，`state=registered`）
-3. 写入 `dnsmasq/dhcp-hosts.conf`
+3. 传了 `mac` 时绑定设备（写 `state/devices.yml` 的 `bound_worker_id` + 写 `dnsmasq/dhcp-hosts.conf`）
 4. 通过 Docker 向 `ipxe-dnsmasq` 容器发送 HUP：
 
 ```bash
@@ -642,7 +660,7 @@ docker exec ipxe-dnsmasq killall -HUP dnsmasq
 | 字段 | 必填 | 说明 |
 |---|---:|---|
 | `worker_id` | 是 | Worker 编号。会自动转为小写。允许字母、数字、点、下划线、短横线 |
-| `mac` | 是 | Worker 网卡 MAC 地址，格式如 `00:0c:29:b9:8b:2d` |
+| `mac` | 否 | Worker 网卡 MAC 地址，格式如 `00:0c:29:b9:8b:2d`。传入时设备须已在设备池中（见 16 节），本调用同时完成绑定 |
 | `hostname` | 否 | 主机名。不传时默认等于 `worker_id` |
 | `arch` | 否 | 架构。不传时默认 `x86_64` |
 | `windows_iso` | 否 | Windows 安装期 ISO 文件名。传入即在注册时额外创建安装光驱 target |
@@ -704,6 +722,16 @@ Windows 安装期如果希望默认进入安装菜单，可以这样传：
   }
 }
 ```
+
+### PUT /workers/{worker_id}/mac（换绑映射）
+
+修改 Worker 的 MAC 绑定（hostname 不变），内部映射为**设备换绑**：新 MAC 须在设备池中（`state=pooled`），绑定到本 Worker；旧设备（若绑定本 Worker）解绑回池。审计同时记录 `device.bind`（新）+ `device.unbind`（旧）与兼容事件 `worker.mac.update`。
+
+**请求体**：`{"mac": "00:0c:29:b9:8b:2d"}`
+
+**409**：新 MAC 池外 / 已吊销 / 已绑定其他 Worker；旧设备绑定到意外 Worker。
+
+**幂等**：重复设置同一 MAC 返回 `changed=false`。
 
 ## 7.1 POST /workers/{worker_id}/luns/disk
 
@@ -1133,6 +1161,75 @@ curl -s -X PUT "$BASE_URL/workers/worker-01/mac" \
 
 ---
 
+## 7.6 POST /workers/batch
+
+### 说明
+
+批量创建 Worker（**逐项独立**，单项失败不影响其余；**幂等**，重复执行不产生重复 Worker）。按 `name_prefix` + 序号生成 `worker_id`（`worker-01`、`worker-02` …，序号从 `01` 起，位宽随 `count` 自适应——`count=100` 时生成 `worker-001` … `worker-100`）。
+
+- 不传 `macs` → 全部为**纯空转** Worker（仅 hostname 绑定，不授权任何设备），后续可用 `POST /devices/{mac}/bind`（16.7）绑定
+- 传 `macs`（须与 `count` 等长）→ 逐项校验设备池并直接绑定（语义同 7 节传 `mac`：设备须 `state=pooled`，池外 / 已绑定 → 该项 `failed` 且**该项不创建**，可修正后重试）
+
+不支持 `windows_iso`（安装期 ISO 请逐个走 7 节）。
+
+### 请求体字段
+
+| 字段 | 必填 | 说明 |
+|---|---:|---|
+| `count` | 是 | 创建数量，1–100 |
+| `name_prefix` | 否 | Worker 编号前缀，默认 `worker-`。生成的 `worker_id` 须合法（允许字母、数字、点、下划线、短横线），非法前缀整批返回 `400` |
+| `macs` | 否 | MAC 地址数组（格式 `00:0c:29:b9:8b:2d`），提供时长度必须等于 `count`，逐项校验并直接绑定 |
+| `arch` | 否 | 架构。不传时默认 `x86_64` |
+| `boot` | 否 | iPXE 菜单默认项与超时配置，字段同 7 节 |
+
+### 幂等与失败分类
+
+- `succeeded`：本次创建成功（传了 `macs` 时含绑定——绑定成功才创建该项）
+- `skipped`：`worker_id` 已存在（重复执行同一请求的结果）
+- `failed`：设备池外 / 已吊销 / 已绑定 / MAC 非法 / hostname 冲突等——该项不创建，其余项不受影响；修正后可重试
+
+### 示例
+
+```bash
+curl -s -X POST "$BASE_URL/workers/batch" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "count": 3,
+    "name_prefix": "worker-",
+    "macs": ["00:0c:29:b9:8b:01", "00:0c:29:b9:8b:02", "00:0c:29:b9:8b:03"]
+  }'
+```
+
+### 成功返回（200）
+
+```json
+{
+  "succeeded": [
+    {"worker_id": "worker-01", "hostname": "worker-01", "mac": "00:0c:29:b9:8b:01"}
+  ],
+  "skipped": [],
+  "failed": [
+    {
+      "worker_id": "worker-02",
+      "hostname": "worker-02",
+      "mac": "00:0c:29:b9:8b:02",
+      "error": "device already bound to worker-01: 00:0c:29:b9:8b:02"
+    }
+  ]
+}
+```
+
+### 常见错误
+
+| HTTP 状态码 | 常见原因 |
+|---:|---|
+| `400` | `name_prefix` 为空 / 生成的 `worker_id` 非法 / `macs` 长度不等于 `count` |
+| `401` | 缺少 Token 或 Token 错误 |
+| `422` | `count` 缺失 / 不在 1–100 范围 |
+
+---
+
 ## 8. GET /workers
 
 ### 说明
@@ -1282,11 +1379,14 @@ curl -s "$BASE_URL/workers/worker-01/status" \
 删除 Worker。Control Plane 会：
 
 1. 从 `workers.yml` 找到该 Worker 的 disk/cd 台账
-2. 如果存在 cd target，先删 cd
-3. 再删 disk target
-4. 从 `workers.yml` 删除该 Worker
-5. 从 `dnsmasq/dhcp-hosts.conf` 删除 `mac,hostname` 这一行
-6. HUP `ipxe-dnsmasq`
+2. **联动解绑设备**：所有 `bound_worker_id` 为该 Worker 的设备回池（`state=pooled`、`bound_worker_id=null`，设备**不吊销**）——先解绑落盘，解绑失败则中止删除
+3. 如果存在 cd target，先删 cd
+4. 再删 disk target
+5. 从 `workers.yml` 删除该 Worker
+6. 从 `dnsmasq/dhcp-hosts.conf` 删除 `mac,hostname` 这一行
+7. HUP `ipxe-dnsmasq`
+
+`POST /workers/delete/batch`（11.1）同样联动解绑。
 
 ### Path 参数
 
@@ -1390,6 +1490,7 @@ curl -s -X POST "$BASE_URL/workers/delete/batch" \
 |---|---:|---|---|
 | `since` | 否 | `0` | 只返回 `id > since` 的记录 |
 | `limit` | 否 | `1000` | 最多返回多少条 |
+| `mac` | 否 | — | 仅返回该设备（MAC）的操作（规范化后按 `mac` 字段过滤），用于设备绑定记录查看 |
 
 ### curl
 
@@ -1782,11 +1883,229 @@ curl -s "$BASE_URL/masters" \
 
 ---
 
-## 16. 当前实现边界
+## 16. 设备池（设备台账）
+
+设备台账（`state/devices.yml`）是三层实体模型（设备 / Worker / 系统盘）的底层实体：自动注册与手动导入只入设备池，**注册 ≠ 授权**——设备需绑定到 Worker 后才有身份。绑定关系权威在设备侧（`bound_worker_id`），Worker 侧只投影不存储。
+
+**绑定语义（P2）**：设备 ↔ Worker 严格**一对一**。绑定走 `POST /devices/{mac}/bind`（16.7）；`force=true` 原子换绑（预校验 → 新绑定落盘 → 旧绑定清除 → 失败回滚）。解绑（`DELETE /devices/{mac}/bind`，16.8）后设备回池，Worker 的系统盘保留。删除 Worker 联动解绑（11 节）。`POST /workers` 传 `mac` 也直接完成绑定（7 节）。
+
+**readiness 投影**：Worker 响应（列表 / 详情 / 状态）按台账派生两个字段：
+
+- `bound_device`：绑定到该 Worker 的设备 MAC（无则 `null`）
+- `readiness`：`ready`（绑定设备且有系统盘）/ `partial`（绑定设备**或**有系统盘）/ `idle`（两者皆无）
+
+### 设备状态
+
+| 状态 | 说明 |
+|---|---|
+| `pooled` | 在设备池中，未绑定（自动入池 / 手动注册 / 批量导入） |
+| `bound` | 已绑定到 Worker（一对一），绑定关系见 `bound_worker_id` |
+| `revoked` | 已注销（吊销），不再接受上报，不可重新注册 |
+
+### 记录结构（示例）
+
+```yaml
+devices:
+  "00:0c:29:b9:8b:2d":
+    mac: 00:0c:29:b9:8b:2d
+    uuid: "4c4c4544-..."          # SMBIOS UUID（双因子，可选）
+    state: pooled                 # pooled | bound | revoked
+    bound_worker_id: null         # 绑定关系权威在此，worker 侧只投影
+    key_hash: null                # 安全蓝图阶段填充，本期留空
+    source: ipxe                  # ipxe（自动入池）| manual（手动录入/导入）
+    fingerprint:                  # 申报性质，设备上报更新
+      manufacturer: ASUSTeK COMPUTER INC.
+      product: ROG Zephyrus G15
+      serial: "..."
+      cpumodel: "Intel(R) Core(TM) Ultra 7 155H"
+      mem_total: 32768            # 归一化十进制（兼容 0x hex 上报）
+      mem_type: DDR5
+      mem_speed: 5600
+      chip: RTL8125
+      busid: "0110ec8125"
+    first_seen: 2026-08-15T10:00:00+08:00
+    last_seen: 2026-08-15T12:00:00+08:00
+```
+
+### 16.1 GET /devices
+
+设备池列表，`state` 过滤（`all` / `pooled` / `bound` / `revoked`，默认 `all`）。
+
+**curl**：
+
+```bash
+curl http://<host>:4839/devices?state=pooled \
+  -H "Authorization: Bearer $CP_TOKEN"
+```
+
+**成功返回**：数组，每项为一条设备记录（见上「记录结构」）。
+
+### 16.2 GET /devices/{mac}
+
+单设备详情（绑定 Worker、指纹、首/末次上报）。`mac` 用带冒号格式（`00:0c:29:b9:8b:2d`）。
+
+**404**：设备不存在。
+
+### 16.3 POST /devices
+
+手动注册设备：MAC（+可选 UUID/型号/序列号）入池。
+
+**请求体**：
+
+| 字段 | 必填 | 类型 | 说明 |
+|---|---|---|---|
+| `mac` | 是 | str | MAC 地址 |
+| `uuid` | 否 | str | SMBIOS UUID（双因子，可选） |
+| `manufacturer` / `product` / `serial` | 否 | str | 申报信息，仅作台账初始值，设备上报后以申报值为准更新 |
+
+**成功返回（201）**：设备记录（`state=pooled`，`source=manual`）。
+
+**409**：设备已存在（含已吊销——吊销设备不可重新注册）。
+
+### 16.4 POST /devices/import
+
+批量导入设备清单（MAC 清单预导入）：逐项独立，重复跳过，非法/吊销计 `failed`。
+
+**请求体**：
+
+| 字段 | 必填 | 类型 | 说明 |
+|---|---|---|---|
+| `entries` | 是 | array | 清单数组，每项同 16.3 请求体（`mac` 必填） |
+
+**成功返回**：
+
+| 字段 | 说明 |
+|---|---|
+| `created` | 本次新增入池的 MAC 列表 |
+| `skipped` | 已存在（pooled/bound）跳过项及原因 |
+| `failed` | 非法 MAC / 已吊销项及原因 |
+
+### 16.5 DELETE /devices/{mac}
+
+注销设备（吊销）：`pooled` → `revoked`，设备保留在台账（审计保留）。
+
+**409**：设备已绑定 Worker（须先解绑）或已吊销。
+
+### 16.6 GET /devices/report
+
+iPXE 设备信息上报入口（**不鉴权**，由 `boot.ipxe.cfg` 在请求 `/boot-vars` 之前先 `chain`）：更新指纹 + `last_seen`；未知 MAC 且自动注册开启 → 入池。**返回空响应**（`chain` 无脚本副作用）。
+
+| 参数 | 必填 | 说明 |
+|---|---|---|
+| `mac` | 是 | MAC，支持带冒号（`${mac}`）与 hex 无分隔（`${netX/mac}`）格式 |
+| `uuid` / `manufacturer` / `product` / `serial` / `cpumodel` / `mem-type` / `chip` / `busid` | 否 | 字符串字段，空值容忍 |
+| `mem-total` / `mem-speed` | 否 | 整数，兼容 `0x` hex 与十进制，归一化十进制存储 |
+
+行为：
+
+- 已注册设备：更新指纹（非空字段覆盖）+ `last_seen`，`state` 不变
+- 吊销设备：忽略（不更新、不复活）
+- 未知 MAC + 自动注册开：入池（`state=pooled`，`source=ipxe`）
+- 未知 MAC + 自动注册关：忽略
+
+**curl**（模拟 iPXE 上报）：
+
+```bash
+curl "http://<host>:4839/devices/report?mac=000c29b98b2d&uuid=4c4c4544-...&manufacturer=ASUSTeK%20COMPUTER%20INC.&product=ROG%20Zephyrus%20G15&cpumodel=Intel(R)%20Core(TM)%20Ultra%207%20155H&mem-total=0x8000&mem-type=DDR5&mem-speed=5600&chip=RTL8125&busid=0110ec8125"
+```
+
+### 16.7 POST /devices/{mac}/bind
+
+绑定设备到 Worker（一对一授权）。设备或 Worker 已绑定时默认 **409**；`force=true` 执行**原子换绑**：预校验 → 新绑定落盘 → 旧绑定清除（旧设备回池）→ 失败时恢复台账快照并尽力恢复 dnsmasq（见 17 节「实现边界」）。幂等：同一设备重复绑定同一 Worker 返回 `200` 且不改动。
+
+| Query 参数 | 必填 | 默认 | 说明 |
+|---|---:|---|---|
+| `worker_id` | 是 | — | 目标 Worker |
+| `force` | 否 | `false` | 设备或 Worker 已绑定时原子换绑 |
+
+**404**：设备或 Worker 不存在。**409**：设备已吊销 / 已绑定（未传 `force`）/ Worker 已绑定（未传 `force`）/ dnsmasq 冲突。
+
+`force=true` 换绑场景：
+
+- 设备已绑 `worker-01`，换到 `worker-02` → 设备迁移，`worker-01` 变空转（无设备）
+- `worker-02` 原绑定的其他设备 → 回池
+- 设备已绑 `worker-02` 且 `worker-02` 绑定该设备 → 幂等成功
+
+审计记录 `device.bind`（含 `old_worker_id` / `old_device_mac`，即换绑历史）。
+
+**curl**：
+
+```bash
+curl -X POST "http://<host>:4839/devices/00:0c:29:b9:8b:2d/bind?worker_id=worker-01&force=false" \
+  -H "Authorization: Bearer $CP_TOKEN"
+```
+
+**成功返回（200）**：设备记录（`state=bound`，`bound_worker_id=worker-01`）。
+
+### 16.8 DELETE /devices/{mac}/bind
+
+解绑设备：回池（`state=pooled`、`bound_worker_id=null`），移除 dnsmasq 绑定并重载；Worker 的系统盘保留（其 `readiness` 降级为 `partial`/`idle`）。
+
+**409**：设备未绑定。**404**：设备不存在。
+
+**curl**：
+
+```bash
+curl -X DELETE "http://<host>:4839/devices/00:0c:29:b9:8b:2d/bind" \
+  -H "Authorization: Bearer $CP_TOKEN"
+```
+
+### 16.9 POST /devices/bind/batch/preview
+
+批量绑定**预览**（只读，不写任何东西）：把清单配成配对表。
+
+**请求体**：
+
+| 字段 | 必填 | 说明 |
+|---|---:|---|
+| `mode` | 否 | `manifest`（默认）：用 `pairs`；`sequential`：`macs[i]` ↔ `worker_ids[i]` 按下标配对（长度不等 → `400`） |
+| `pairs` | 否 | 数组，每项 `{mac, worker_id, manufacturer?, product?, serial?, uuid?}`；可选字段为**申报比对列**，与设备上报指纹比对（见下） |
+| `macs` / `worker_ids` | 否 | `mode=sequential` 使用 |
+
+逐项归类（独立判定，不整批拒绝）：
+
+- `matched`：设备在池未绑定 + Worker 存在 + Worker 未绑定（含 `device_state`、`worker_state`、`fingerprint_mismatch`）
+- `conflicts`：设备已绑定 / Worker 已绑定 / 清单内重复 MAC / Worker 不存在
+- `not_found`：设备池外（`device not in pool`）、已吊销、MAC 非法
+
+`fingerprint_mismatch` 一致时为 `null`，否则 `{"fields": ["serial", ...]}`——申报值与上报值（两者均非空）不符的列。申报性质，不阻断绑定。
+
+**成功返回**：`{matched: [...], conflicts: [...], not_found: [...], summary: {total, ok, conflict, not_found}}`。
+
+### 16.10 POST /devices/bind/batch
+
+批量绑定**执行**（幂等，逐项独立，单项失败不影响其余）。请求体同 16.9。归类：
+
+- `succeeded`：本次绑定成功（申报值与上报值不符时带 `fingerprint_mismatch` 标记）
+- `skipped`：已绑定（同 Worker）/ 设备已绑定其他 Worker / Worker 已绑定 / 清单内重复 MAC
+- `failed`：设备不存在（池外——先经 16.3/16.4 入池）/ MAC 非法
+
+**审计**：除 `device.bind.batch` 汇总外，每个 `succeeded` 项另逐条记录 `device.bind`（`mac` / `worker_id`），保证设备绑定历史（`GET /operations?mac=`）完整；`skipped` / `failed` 仅在汇总计数。
+
+**成功返回**：`{succeeded: [...], skipped: [...], failed: [...]}`。已完成的清单重跑全部 `skipped`。
+
+**curl**：
+
+```bash
+curl -X POST "http://<host>:4839/devices/bind/batch" \
+  -H "Authorization: Bearer $CP_TOKEN" \
+  -d '{"mode":"manifest","pairs":[{"mac":"00:0c:29:b9:8b:2d","worker_id":"worker-01"}]}'
+```
+
+---
+
+## 17. 当前实现边界
 
 当前版本已经支持：
 
-- Worker 身份注册（hostname + MAC 绑定）
+- Worker 身份注册（hostname 绑定；`mac` 可选，传了直接绑定设备）
+- 批量创建 Worker（数量 + 命名规则，`macs` 可选直接绑定，`POST /workers/batch`，7.6 节）
+- 设备台账（自动入池 / 手动注册 / 批量导入 / 注销吊销，`/devices` 系列端点）
+- 设备↔Worker 一对一绑定（绑定 / force 换绑 / 解绑 / 批量绑定预览+执行，16.7–16.10）
+- Worker `mac` 换绑映射（`PUT /workers/{worker_id}/mac`，7 节）
+- 删除 Worker 联动解绑（11 / 11.1 节）
+- boot-vars 防冒领（绑定即认证，5 节）
+- iPXE 设备信息上报（11 字段指纹，`GET /devices/report`，自动注册只入池不建 Worker）
 - Worker 系统盘创建（`POST /workers/{worker_id}/luns/disk`）
 - Worker 默认启动配置设置（系统 / 菜单项 / 超时，`PUT /workers/{worker_id}/default-os`）
 - Worker 删除
@@ -1800,12 +2119,11 @@ curl -s "$BASE_URL/masters" \
 
 当前版本还没有做：
 
-- 编辑 Worker
-- 批量导入 Worker
 - 自动 IP 管理
 - 自动母盘生命周期管理
 - 定时 reconcile
 - 数据盘挂载（`/luns/data` 命名空间已预留）
+- 文件存储无真正事务：回滚 = 重写；换绑清除旧绑定失败且恢复也失败时，靠审计定位手动处理（16.7）
 ---
 
 ### 各组件使用以下端口: 

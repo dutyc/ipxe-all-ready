@@ -94,6 +94,12 @@ Notes:
 |---|---|---|
 | `GET` | `/healthz` | Health check |
 | `GET` | `/boot-vars` | Dynamic iPXE boot variable injection, no auth required |
+| `GET` | `/devices/report` | iPXE device info reporting (no auth, 11 fields, see 16.6) |
+| `GET` | `/devices` | Device pool list (state filter, see 16.1) |
+| `GET` | `/devices/{mac}` | Single device detail (see 16.2) |
+| `POST` | `/devices` | Manually register a device into the pool (see 16.3) |
+| `POST` | `/devices/import` | Bulk import device manifest (see 16.4) |
+| `DELETE` | `/devices/{mac}` | Revoke a device (see 16.5) |
 | `GET` | `/settings/auto-register` | Get the global auto-register switch (runtime state, see 5.1) |
 | `PUT` | `/settings/auto-register` | Toggle the global auto-register switch (persisted, takes effect immediately, see 5.1) |
 | `GET` | `/agents` | List Agents and their capabilities |
@@ -106,7 +112,8 @@ Notes:
 | `POST` | `/agents/{agent_id}/luns/cd` | Create a CD (ISO virtual drive) LUN on a given Agent |
 | `DELETE` | `/agents/{agent_id}/luns` | Delete a LUN/target on a given Agent |
 | `POST` | `/agents/{agent_id}/luns/scan` | Trigger an Agent to scan its image directory and rebuild targets |
-| `POST` | `/workers` | Register a Worker identity (hostname + MAC binding) |
+| `POST` | `/workers` | Register a Worker identity (hostname binding; `mac` optional — providing it binds the device directly) |
+| `POST` | `/workers/batch` | Bulk-create Workers (count + naming rule, per-item independent, optional `macs` direct bind, see 7.6) |
 | `POST` | `/workers/{worker_id}/luns/disk` | Create a system disk LUN for a given Worker |
 | `POST` | `/workers/luns/disk/batch` | Batch create system disks for multiple Workers (each specifies a storage node) |
 | `DELETE` | `/workers/{worker_id}/luns/disk/{os}` | Delete a single system disk of a Worker (with option to keep/delete .img file) |
@@ -146,13 +153,13 @@ curl -s "$BASE_URL/healthz"
 
 Provides per-worker boot variables for iPXE boot scripts. This endpoint does not require authentication and only exposes variables needed for booting within a controlled network.
 
-> **Note**: This endpoint has a write side effect — when the request comes from an unbound new MAC, it **automatically registers** that Worker (see “Auto-Registration” below). In all other cases it is read-only.
+> **Note**: This endpoint is **read-only** (a projection of boot variables, no write side effects). Auto-registration (new MACs entering the device pool) has been consolidated into `GET /devices/report` (see 16.6), which `boot.ipxe.cfg` chains **before** `/boot-vars`.
 
-The Control Plane looks up the request by `mac` or `hostname` against:
+The Control Plane identifies the device and projects boot variables in the following order:
 
-1. `dnsmasq/dhcp-hosts.conf`
-2. `state/workers.yml`
-3. `config/agents.yml`
+1. `hostname` → `state/workers.yml` (by hostname or worker_id)
+2. `mac` → `state/devices.yml` (device inventory) → `bound_worker_id` → `state/workers.yml`
+3. `config/agents.yml` (data-plane address of the default boot disk’s Agent)
 
 Then returns the corresponding iSCSI server, default menu item, and menu timeout for that Worker.
 
@@ -174,8 +181,12 @@ Worker lookup rules (**hostname takes precedence**):
 
 ```text
 hostname -> workers.yml (by hostname or worker_id)
-hostname miss or not provided -> mac -> dnsmasq/dhcp-hosts.conf -> hostname -> workers.yml
-neither matched and mac provided -> auto-registration (see below)
+hostname miss or not provided -> mac -> devices.yml (device inventory) -> bound_worker_id -> workers.yml
+not identified and mac provided ->
+  - device in pool (pooled) -> reboot loop (menu-default=reboot + short timeout), waiting for binding
+  - device revoked -> empty script (menu stays)
+  - unknown MAC + auto-register on -> enter the device pool (see “Auto-Registration” below), return reboot loop
+  - unknown MAC + auto-register off -> empty script (menu stays)
 ```
 
 ### Default Boot Item Rules
@@ -197,22 +208,24 @@ default_os (set separately after disk creation, see 7.3) -> boot.menu_default (e
 
 ### Auto-Registration (Zero-touch Provisioning)
 
-When a new Worker boots without a hostname, iPXE requests `/boot-vars` with its `mac`. If the MAC is not yet bound, the Control Plane automatically completes the registration:
+When a new device boots without an identity, iPXE first `chain`s `/devices/report` (11-field report, see 16.6) and then requests `/boot-vars`. If the MAC is not registered, the Control Plane only **adds it to the device pool** (it no longer creates a Worker automatically):
 
-1. Generates a hostname sequentially by scanning the inventory and dhcp bindings for the maximum `worker-N` number and incrementing it (format `worker-%02d`, starting from `worker-01`).
-2. Writes to `workers.yml` (`state=registered`, no system disks) and binds the MAC in `dnsmasq/dhcp-hosts.conf` (MAC -> hostname), then triggers a dnsmasq reload.
-3. Returns `menu-default=reboot` with a short timeout, causing the machine to immediately reboot.
-4. On the next boot, dnsmasq provides the hostname, and subsequent requests identify the Worker by hostname. It will keep returning `reboot` loop reboots until the admin creates a system disk and sets `default_os`.
-5. Once configured, the next reboot will boot into the corresponding OS via `default_os`.
+1. `GET /devices/report`: unknown MAC with auto-register on → written to `state/devices.yml` (`state=pooled`, fingerprint stored, `source=ipxe`)
+2. `GET /boot-vars`: MAC in the pool and unbound → returns `menu-default=reboot` + short timeout, rebooting in a loop until the admin binds it
+3. After the admin binds the device to a Worker (WebUI / API; single bind 16.7, batch bind preview/execution 16.9/16.10), the next boot follows the Worker configuration normally
 
 Configuration (environment variables):
 
 | Variable | Default | Description |
 |---|---:|---|
-| `IPXE_CP_AUTO_REGISTER` | `true` | **Startup default** for auto-registration; the runtime value can be toggled via `GET/PUT /settings/auto-register` (persisted to `state/settings.json`, survives restarts, takes precedence over the env var, see 5.1) |
+| `IPXE_CP_AUTO_REGISTER` | `true` | **Startup default** for auto-registration — its semantics are “whether a new MAC automatically enters the device pool”; the runtime value can be toggled via `GET/PUT /settings/auto-register` (persisted to `state/settings.json`, survives restarts, takes precedence over the env var, see 5.1) |
 | `IPXE_CP_AUTO_BOOT_TIMEOUT` | `1` | Menu timeout in milliseconds during the reboot loop. |
 
-The entire auto-registration process is logged as operations (`auto_register`). On failure, the inventory is rolled back and an empty script is returned, so the next request will retry without affecting the iPXE boot process.
+The entire auto-registration process is logged as operations (`device.register`). On failure, the inventory is rolled back and an empty script is returned, so the next request will retry without affecting the iPXE boot process.
+
+### Anti-Impersonation (Binding as Authentication)
+
+When a request carries a `mac`, the Control Plane verifies that the device is **bound to the Worker matched by the hostname** (`bound_worker_id`); if not (device bound to another Worker / unbound / unknown), the request is **denied** — an empty script is returned and the boot vars are not leaked. Requests without a `mac` (hostname only) cannot be verified and remain allowed for compatibility. This makes the device↔Worker binding the boot-time authentication boundary: only the bound device can receive the Worker's boot configuration (e.g., `base_iqn` / `iscsi-server`).
 
 ### Query Parameters
 
@@ -331,7 +344,7 @@ If `iscsi_server` is not configured, the Control Plane falls back to the host po
 
 #### Description
 
-The global auto-register switch controls whether a **new MAC** is auto-registered as a Worker on its first `/boot-vars` request (see the auto-registration flow in Section 5). When disabled, new MACs receive an empty script and must be registered manually via `POST /workers`. **Existing Workers are unaffected** — the switch only applies to new MACs.
+The global auto-register switch controls whether a **new MAC** automatically enters the device pool (see “Auto-Registration” in Section 5). When enabled, unknown MACs requesting `/devices/report` or `/boot-vars` are written to `state/devices.yml` (`state=pooled`); when disabled, new MACs receive an empty script and must be registered manually via `POST /devices` or `POST /devices/import`. **Registered devices and bound Workers are unaffected** — the switch only applies to new MACs.
 
 There are two ways to enable/disable auto-registration; the runtime API takes precedence over the env var:
 
@@ -621,11 +634,16 @@ curl -s -X PUT "$BASE_URL/agents/storage-stgt-02" \
 
 ### Description
 
-Registers a Worker’s **identity**: hostname + MAC binding. **Storage and identity are separated** — this endpoint does not create any system disks. System disks must be created separately via `POST /workers/{worker_id}/luns/disk` (see 7.1). The Control Plane will:
+Registers a Worker’s **identity**: hostname binding. **Storage and identity are separated** — this endpoint does not create any system disks. System disks must be created separately via `POST /workers/{worker_id}/luns/disk` (see 7.1). `mac` is now **optional**:
 
-1. Validate `worker_id`, `hostname`, `mac`
+- Without `mac` → a pure idle Worker (hostname binding only; no device authorized). Bind a device later via `POST /devices/{mac}/bind` (16.7).
+- With `mac` → the device must exist in the device pool (`state=pooled`); it is validated and bound directly (one-to-one authorization). If the device is out-of-pool or already bound, a `409` is returned — **register first, then bind**.
+
+The Control Plane will:
+
+1. Validate `worker_id`, `hostname`; validate `mac` if provided
 2. Write to `state/workers.yml` (`disks` as empty array, `state=registered`)
-3. Write to `dnsmasq/dhcp-hosts.conf`
+3. If `mac` is provided: bind the device (write `state/devices.yml` `bound_worker_id` + write to `dnsmasq/dhcp-hosts.conf`)
 4. Send a HUP signal to the `ipxe-dnsmasq` container via Docker:
 
 ```bash
@@ -639,7 +657,7 @@ docker exec ipxe-dnsmasq killall -HUP dnsmasq
 | Field | Required | Description |
 |---|---:|---|
 | `worker_id` | Yes | Worker identifier. Automatically lowercased. Allowed characters: letters, digits, dots, underscores, hyphens. |
-| `mac` | Yes | Worker NIC MAC address, e.g., `00:0c:29:b9:8b:2d`. |
+| `mac` | No | Worker NIC MAC address, e.g., `00:0c:29:b9:8b:2d`. If provided, the device must already be in the pool (see 16); the device is bound to this Worker in the same call. |
 | `hostname` | No | Hostname. Defaults to `worker_id` if not provided. |
 | `arch` | No | Architecture. Defaults to `x86_64`. |
 | `windows_iso` | No | Windows installation ISO filename. When provided, an installation CD target is created during registration. |
@@ -701,6 +719,17 @@ During Windows installation, if you want to default to the installation menu:
   }
 }
 ```
+
+### PUT /workers/{worker_id}/mac (Rebind Mapping)
+
+Changes the Worker’s MAC binding (hostname unchanged). It is mapped internally to a **device rebind**: the new MAC must be in the pool (`state=pooled`) and is bound to this Worker; the old device (if bound to this Worker) is released back to the pool. The audit trail records `device.bind` (new) + `device.unbind` (old) plus the compatibility `worker.mac.update`.
+
+**Request body**: `{"mac": "00:0c:29:b9:8b:2d"}`
+
+**409**: new MAC out-of-pool / revoked / already bound to another Worker; old device bound to an unexpected Worker.
+
+**Idempotent**: setting the same MAC again returns `changed=false`.
+
 
 ## 7.1 POST /workers/{worker_id}/luns/disk
 
@@ -1086,6 +1115,75 @@ Returns the full Worker inventory (with `disks` no longer containing the deleted
 
 ---
 
+## 7.6 POST /workers/batch
+
+### Description
+
+Bulk-creates Workers (**per-item independent** — a failure of one item does not affect the others; **idempotent** — re-running does not duplicate Workers). `worker_id`s are generated as `name_prefix` + an index (`worker-01`, `worker-02`, …; the index starts at `01` and its width adapts to `count` — `count=100` yields `worker-001` … `worker-100`).
+
+- Without `macs` → all Workers are **idle** (hostname binding only, no device authorized); bind them later via `POST /devices/{mac}/bind` (16.7)
+- With `macs` (must be the same length as `count`) → each MAC is validated against the device pool and bound directly (same semantics as passing `mac` in section 7: the device must be `state=pooled`; pool-miss / already bound → that item is `failed` and **not created**, retry after fixing)
+
+`windows_iso` is not supported (register installation ISOs one by one via section 7).
+
+### Request Body Fields
+
+| Field | Required | Description |
+|---|---:|---|
+| `count` | Yes | Number of Workers to create, 1–100 |
+| `name_prefix` | No | Worker ID prefix, default `worker-`. The generated `worker_id`s must be valid (letters, digits, dot, underscore, hyphen allowed); an invalid prefix rejects the whole batch with `400` |
+| `macs` | No | Array of MAC addresses (format `00:0c:29:b9:8b:2d`); when provided, its length must equal `count`, and each MAC is validated and bound directly |
+| `arch` | No | Architecture. Defaults to `x86_64` |
+| `boot` | No | iPXE menu default and timeout config; fields as in section 7 |
+
+### Idempotency and Failure Classification
+
+- `succeeded`: created by this call (with `macs`: includes the bind — an item is only created after its bind succeeds)
+- `skipped`: `worker_id` already exists (result of re-running the same request)
+- `failed`: device not in pool / revoked / already bound / invalid MAC / hostname conflict etc. — the item is not created, the others are unaffected; retry after fixing
+
+### Example
+
+```bash
+curl -s -X POST "$BASE_URL/workers/batch" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "count": 3,
+    "name_prefix": "worker-",
+    "macs": ["00:0c:29:b9:8b:01", "00:0c:29:b9:8b:02", "00:0c:29:b9:8b:03"]
+  }'
+```
+
+### Success Response (200)
+
+```json
+{
+  "succeeded": [
+    {"worker_id": "worker-01", "hostname": "worker-01", "mac": "00:0c:29:b9:8b:01"}
+  ],
+  "skipped": [],
+  "failed": [
+    {
+      "worker_id": "worker-02",
+      "hostname": "worker-02",
+      "mac": "00:0c:29:b9:8b:02",
+      "error": "device already bound to worker-01: 00:0c:29:b9:8b:02"
+    }
+  ]
+}
+```
+
+### Common Errors
+
+| HTTP Status | Common Causes |
+|---:|---|
+| `400` | `name_prefix` empty / generated `worker_id` invalid / `macs` length not equal to `count` |
+| `401` | Missing or incorrect Token |
+| `422` | `count` missing or out of 1–100 range |
+
+---
+
 ## 8. GET /workers
 
 ### Description
@@ -1235,11 +1333,14 @@ curl -s "$BASE_URL/workers/worker-01/status" \
 Deletes a Worker. The Control Plane will:
 
 1. Look up the Worker’s disk and CD inventory from `workers.yml`.
-2. If a CD target exists, delete it first.
-3. Then delete the disk target(s).
-4. Remove the Worker from `workers.yml`.
-5. Remove the `mac,hostname` line from `dnsmasq/dhcp-hosts.conf`.
-6. Send HUP to `ipxe-dnsmasq`.
+2. **Cascade-unbind devices**: every device whose `bound_worker_id` is this Worker is released back to the pool (`state=pooled`, `bound_worker_id=null`; the devices are **not** revoked) — the unbind is persisted first, and if it fails the deletion is aborted.
+3. If a CD target exists, delete it first.
+4. Then delete the disk target(s).
+5. Remove the Worker from `workers.yml`.
+6. Remove the `mac,hostname` line from `dnsmasq/dhcp-hosts.conf`.
+7. Send HUP to `ipxe-dnsmasq`.
+
+The same cascade-unbind applies to `POST /workers/delete/batch` (11.1).
 
 ### Path Parameters
 
@@ -1343,6 +1444,7 @@ Reads the Control Plane operation audit log. This file is an incremental query i
 |---|---:|---|---|
 | `since` | No | `0` | Only return records with `id > since`. |
 | `limit` | No | `1000` | Maximum number of records to return. |
+| `mac` | No | — | Only return operations of this device (MAC, normalized then filtered by the `mac` field); used for viewing device binding history. |
 
 ### curl
 
@@ -1735,11 +1837,229 @@ curl -s "$BASE_URL/masters" \
 
 ---
 
-## 16. Current Implementation Boundaries
+## 16. Device Pool (Device Inventory)
+
+The device inventory (`state/devices.yml`) is the bottom-layer entity of the three-layer entity model (device / Worker / system disk): auto-registration and manual import only enter the device pool — **registration ≠ authorization**: a device only gains an identity after being bound to a Worker. The binding relationship is authoritative on the device side (`bound_worker_id`); the Worker side only projects it and does not store it.
+
+**Binding semantics (P2)**: device ↔ Worker is strictly **one-to-one**. A device binds via `POST /devices/{mac}/bind` (16.7); `force=true` performs an atomic rebind (pre-check → new binding persisted → old binding cleared → rollback on failure). Unbinding (`DELETE /devices/{mac}/bind`, 16.8) returns the device to the pool; the Worker's system disks are kept. Deleting a Worker cascades an unbind (11). `POST /workers` with a `mac` also binds directly (7).
+
+**Readiness projection**: Worker responses (list / detail / status) derive two fields from the ledger:
+
+- `bound_device`: the MAC of the device bound to this Worker (`null` if none)
+- `readiness`: `ready` (bound device + at least one system disk) / `partial` (bound device **or** system disk) / `idle` (neither)
+
+### Device States
+
+| State | Description |
+|---|---|
+| `pooled` | In the device pool, unbound (auto-registered / manually registered / bulk imported) |
+| `bound` | Bound to a Worker (one-to-one); see `bound_worker_id` |
+| `revoked` | Revoked; no longer accepts reports and cannot be re-registered |
+
+### Record Structure (Example)
+
+```yaml
+devices:
+  "00:0c:29:b9:8b:2d":
+    mac: 00:0c:29:b9:8b:2d
+    uuid: "4c4c4544-..."          # SMBIOS UUID (dual factor, optional)
+    state: pooled                 # pooled | bound | revoked
+    bound_worker_id: null         # authoritative here; worker side only projects
+    key_hash: null                # filled in the security blueprint phase; empty for now
+    source: ipxe                  # ipxe (auto) | manual (manual entry/import)
+    fingerprint:                  # reported values; updated by device reports
+      manufacturer: ASUSTeK COMPUTER INC.
+      product: ROG Zephyrus G15
+      serial: "..."
+      cpumodel: "Intel(R) Core(TM) Ultra 7 155H"
+      mem_total: 32768            # normalized decimal (accepts 0x hex reports)
+      mem_type: DDR5
+      mem_speed: 5600
+      chip: RTL8125
+      busid: "0110ec8125"
+    first_seen: 2026-08-15T10:00:00+08:00
+    last_seen: 2026-08-15T12:00:00+08:00
+```
+
+### 16.1 GET /devices
+
+Device pool list with `state` filtering (`all` / `pooled` / `bound` / `revoked`, default `all`).
+
+**curl**:
+
+```bash
+curl http://<host>:4839/devices?state=pooled \
+  -H "Authorization: Bearer $CP_TOKEN"
+```
+
+**Successful response**: an array; each item is a device record (see “Record Structure” above).
+
+### 16.2 GET /devices/{mac}
+
+Single device detail (bound Worker, fingerprint, first/last report). `mac` uses the colon format (`00:0c:29:b9:8b:2d`).
+
+**404**: device not found.
+
+### 16.3 POST /devices
+
+Manually register a device: MAC (+ optional UUID / manufacturer / product / serial) into the pool.
+
+**Request body**:
+
+| Field | Required | Type | Description |
+|---|---|---|---|
+| `mac` | Yes | str | MAC address |
+| `uuid` | No | str | SMBIOS UUID (dual factor, optional) |
+| `manufacturer` / `product` / `serial` | No | str | Reported info; initial inventory values only, superseded by device reports |
+
+**Successful response (201)**: device record (`state=pooled`, `source=manual`).
+
+**409**: device already exists (including revoked — revoked devices cannot be re-registered).
+
+### 16.4 POST /devices/import
+
+Bulk import a device manifest (pre-import of the MAC manifest): each entry is independent; duplicates are skipped; invalid/revoked entries count as `failed`.
+
+**Request body**:
+
+| Field | Required | Type | Description |
+|---|---|---|---|
+| `entries` | Yes | array | Manifest array; each entry follows the 16.3 request body (`mac` required) |
+
+**Successful response**:
+
+| Field | Description |
+|---|---|
+| `created` | MACs newly added to the pool |
+| `skipped` | Already existing (pooled/bound) entries and reasons |
+| `failed` | Invalid MAC / revoked entries and reasons |
+
+### 16.5 DELETE /devices/{mac}
+
+Revoke a device: `pooled` → `revoked`; the record stays in the inventory (audit retention).
+
+**409**: device is bound to a Worker (must unbind first) or already revoked.
+
+### 16.6 GET /devices/report
+
+iPXE device info reporting endpoint (**no auth**; `boot.ipxe.cfg` chains it before `/boot-vars`): updates the fingerprint + `last_seen`; unknown MAC with auto-register on → enters the pool. **Returns an empty response** (no script side effects for `chain`).
+
+| Parameter | Required | Description |
+|---|---|---|
+| `mac` | Yes | MAC; accepts colon format (`${mac}`) and compact hex (`${netX/mac}`) |
+| `uuid` / `manufacturer` / `product` / `serial` / `cpumodel` / `mem-type` / `chip` / `busid` | No | String fields; empty values tolerated |
+| `mem-total` / `mem-speed` | No | Integer; accepts `0x` hex and decimal; stored normalized as decimal |
+
+Behavior:
+
+- Registered device: updates the fingerprint (non-empty fields overwrite) + `last_seen`; `state` unchanged
+- Revoked device: ignored (not updated, not resurrected)
+- Unknown MAC + auto-register on: enters the pool (`state=pooled`, `source=ipxe`)
+- Unknown MAC + auto-register off: ignored
+
+**curl** (simulating an iPXE report):
+
+```bash
+curl "http://<host>:4839/devices/report?mac=000c29b98b2d&uuid=4c4c4544-...&manufacturer=ASUSTeK%20COMPUTER%20INC.&product=ROG%20Zephyrus%20G15&cpumodel=Intel(R)%20Core(TM)%20Ultra%207%20155H&mem-total=0x8000&mem-type=DDR5&mem-speed=5600&chip=RTL8125&busid=0110ec8125"
+```
+
+### 16.7 POST /devices/{mac}/bind
+
+Binds a device to a Worker (one-to-one authorization). **409** by default when the device or the Worker is already bound; `force=true` performs an **atomic rebind**: pre-check → new binding persisted → old binding cleared (old device back to the pool) → on failure the ledger snapshot is restored and dnsmasq is best-effort restored (see “Implementation Boundaries”, §17). Idempotent: re-binding the same device to the same Worker returns `200` without changes.
+
+| Query Parameter | Required | Default | Description |
+|---|---:|---|---|
+| `worker_id` | Yes | — | Target Worker. |
+| `force` | No | `false` | Atomic rebind when device or Worker is already bound. |
+
+**404**: device or Worker not found. **409**: device revoked / already bound (without `force`) / Worker already bound (without `force`) / dnsmasq conflict.
+
+Rebind scenarios with `force=true`:
+
+- Device bound to `worker-01`, rebind to `worker-02` → device moves; `worker-01` becomes idle (no device)
+- `worker-02` also bound another device → that device is released back to the pool
+- Device already bound to `worker-02` and `worker-02` bound to this device → idempotent success
+
+The audit trail records `device.bind` with `old_worker_id` / `old_device_mac` (rebind history).
+
+**curl**:
+
+```bash
+curl -X POST "http://<host>:4839/devices/00:0c:29:b9:8b:2d/bind?worker_id=worker-01&force=false" \
+  -H "Authorization: Bearer $CP_TOKEN"
+```
+
+**Successful response (200)**: the device record (`state=bound`, `bound_worker_id=worker-01`).
+
+### 16.8 DELETE /devices/{mac}/bind
+
+Unbinds a device: back to the pool (`state=pooled`, `bound_worker_id=null`), the dnsmasq binding is removed and reloaded; the Worker's system disks are kept (its `readiness` degrades to `partial`/`idle`).
+
+**409**: device not bound. **404**: device not found.
+
+**curl**:
+
+```bash
+curl -X DELETE "http://<host>:4839/devices/00:0c:29:b9:8b:2d/bind" \
+  -H "Authorization: Bearer $CP_TOKEN"
+```
+
+### 16.9 POST /devices/bind/batch/preview
+
+Bulk bind **preview** (read-only, no writes): pairs the manifest into a pairing table.
+
+**Request body**:
+
+| Field | Required | Description |
+|---|---:|---|
+| `mode` | No | `manifest` (default): use `pairs`; `sequential`: pair `macs[i]` ↔ `worker_ids[i]` by index (lengths must match, otherwise `400`). |
+| `pairs` | No | Array of `{mac, worker_id, manufacturer?, product?, serial?, uuid?}`; the optional fields are **declaration columns** compared against the reported fingerprint (see below). |
+| `macs` / `worker_ids` | No | Used by `mode=sequential`. |
+
+Classification per entry (independent, no whole-batch rejection):
+
+- `matched`: device pooled + Worker exists + Worker unbound (includes `device_state`, `worker_state`, `fingerprint_mismatch`)
+- `conflicts`: device already bound / Worker already bound / duplicate MAC in manifest / Worker not found
+- `not_found`: device out of pool (`device not in pool`), revoked, or invalid MAC
+
+`fingerprint_mismatch` is `null` when consistent; otherwise `{"fields": ["serial", ...]}` — declaration values that differ from reported values (both non-empty). It is advisory and does not block binding.
+
+**Successful response**: `{matched: [...], conflicts: [...], not_found: [...], summary: {total, ok, conflict, not_found}}`.
+
+### 16.10 POST /devices/bind/batch
+
+Bulk bind **execution** (idempotent, per-entry independent; failures of one entry do not affect the rest). Same request body as 16.9. Classification:
+
+- `succeeded`: bound now (with `fingerprint_mismatch` marker if declared values differ)
+- `skipped`: already bound (same Worker) / device already bound to another Worker / Worker already bound / duplicate MAC in manifest
+- `failed`: device not found (out-of-pool — import first via 16.3/16.4) / invalid MAC
+
+**Audit**: besides the `device.bind.batch` summary, every `succeeded` entry also records a per-device `device.bind` (`mac` / `worker_id`), keeping device binding history (`GET /operations?mac=`) complete; `skipped` / `failed` are only counted in the summary.
+
+**Successful response**: `{succeeded: [...], skipped: [...], failed: [...]}`. Re-running an already-completed manifest returns everything as `skipped`.
+
+**curl**:
+
+```bash
+curl -X POST "http://<host>:4839/devices/bind/batch" \
+  -H "Authorization: Bearer $CP_TOKEN" \
+  -d '{"mode":"manifest","pairs":[{"mac":"00:0c:29:b9:8b:2d","worker_id":"worker-01"}]}'
+```
+
+---
+
+## 17. Current Implementation Boundaries
 
 The current version supports:
 
-- Worker identity registration (hostname + MAC binding)
+- Worker identity registration (hostname binding; `mac` optional — providing it binds the device directly)
+- Bulk Worker creation (count + naming rule, optional `macs` direct bind, `POST /workers/batch`, 7.6)
+- Device inventory (auto pool entry / manual registration / bulk import / revoke, `/devices` endpoints)
+- Device↔Worker one-to-one binding (bind / force rebind / unbind / batch bind preview + execution, 16.7–16.10)
+- Worker `mac` rebind mapping (`PUT /workers/{worker_id}/mac`, 7)
+- Cascade unbind on Worker deletion (11 / 11.1)
+- Boot-vars anti-impersonation (binding as authentication, 5)
+- iPXE device info reporting (11-field fingerprint, `GET /devices/report`; auto-registration only enters the pool, no Worker creation)
 - Worker system disk creation (`POST /workers/{worker_id}/luns/disk`)
 - Setting Worker default boot configuration (OS / menu item / timeout, `PUT /workers/{worker_id}/default-os`)
 - Worker deletion
@@ -1753,12 +2073,11 @@ The current version supports:
 
 The current version does **not** yet include:
 
-- Editing Workers
-- Bulk importing Workers
 - Automatic IP management
 - Automatic master image lifecycle management
 - Scheduled reconciliation
 - Data disk attachment (the `/luns/data` namespace is reserved)
+- Real transactions for the file-based storage: rollback = rewrite; if a rebind's old-binding cleanup fails **and** the restore also fails, locate and fix manually via the audit trail (16.7)
 
 ---
 

@@ -14,6 +14,7 @@ def _bool_env(name: str, default: bool) -> bool:
 class Settings:
     agents_file: Path = Path(os.getenv("IPXE_CP_AGENTS_FILE", "config/agents.yml"))
     workers_file: Path = Path(os.getenv("IPXE_CP_WORKERS_FILE", "state/workers.yml"))
+    devices_file: Path = Path(os.getenv("IPXE_CP_DEVICES_FILE", "state/devices.yml"))
     operations_file: Path = Path(os.getenv("IPXE_CP_OPERATIONS_FILE", "state/operations.jsonl"))
     settings_file: Path = Path(os.getenv("IPXE_CP_SETTINGS_FILE", "state/settings.json"))
     dnsmasq_hosts_file: Path = Path(os.getenv("IPXE_CP_DNSMASQ_HOSTS_FILE", "dnsmasq/dhcp-hosts.conf"))

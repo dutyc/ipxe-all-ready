@@ -35,6 +35,34 @@ class FileStateStore:
         _atomic_write_text(self.workers_file, yaml.safe_dump(data, sort_keys=True, allow_unicode=False))
 
 
+class DeviceStore:
+    """设备台账存储（devices.yml）：原子写 + 线程锁，模式同 FileStateStore。
+    绑定关系唯一权威（bound_worker_id），worker 侧只投影不存储。"""
+
+    def __init__(self, devices_file: Path):
+        self.devices_file = devices_file
+        self._lock = threading.RLock()
+
+    @contextmanager
+    def locked(self):
+        with self._lock:
+            yield
+
+    def load(self) -> dict[str, Any]:
+        data = _load_yaml(self.devices_file, {"devices": {}})
+        devices = data.get("devices")
+        if devices is None:
+            data["devices"] = {}
+        if not isinstance(data["devices"], dict):
+            raise ValueError(f"invalid devices file: {self.devices_file}")
+        return data
+
+    def save(self, data: dict[str, Any]) -> None:
+        if "devices" not in data:
+            data["devices"] = {}
+        _atomic_write_text(self.devices_file, yaml.safe_dump(data, sort_keys=True, allow_unicode=False))
+
+
 class RuntimeSettings:
     """运行时设置（布尔开关）：文件存在则覆盖环境变量默认值（进程内立即生效、重启保留），
     文件不存在时回退环境变量默认。

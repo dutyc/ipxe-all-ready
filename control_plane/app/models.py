@@ -9,13 +9,43 @@ class BootSpec(BaseModel):
 
 
 class CreateWorkerRequest(BaseModel):
-    """注册 Worker 身份（hostname + MAC 绑定）。系统盘须另调 POST /workers/{id}/luns/disk。"""
+    """注册 Worker 身份。mac 可选：不传 = 纯空转 Worker（仅 hostname 绑定）；
+    传 = 校验设备在设备池中并直接绑定（一对一授权）。系统盘须另调 POST /workers/{id}/luns/disk。"""
     worker_id: str
-    mac: str
+    mac: str | None = None
     hostname: str | None = None
     arch: str | None = None
     windows_iso: str | None = None
     boot: BootSpec | None = None
+
+
+class BatchCreateWorkersRequest(BaseModel):
+    """批量创建 Worker（逐项独立）：count 数量 + name_prefix 命名规则，
+    worker_id = name_prefix + 序号（从 01 起，位宽按 count 自适应）。
+    macs 可选：提供时须与 count 等长，逐项校验设备池并直接绑定；不传 = 全部纯空转。不支持 windows_iso。"""
+    count: int = Field(..., ge=1, le=100, description="数量（1-100）")
+    name_prefix: str = "worker-"
+    arch: str | None = None
+    macs: list[str] | None = None
+    boot: BootSpec | None = None
+
+
+class BindPair(BaseModel):
+    """批量绑定清单项：mac + worker_id 必填；指纹比对列为可选申报值。"""
+    mac: str
+    worker_id: str
+    manufacturer: str | None = None
+    product: str | None = None
+    serial: str | None = None
+    uuid: str | None = None
+
+
+class BatchBindRequest(BaseModel):
+    """批量绑定请求：mode=manifest 用 pairs 清单配对；mode=sequential 用 macs/worker_ids 下标对齐顺序配对。"""
+    mode: str = "manifest"
+    pairs: list[BindPair] | None = None
+    macs: list[str] | None = None
+    worker_ids: list[str] | None = None
 
 
 class UpdateWorkerMacRequest(BaseModel):
@@ -119,3 +149,27 @@ class CreateCdLunRequest(BaseModel):
     """在指定 Agent 上创建 CD（ISO 虚拟光驱）LUN，仅 stgt 后端支持。"""
     iso: str
     iqn: str | None = None
+
+
+class CreateDeviceRequest(BaseModel):
+    """手动注册设备：MAC（+可选 SMBIOS UUID）入设备池。
+    型号/序列号等申报信息仅作台账初始值，设备上报后以申报值为准更新（申报性质，不用于认证）。"""
+    mac: str
+    uuid: str | None = None
+    manufacturer: str | None = None
+    product: str | None = None
+    serial: str | None = None
+
+
+class ImportDeviceEntry(BaseModel):
+    """批量导入清单单行：mac 必填；uuid/型号/序列号为可选台账信息（比对列）。"""
+    mac: str
+    uuid: str | None = None
+    manufacturer: str | None = None
+    product: str | None = None
+    serial: str | None = None
+
+
+class ImportDevicesRequest(BaseModel):
+    """批量导入设备清单（MAC 清单预导入）：逐项独立，重复跳过，非法/吊销计 failed。"""
+    entries: list[ImportDeviceEntry]
