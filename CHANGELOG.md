@@ -23,6 +23,7 @@
 - **WebUI：设备池「导入清单」更名为「登记设备入池」并加悬停提示**——与「绑定向导 → 清单配对」的混淆点消除：按钮文案改为「登记设备入池」（en: Register to Pool），鼠标悬停提示「不涉及绑定」（No binding involved，原生 title 提示）；页面介绍弹层中相关描述同步（自动注册开关说明、操作按钮说明）；《WebUI 使用指南》工具栏描述同步
 - **WebUI：Workers / Agents 页新增「页面介绍」按钮**——与 Devices 页同款弹层：Workers 页工具栏右侧（顶部操作按钮 / 筛选 / 列表列 / 行交互四区块，含批量创建、批量建盘分配方式、就绪度语义）；Agents 页工具栏右侧（工具栏两步探测注册与在线探测开关 / Agent 卡片字段 / 行交互三区块）；中英文案同步，《WebUI 使用指南》对应页面描述同步
 - **README 两版修正 P1 反转前的过期描述（简介 + 核心特性）**——「自动注册」→「自动入设备池」：简介改为「上报指纹自动进入设备池，WebUI 绑定 Worker、克隆系统盘、设定默认系统后即自动进入目标系统」（en 对应 "reports its fingerprint and joins the device pool automatically, then a few clicks in the Web UI bind it to a Worker, clone a system disk and set the default OS"）；核心特性改为「新机器首启自动入设备池，WebUI 点几下即可绑定 Worker、分配系统盘与默认系统」（en 对应 "report their fingerprints and join the device pool on first boot; a few clicks in the Web UI bind them to a Worker..."），与 2026-08-16 首页 Zero-Touch 表述及 P1 语义对齐
+- **架构图全英文化 + ARCHITECTURE.md 拓展（中英同步）**——`assets/architecture.svg` 重制为全英文版并作为唯一图源（删除 `architecture-en.svg`，两版文档引用同步）；README 两版架构小节引用同步；`about/en/ARCHITECTURE.md` 与 `about/zh/ARCHITECTURE.md` 由三角色简介拓展为完整架构讲解：控制面/数据面分离（控制面故障不中断数据面 I/O）、三角色（Controller 容器化组件与纯文件态存储、Storager Agent 封装后端差异、Devices 指纹入池无状态计算）、三实体模型（设备/Worker/系统盘表格 + 绑定权威在设备侧与盘机分离 + 生命周期 pooled→bound→revoked 与原子换绑 + 多盘多系统在线切换）、引导链路五步（入池 → boot-vars 绑定校验 → iSCSI 登录）、状态存储文件即真相（devices.yml / workers.yml / settings.json / operations.jsonl / agents.yml）、安全边界（绑定即认证、key_hash 预留双向认证位）、协议演进（数据面可换 NVMe-oF，语义不变）
 
 ---
 
