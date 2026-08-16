@@ -12,6 +12,55 @@
 
 ---
 
+## 2026-08-16
+
+### 变更
+
+- **文档站：新增《WebUI 使用指南》（中英同步）**——新增 `docs/guide/quick-deploy/webui-guide.md` 与 `docs/zh/guide/quick-deploy/webui-guide.md`：页面分区功能说明（Dashboard / Workers / Devices 设备池 / Worker 详情 / Agents / Operations）+「设备入池 → 绑定向导（默认顺序分配）→ 克隆建盘 → 默认启动 → 验证」核心流程 + 常见问题（Token 401、设备不入池、向导左栏无设备、母盘下拉缺失、停在 iPXE 菜单）；《项目环境部署》1.6 / 2.6 验证节与底部流程入口同步链接；侧边栏导航（zh/en）同步
+- **快速部署文档修正 P1 反转前的过期流程（中英同步）**——《项目环境部署》1.4.1：自动注册语义由「新 MAC 自动注册为 Worker」改为「自动入设备池」，开关位置由 Workers 页工具栏改为 Devices（设备池）页工具栏，关闭后的手动处理由「添加 Worker」改为「注册设备 / 导入清单 / POST /devices 入池后绑定向导」；《Windows 无盘快速部署》《Debian 系无盘快速部署》第 3 步由「自动注册 Worker + Workers 页查看」改为「自动入池 + Devices 页确认 + 绑定向导绑定」，「批量上线」与「找不到 iSCSI 目标」排查表述同步对齐
+- **《项目环境部署》2.4 登记 Agent 补充 WebUI 方式（中英同步）**——由仅「编辑 `agents.yml`」改为两种方式任选：方式一 WebUI（推荐，Agents 页「+ 添加 Agent」两步探测注册：填 Agent ID / API 地址 / Token → 探测自动获取后端/角色/标签/数据面地址 → 确认 iSCSI 数据面为 Worker 可达地址 → 添加，写入 `agents.yml` 立即参与调度）；方式二直接编辑 `agents.yml`（原内容保留）；多节点部署说明同步；《WebUI 使用指南》Agents 页描述同步补全
+- **WebUI：Dashboard 新增设备数量统计卡**——统计卡由 Workers / Agents 两卡扩展为 Workers / 设备池 / Agents 三卡，设备数为 `GET /devices`（含全部状态）计数，与 Workers/Agents 同源并行拉取；中英文案同步
+- **WebUI：设备池「导入清单」更名为「登记设备入池」并加悬停提示**——与「绑定向导 → 清单配对」的混淆点消除：按钮文案改为「登记设备入池」（en: Register to Pool），鼠标悬停提示「不涉及绑定」（No binding involved，原生 title 提示）；页面介绍弹层中相关描述同步（自动注册开关说明、操作按钮说明）；《WebUI 使用指南》工具栏描述同步
+- **WebUI：Workers / Agents 页新增「页面介绍」按钮**——与 Devices 页同款弹层：Workers 页工具栏右侧（顶部操作按钮 / 筛选 / 列表列 / 行交互四区块，含批量创建、批量建盘分配方式、就绪度语义）；Agents 页工具栏右侧（工具栏两步探测注册与在线探测开关 / Agent 卡片字段 / 行交互三区块）；中英文案同步，《WebUI 使用指南》对应页面描述同步
+
+---
+
+## 2026-08-15
+
+### 新增
+
+- **Control Plane：设备↔Worker 一对一绑定（P2 绑定语义）**——绑定关系权威在设备侧（`bound_worker_id`），worker 侧只投影；新增 `POST /devices/{mac}/bind`（默认 409，`force=true` 原子换绑：预校验 → 新绑定落盘 → 旧绑定清除（旧设备回池）→ 失败回滚台账快照 + 尽力恢复 dnsmasq，幂等）、`DELETE /devices/{mac}/bind`（解绑回池，盘留 worker）、`POST /devices/bind/batch/preview`（只读配对表：matched/conflicts/not_found + summary，manifest 清单配对 / sequential 顺序配对，可选申报列指纹比对 `fingerprint_mismatch`）、`POST /devices/bind/batch`（幂等执行：succeeded/skipped/failed 逐项独立，已绑定重跑全 skipped）；审计 `device.bind`（含 old_worker_id/old_device_mac 换绑历史）、`device.unbind`、`device.bind.batch`
+- **Control Plane：Worker 就绪度派生字段**——Worker 列表/详情/状态响应新增 `bound_device`（绑定设备 MAC）与 `readiness`（绑定+有盘 → `ready`；绑定或有盘 → `partial`；皆无 → `idle`），由 `_enrich_worker` 统一投影
+- **Control Plane：boot-vars 防冒领（D2，绑定即认证）**——带 `mac` 的 `/boot-vars` 请求须来自 hostname 命中 worker 的绑定设备，不符（绑定其他 worker / 未绑定 / 未知设备）→ 拒绝下发空脚本；不带 mac（仅 hostname）兼容放行
+- **Control Plane：批量创建 Worker（P3）**——新增 `POST /workers/batch`：`count`（1–100）+ `name_prefix` 命名规则生成 `worker_id`（`worker-01`…，位宽随 count 自适应），逐项独立（单项失败不影响其余）、幂等（已存在 → `skipped` 不重复创建）；`macs` 可选（与 `count` 等长时逐项校验设备池并直接绑定，池外/已绑定 → 该项 `failed` 且不创建，修正后可重试）；不支持 `windows_iso`；审计 `create_worker.batch`（含 created/skipped/failed/prefix）
+- **WebUI：设备池页 + 绑定向导（P3）**——新增 Devices 页（状态过滤/搜索 + 指纹详情 + 手动注册 + 清单导入 + 多选解绑二次确认）；新增「设备绑定」向导（manifest 清单 / sequential 顺序配对 → 预览配对表 → 导出 TSV 核对 → 二次确认执行 → 失败项保留清单重试）；Workers 页表单扩展数量 + 命名规则批量创建、列表新增绑定列（`bound_device` + readiness 三态 Badge）；路由 / 导航 / 中英文案同步
+
+### 变更
+
+- **`POST /workers` 的 `mac` 改为可选（P2）**——不传 = 纯空转 Worker（仅 hostname 绑定，readiness=idle）；传 = 校验设备在设备池中（pooled）并直接绑定（一对一授权），池外/已绑定 → 409（先注册后绑定，语义反转的预期影响面）；绑定失败时 worker 保留为空转
+- **`PUT /workers/{worker_id}/mac` 映射为设备换绑（P2）**——新 MAC 须在设备池中（pooled）并绑定到本 worker，旧设备（若绑定本 worker）解绑回池；dnsmasq `replace_binding` 失败回滚台账；审计记 `device.bind` + `device.unbind` + 兼容 `worker.mac.update`；幂等返回 `changed=false`
+- **`DELETE /workers/{worker_id}` 与 `POST /workers/delete/batch` 联动解绑（P2）**——先解绑设备落盘（回池不吊销，失败中止删除），再删 worker
+
+- **Control Plane：设备台账（`DeviceStore` + `state/devices.yml`）**——三层实体模型（设备 / Worker / 系统盘）底层实体落地（P1）：绑定关系权威在设备侧（`bound_worker_id`），worker 侧只投影；设备状态 `pooled`（池中未绑定）/ `bound` / `revoked`；新增端点 `GET /devices`（state 过滤）、`GET /devices/{mac}`、`POST /devices`（手动注册入池）、`POST /devices/import`（批量导入，逐项独立，重复跳过、非法/吊销计 failed）、`DELETE /devices/{mac}`（注销吊销，bound 设备 409 须先解绑）；`key_hash` 字段预留安全蓝图阶段
+- **Control Plane：`GET /devices/report`（不鉴权）**——iPXE 设备信息上报入口（11 字段：mac/uuid/厂商/型号/序列号/CPU/内存总量/内存类型/内存频率/网卡/总线 ID），宽松解析（空值容忍，`mem-total`/`mem-speed` 兼容 `0x` hex 与十进制、归一化十进制存储），更新指纹 + `last_seen`；未知 MAC 且 auto_register 开 → 入池；返回空响应（chain 无脚本副作用）；`tftp/boot.ipxe.cfg` 在请求 `/boot-vars` 之前先 chain 上报（失败静默跳过，不阻断引导）
+- **Control Plane：旧数据迁移（启动时幂等）**——扫描 workers.yml + dhcp-hosts.conf，为存量 MAC 绑定生成 bound 设备实体（`source=manual`，指纹空，等待首次上报补充）；已存在跳过，失败仅记日志不阻断启动
+
+- **自动注册语义反转（P1）**——新 MAC 不再自动创建 Worker + dnsmasq 绑定，只入设备池（`_auto_register_worker` 移除，入池收敛到 `/devices/report` 与 `/boot-vars` 兜底）；`/boot-vars` 变为只读投影（无写副作用）；识别链改为 hostname→worker、mac→设备台账→`bound_worker_id`→worker（迁移后存量绑定自动生效）；池中未绑定 → reboot 循环等待绑定；未知 MAC + auto_register 关 → 空脚本；审计操作码 `auto_register` → `device.register`
+- **`IPXE_CP_AUTO_REGISTER` 开关语义**——由「新 MAC 是否自动注册为 Worker」变为「新 MAC 是否自动入设备池」，端点与持久化方式不变（运行时 API 优先于环境变量）
+- **WebUI：自动注册开关迁移至设备池页**——Workers 页工具栏的全局自动注册开关移至 Devices 页工具栏（与「新 MAC 自动入设备池」语义同页对齐），Workers 页工具栏随之精简；开关 tooltip 文案同步修正为 P1 反转后的准确语义（原文案仍停留在「自动注册为 Worker」的旧描述）；中英文案同步
+- **WebUI：设备池页新增「页面介绍」按钮**——Devices 页工具栏右侧新增介绍按钮，弹出遮罩面板逐项说明页面各功能区（自动注册开关 / 筛选与计数 / 操作按钮 / 列表列 / 行详情展开），中英双语
+- **WebUI：绑定向导新增「图形化顺序分配」模式（替代原顺序配对文本模式）**——向导模式由「清单配对 / 顺序配对（文本粘贴）」改为「清单配对 / 图形化顺序分配」：左侧勾选池中未绑定设备（指纹摘要、搜索、全选），右侧勾选可用 Worker（按勾选顺序），按列表顺序一一对应自动分配；Worker 不足时按补建前缀自动调用 `POST /workers/batch` 补建差额，Worker 超出时截断；分配结果锁定后走预览 / 导出 / 二次确认 / 失败重试（graphical 重试沿用锁定分配、不重复补建）；向导数据源独立于页面状态过滤；后端零改动（复用 sequential 模式与 batch 端点）
+- **WebUI：设备列表固定按入池时间排序**——设备池列表与绑定向导「图形化顺序分配」左栏统一按 `first_seen`（首次上报/入池时间）升序排列（无 `first_seen` 排最后），替代原 MAC 排序，作为绑定/沟通时指代设备的顺序基准（“从上往下第 N 台”）；纯前端展示层改动，后端零改动
+- **Control Plane：`GET /operations` 支持 `mac` 过滤 + 批量绑定逐条审计**——新增可选 `mac` 参数（规范化后按设备过滤操作流水，用于设备绑定记录查看）；`POST /devices/bind/batch` 除汇总 `device.bind.batch` 外，每个 `succeeded` 项另逐条记录 `device.bind`（`mac`/`worker_id`），保证设备绑定历史完整，`skipped`/`failed` 仅汇总计数
+- **WebUI：设备页绑定记录 + MAC 复制按钮**——设备行详情展开新增「绑定记录」区块（展开时按 mac 拉取审计，仅显示 bind/unbind 类事件，最新在前，换绑显示 `旧 worker → 新 worker`）；设备行 MAC 旁新增复制按钮（点击复制到剪贴板，1.5s 内 ✓ 反馈）
+- **WebUI：绑定向导默认「顺序分配」**——向导默认模式由「清单配对」改为「顺序分配」（图形化双栏勾选分配），「图形化顺序分配」名称简化为「顺序分配」，「清单配对」保留为可选项（去除「默认」标注）；中英文案同步
+
+### 修复
+
+- **`/boot-vars` reboot 循环 payload 缺 `worker_id` 导致 500**——池中未绑定设备的新返回体（`menu_default`+`menu_timeout`）不含 `worker_id`，`_boot_vars_ipxe` 直接索引抛 KeyError（运行级验证暴露）；改为 `payload.get('worker_id', 'unbound')` 兜底，JSON 输出不受影响
+
+---
+
 ## 2026-08-13
 
 ### 变更

@@ -142,13 +142,14 @@ scp _tpl_debian_12.img dutyc@192.168.80.3:/pool1/iscsi_img
 
 上传后**无需任何额外操作**:母盘不会自动挂载为 Target;更新母盘重新上传同名文件即可,不影响已克隆出去的 Worker 盘。
 
-## 第 3 步:Worker 通电,自动注册
+## 第 3 步:Worker 通电,入池并绑定
 
 无盘 Worker 设为网络启动,通电:
 
-1. DHCP 获取地址 → 加载 iPXE → 拉取启动变量。
-2. **新 MAC 自动注册**:自动分配主机名(`worker-01`、`worker-02` …),绑定 DHCP 静态地址,零人工干预。
-3. WebUI(`http://192.168.80.3:4838`)→ **Workers** 页面查看新 Worker。
+1. DHCP 获取地址 → 加载 iPXE → 上报指纹。
+2. **新 MAC 自动入设备池**:设备出现在 Devices(设备池)页面,状态 `pooled`,待绑定。
+3. WebUI(`http://192.168.80.3:4838`)→ **Devices** 页面确认设备已入池。
+4. 点击「绑定向导」→ 默认**顺序分配**模式:左栏勾选该设备,右栏勾选 Worker(不足时填写前缀自动补建)→ 预览 → 确认执行。绑定后设备状态变为 `bound`,hostname 即 `worker-01`,下次引导按 Worker 配置执行。
 
 ## 第 4 步:WebUI 秒级克隆
 
@@ -186,7 +187,7 @@ iscsiadm -m session        # 当前 iSCSI 会话
 
 ## 批量克隆与版本管理
 
-* **批量上线**:多台机器同时通电 → 自动注册 → WebUI 逐个克隆 → 设置默认启动。
+* **批量上线**:多台机器同时通电自动入池 → 绑定向导批量绑定 → WebUI 逐个克隆 → 设置默认启动。
 * **版本切换**:克隆时选择不同母盘(`_tpl_debian_12.img` / 其他版本)即可,互不影响。
 * **一台机器多系统**:同一 Worker 可挂多块系统盘(Windows + Debian),随时切换默认启动系统。
 
@@ -196,7 +197,7 @@ iscsiadm -m session        # 当前 iSCSI 会话
 |---|---|
 | 克隆盘报 `Boot from SAN device failed: Error 0x7f22208e` | ESP 缺 BOOTX64.EFI:按 1.4 补文件后**重新克隆**(旧克隆盘不带);确认母盘为 UEFI + GPT 安装 |
 | 启动停在 iPXE 菜单 | 未设置默认启动,手动选择 **Boot Debian from iSCSI**,或按第 5 步设置 |
-| 找不到 iSCSI 目标 | ① 核对 Worker 系统盘所在存储节点 `iscsi-server/.env` 的 `IPXE_IQN_BASE`(权威值:建盘按它生成盘 IQN,`/boot-vars` 按盘所在节点返回);② Worker 已在 WebUI 注册;③ 详情页 IQN 为 `…:worker-xx.debian` |
+| 找不到 iSCSI 目标 | ① 核对 Worker 系统盘所在存储节点 `iscsi-server/.env` 的 `IPXE_IQN_BASE`(权威值:建盘按它生成盘 IQN,`/boot-vars` 按盘所在节点返回);② 设备已在 Devices 页绑定到 Worker(hostname 绑定生效);③ 详情页 IQN 为 `…:worker-xx.debian` |
 | `VFS: Unable to mount root fs` | initrd 三件套未齐(1.5 验证失败):缺模块/iscsistart,回 1.3 重做并 `update-initramfs -u -k all` |
 | 担心克隆盘 `root=UUID` 写死 | 属预期:UUID 是文件系统属性随克隆整体复制,克隆盘各自匹配自身盘,无需处理 |
 | 母盘在虚拟机正常、克隆盘无法启动 | 检查 1.4 BOOTX64.EFI 是否已补(最常见的隐蔽原因) |

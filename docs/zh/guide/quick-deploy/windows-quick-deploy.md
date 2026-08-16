@@ -3,7 +3,6 @@
 > **本文档定位:母盘专题 · 快速上线。**
 > 从母盘到 Windows 无盘 Worker 全流程:制备母盘 → 上传 → WebUI 秒级克隆 → 开机直达桌面。
 > 环境部署(Controller + 存储节点)见《项目环境部署》,本文从母盘制备开始。
-> 与第二章(从零安装)不同,本文档不定制 PE、不讲解安装原理,只讲可直接执行的流程与命令。
 
 ## 为什么 Windows 可以"克隆即用"
 
@@ -128,14 +127,16 @@ scp .\_tpl_windows_23h2.img dutyc@192.168.80.3:/pool1/iscsi_img
 * 母盘不会自动挂载为 iSCSI Target(LIO 后端按已保存的配置恢复,不会扫描目录)。
 * 母盘可以随时更新:重新上传同名文件即可,**不影响**已克隆出去的 Worker 盘(克隆是复制,不是引用)。
 
-## 第 3 步:Worker 通电,自动注册
+## 第 3 步:Worker 通电,入池并绑定
 
 将无盘 Worker 设置为网络启动(PXE),通电开机:
 
-1. DHCP 获取地址 → 加载 iPXE → 拉取启动变量。
-2. **新 MAC 自动注册**:Control Plane 自动分配主机名(`worker-01`、`worker-02` …),
-   写入台账并自动绑定 DHCP 静态地址,全程零人工干预。
-3. 打开 WebUI(`http://x.x.x.x:4838`)→ **Workers** 页面,即可看到新注册的 Worker。
+1. DHCP 获取地址 → 加载 iPXE → 上报指纹。
+2. **新 MAC 自动入设备池**:设备出现在 Devices(设备池)页面,状态 `pooled`,待绑定。
+3. 打开 WebUI(`http://x.x.x.x:4838`)→ **Devices** 页面,确认设备已入池。
+4. 点击「绑定向导」→ 默认**顺序分配**模式:左栏勾选该设备,右栏勾选 Worker(不足时填写前缀自动补建)→ 预览 → 确认执行。绑定后设备状态变为 `bound`,hostname 即 `worker-01`,下次引导按 Worker 配置执行。
+
+> 自动注册开关关闭时,新设备只上报不入池:需在 Devices 页「注册设备」/「登记设备入池」手动入池后再绑定(详见《WebUI 使用指南》)。
 
 ## 第 4 步:WebUI 秒级克隆
 
@@ -171,7 +172,7 @@ scp .\_tpl_windows_23h2.img dutyc@192.168.80.3:/pool1/iscsi_img
 
 ## 批量克隆与版本管理
 
-* **批量上线**:多台机器同时通电,自动注册 → 逐个在 WebUI 克隆 → 设置默认启动。
+* **批量上线**:多台机器同时通电自动入池 → 绑定向导批量绑定 → 逐个在 WebUI 克隆 → 设置默认启动。
 * **版本切换**:克隆时选择不同母盘即可(`_tpl_windows_23h2.img` / `24h2` / `25h2`),互不影响。
 * **一台机器多系统**:Worker 详情页可为同一 Worker 创建多块系统盘,随时切换默认启动系统。
 
@@ -182,6 +183,6 @@ scp .\_tpl_windows_23h2.img dutyc@192.168.80.3:/pool1/iscsi_img
 | 克隆盘启动后停在 iPXE 菜单 | 未设置默认启动,手动选择 **Boot Windows from iSCSI**,或按第 5 步设置 |
 | 克隆盘无法启动(转圈/蓝屏) | 母盘自身问题:检查母盘网卡驱动是否就绪、母盘在虚拟机中能否正常启动 |
 | 多台克隆机计算机名相同 | 属于预期行为(盘内身份未写入机器信息)。如需区分,自行处理(改名 / sysprep),不影响启动 |
-| 找不到 iSCSI 目标 | ① 核对 Worker 系统盘所在存储节点 `iscsi-server/.env` 的 `IPXE_IQN_BASE`(权威值:建盘按它生成盘 IQN,`/boot-vars` 按盘所在节点返回);② 确认 Worker 已在 WebUI 注册(hostname 绑定生效);③ 详情页磁盘列表中 IQN 为 `…:worker-xx.windows` |
+| 找不到 iSCSI 目标 | ① 核对 Worker 系统盘所在存储节点 `iscsi-server/.env` 的 `IPXE_IQN_BASE`(权威值:建盘按它生成盘 IQN,`/boot-vars` 按盘所在节点返回);② 确认设备已在 Devices 页绑定到 Worker(hostname 绑定生效);③ 详情页磁盘列表中 IQN 为 `…:worker-xx.windows` |
 | WebUI 操作报 401 | Control Plane 设了 `IPXE_CP_TOKEN` 但 `webui/app/.env` 未同步(见《项目环境部署》1.4),或改后未重新构建 WebUI |
 | 想换母盘版本 | 上传新母盘 → 对目标 Worker 克隆时选择新母盘。已有 Worker 盘不受影响 |

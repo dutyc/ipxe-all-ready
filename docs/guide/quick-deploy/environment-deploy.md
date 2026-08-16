@@ -106,7 +106,7 @@ VITE_CP_TOKEN=your-token
 
 ### 1.4.1 Auto-register Switch (optional; on by default)
 
-A new MAC is auto-registered as a Worker on its first `/boot-vars` request (zero-touch; enabled by default). To turn it off (e.g. during a mass machine rollout where you want to register machines manually first), there are two ways:
+A new-MAC device reporting its fingerprint is auto-admitted into the **device pool** (zero-touch; enabled by default). To turn it off (e.g. during a mass machine rollout where you want to register machines manually first), there are two ways:
 
 **Option 1: Fixed at deploy time (env var)** — append to `control_plane/control_plane.env`; takes effect at container startup:
 
@@ -117,10 +117,10 @@ IPXE_CP_AUTO_REGISTER=false
 
 **Option 2: Runtime toggle (WebUI button / API)** — switch anytime after deployment; takes effect immediately and persists (`state/settings.json`, survives restarts), taking precedence over the env var:
 
-- WebUI: the "Auto-register" button in the Workers page toolbar (dark = on, light = off)
+- WebUI: the "Auto-register" switch in the Devices (device pool) page toolbar (dark = on, light = off)
 - API: `PUT /settings/auto-register` (see API Reference 5.1)
 
-> The switch only affects **new MACs**: when off, unregistered machines must be registered manually via the "Add Worker" form in the WebUI or `POST /workers`; existing Workers are unaffected.
+> The switch only affects **new MACs**: when off, new devices report fingerprints without entering the pool — pool them manually via "Register device" / "Register to Pool" on the Devices page or `POST /devices`, then bind them to a Worker with the bind wizard; existing pooled devices are unaffected.
 
 ### 1.5 Start the Controller
 
@@ -132,7 +132,7 @@ docker compose up -d
 
 ```bash
 curl http://localhost:4839/healthz        # Control Plane
-# Open http://<Controller IP>:4838 in a browser  # WebUI
+# Open http://<Controller IP>:4838 in a browser  # WebUI (see the WebUI User Guide for first use)
 ```
 
 ---
@@ -193,7 +193,15 @@ TZ=Asia/Shanghai
 
 ### 2.4 Register the Agent
 
-In the Controller’s `control_plane/config/agents.yml`, register this node (one entry per node):
+Either of the two ways below:
+
+**Option 1: WebUI (recommended)** — after the Controller is up, open the WebUI in a browser → **Agents** page → "+ Add Agent":
+
+1. Enter the Agent ID (unique, e.g. `storage-lio-01`), the API URL (`base_url`: `http://host.docker.internal:4840` when co-located with the Controller, otherwise `http://<storage-node-IP>:4840`), and the Token (same as `IPXE_AGENT_TOKEN`; `${ENV}` environment-variable placeholders are supported).
+2. Click "Probe" to auto-fetch the backend type / roles / tags / data-plane address and other parameters.
+3. Confirm the "iSCSI data-plane" address is reachable by Workers (the probe derives it from the base_url hostname by default; change it to this node's LAN IP for remote deployments) → click "Add" to finish registration (written to `agents.yml`; takes part in scheduling immediately).
+
+**Option 2: Edit `agents.yml` directly** — in the Controller’s `control_plane/config/agents.yml`, register this node (one entry per node):
 
 ```yaml
 agents:
@@ -210,7 +218,7 @@ agents:
     enabled: true
 ```
 
-Multi-node deployment: repeat 2.1–2.3 on each storage node and append a record in `agents.yml` (with a different Agent ID).
+Multi-node deployment: repeat 2.1–2.3 on each storage node and append a record in `agents.yml` (with a different Agent ID) (or add one entry per node on the Agents page when using the WebUI).
 
 ### 2.5 Start the Storage Node
 
@@ -226,6 +234,8 @@ curl http://localhost:4840/healthz            # Agent liveness
 # WebUI → Agents page, confirm the Agent status is online (live)
 ```
 
+> Note: Agent status confirmation and all subsequent page operations are covered in the *WebUI User Guide*.
+
 ---
 
 ## Step 3: Deployment Checklist
@@ -240,5 +250,6 @@ curl http://localhost:4840/healthz            # Agent liveness
 
 Once the environment is ready, proceed to golden-image creation and diskless rollout ↓
 
+* **WebUI**: *WebUI User Guide* (page functions & core workflows)
 * **Windows**: *Windows Diskless Quick Deployment (Golden-Image Clone)*
 * **Debian-family**: *Debian-family Diskless Quick Deployment (Golden-Image Clone)*

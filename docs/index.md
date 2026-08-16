@@ -17,7 +17,7 @@ hero:
 
 ## Core Features
 
-- **Zero-Touch Provisioning** — Plug in a new machine and it registers itself: the control plane detects the MAC, assigns a hostname, and boots it into the target OS as soon as a system disk is attached — no pre-registration required.
+- **Zero-Touch Provisioning** — Plug in a new machine and it is recognized instantly and auto-admitted into the device pool: the control plane collects its fingerprint; once an admin binds it to a Worker, attaches a system disk and sets the default OS in the Web UI, the machine boots straight into the target system — no pre-registration required.
 - **Multi-OS per Worker** — One worker can host multiple system disks — Windows, Ubuntu, Debian, CentOS or ESXi — and switch the default boot OS on the fly, without ever touching the machine.
 - **Master-Image Instant Cloning** — Prepare a golden image once, clone it endlessly: one click in the Web UI creates a worker disk from the master via reflink (copy-on-write), completing in seconds on btrfs or ZFS (OpenZFS ≥ 2.2). Debian 11/12/13, Ubuntu 22.04/24.04/26.04 and Windows 11 23H2/24H2/25H2 are covered end-to-end over iPXE + iSCSI, booting in seconds.
 - **Bulk Deployment** — Batch-select workers on the Workers page to create or delete system disks for many machines at once: choosing a master from the dropdown auto-takes-over the workers to its storage node, with drag-and-drop / round-robin node assignment; new disks are set as the default OS, so bulk provisioning boots straight to the desktop.

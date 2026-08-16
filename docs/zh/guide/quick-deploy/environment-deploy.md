@@ -106,7 +106,7 @@ VITE_CP_TOKEN=你的token
 
 ### 1.4.1 自动注册开关（可选，默认开启）
 
-新 MAC 首次请求 `/boot-vars` 时自动注册为 Worker（零接触，默认开启）。需要关闭时（例如批量接入机器期间先手动注册、防止自动登记），有两种方式：
+新 MAC 设备上报指纹时自动入**设备池**（零接触，默认开启）。需要关闭时（例如批量接入机器期间先人工登记、防止未知设备自动入池），有两种方式：
 
 **方式一：部署时固定（环境变量）**——`control_plane/control_plane.env` 追加，容器启动时生效：
 
@@ -117,10 +117,10 @@ IPXE_CP_AUTO_REGISTER=false
 
 **方式二：运行时切换（WebUI 按钮 / API）**——部署后随时切换，立即生效并持久化（`state/settings.json`），重启保留，优先级高于环境变量：
 
-- WebUI：Workers 页面工具栏「自动注册」按钮（深色 = 开，浅色 = 关）
+- WebUI：Devices（设备池）页面工具栏「自动注册」开关（深色 = 开，浅色 = 关）
 - API：`PUT /settings/auto-register`（详见 API 参考 5.1）
 
-> 开关只影响**新 MAC**：关闭后未注册机器需在 WebUI「添加 Worker」或 `POST /workers` 手动注册；已注册 Worker 不受影响。
+> 开关只影响**新 MAC**：关闭后新设备只上报指纹不入池，需在 Devices 页「注册设备」/「登记设备入池」或 `POST /devices` 手动入池，再经「绑定向导」绑定 Worker；已入池设备不受影响。
 
 ### 1.5 启动 Controller
 
@@ -132,7 +132,7 @@ docker compose up -d
 
 ```bash
 curl http://localhost:4839/healthz        # Control Plane
-# 浏览器打开 http://<Controller IP>:4838  # WebUI
+# 浏览器打开 http://<Controller IP>:4838  # WebUI（首次使用见《WebUI 使用指南》）
 ```
 
 ---
@@ -193,7 +193,15 @@ TZ=Asia/Shanghai
 
 ### 2.4 登记 Agent
 
-在 Controller 的 `control_plane/config/agents.yml` 登记本节点（一个节点一条）：
+两种方式任选其一：
+
+**方式一：WebUI（推荐）**——Controller 启动后，浏览器打开 WebUI → **Agents** 页 →「+ 添加 Agent」：
+
+1. 填写 Agent ID（唯一，如 `storage-lio-01`）、API 地址（`base_url`：与 Controller 同机填 `http://host.docker.internal:4840`，异地填 `http://<存储节点IP>:4840`）、Token（与 `IPXE_AGENT_TOKEN` 相同，支持 `${ENV}` 环境变量占位）。
+2. 点「探测」自动获取后端类型 / 角色 / 标签 / 数据面地址等参数。
+3. 确认「iSCSI 数据面」为 Worker 实际可达的地址（探测默认按 base_url 的主机名推导，异地部署时改为本节点局域网 IP）→ 点「添加」完成注册（写入 `agents.yml`，立即参与调度）。
+
+**方式二：直接编辑 `agents.yml`**——在 Controller 的 `control_plane/config/agents.yml` 登记本节点（一个节点一条）：
 
 ```yaml
 agents:
@@ -210,7 +218,7 @@ agents:
     enabled: true
 ```
 
-多节点部署：每台存储节点重复 2.1–2.3，并在 `agents.yml` 追加一条记录（Agent ID 不同）。
+多节点部署：每台存储节点重复 2.1–2.3，并在 `agents.yml` 追加一条记录（Agent ID 不同）（用 WebUI 则每台在 Agents 页添加一条）。
 
 ### 2.5 启动存储节点
 
@@ -226,6 +234,8 @@ curl http://localhost:4840/healthz            # Agent 存活
 # WebUI → Agents 页面确认 Agent 状态为在线（live）
 ```
 
+> 注：Agent 状态确认与后续页面操作均见《WebUI 使用指南》。
+
 ---
 
 ## 第 3 步：部署核对清单
@@ -240,5 +250,6 @@ curl http://localhost:4840/healthz            # Agent 存活
 
 环境就绪后，进入母盘制备与无盘上线流程 ↓
 
+* **WebUI**：《WebUI 使用指南》（页面功能与核心操作流程）
 * **Windows**：《Windows 无盘快速部署（母盘克隆）》
 * **Debian 系**：《Debian 系无盘快速部署（母盘克隆）》

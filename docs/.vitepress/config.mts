@@ -40,6 +40,7 @@ export default defineConfig({
             items: [
               { text: 'Boot Media', link: '/guide/quick-deploy/boot-media' },
               { text: 'Environment Setup', link: '/guide/quick-deploy/environment-deploy' },
+              { text: 'WebUI User Guide', link: '/guide/quick-deploy/webui-guide' },
               { text: 'Windows Master Image (Clone)', link: '/guide/quick-deploy/windows-quick-deploy' },
               { text: 'Debian-family Master Image (Clone)', link: '/guide/quick-deploy/debian-quick-deploy' },
             ]
@@ -85,6 +86,7 @@ export default defineConfig({
             items: [
               { text: '引导介质制作', link: '/zh/guide/quick-deploy/boot-media' },
               { text: '项目环境部署', link: '/zh/guide/quick-deploy/environment-deploy' },
+              { text: 'WebUI 使用指南', link: '/zh/guide/quick-deploy/webui-guide' },
               { text: 'Windows 无盘快速部署（母盘克隆）', link: '/zh/guide/quick-deploy/windows-quick-deploy' },
               { text: 'Debian 系无盘快速部署（母盘克隆）', link: '/zh/guide/quick-deploy/debian-quick-deploy' },
             ]

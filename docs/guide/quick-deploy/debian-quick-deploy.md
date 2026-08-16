@@ -140,13 +140,14 @@ scp _tpl_debian_12.img user@192.168.80.3:/pool1/iscsi_img
 
 **No additional actions are required** after the upload: the golden image is not automatically mounted as a Target; to update the golden image, simply re‑upload the same filename — this does not affect Worker disks that have already been cloned.
 
-## Step 3: Power On the Worker — Automatic Registration
+## Step 3: Power On the Worker — Pool & Bind
 
 Set the diskless Worker to network boot and power it on:
 
-1. Obtain an address via DHCP → load iPXE → fetch boot variables.
-2. **New MAC auto‑registration**: A hostname is automatically assigned (`worker-01`, `worker-02`, …), a static DHCP address is bound — zero manual intervention.
-3. WebUI (`http://192.168.80.3:4838`) → **Workers** page to view the new Worker.
+1. Obtain an address via DHCP → load iPXE → report its fingerprint.
+2. **New MAC auto‑intake**: the device appears on the Devices (device pool) page with status `pooled`, awaiting binding.
+3. WebUI (`http://192.168.80.3:4838`) → **Devices** page to confirm the device is pooled.
+4. Click the **Bind wizard** → default **Sequential allocation** mode: check the device in the left column, check a Worker in the right column (fill in a prefix to auto‑create if none are available) → preview → confirm. After binding the device status becomes `bound`, the hostname is `worker-01`, and its next boot follows the Worker configuration.
 
 ## Step 4: Instant Clone via WebUI
 
@@ -184,7 +185,7 @@ iscsiadm -m session        # Current iSCSI session
 
 ## Bulk Cloning and Version Management
 
-* **Bulk rollout**: Power on multiple machines simultaneously → auto‑register → clone one by one in the WebUI → set default boot.
+* **Bulk rollout**: Power on multiple machines simultaneously → auto‑pool → bind them in bulk with the bind wizard → clone one by one in the WebUI → set default boot.
 * **Version switching**: Simply choose a different golden image when cloning (`_tpl_debian_12.img` / other versions) — they do not interfere with each other.
 * **Multiple systems on one machine**: A single Worker can have multiple system disks (Windows + Debian) and switch the default boot system at any time.
 
@@ -194,7 +195,7 @@ iscsiadm -m session        # Current iSCSI session
 |---|---|
 | Cloned disk reports `Boot from SAN device failed: Error 0x7f22208e` | BOOTX64.EFI is missing from the ESP. Add the file as described in 1.4 and **re‑clone** (old cloned disks lack it). Confirm the golden image was installed as UEFI + GPT. |
 | Boot stops at the iPXE menu | The default boot is not set. Manually select **Boot Debian from iSCSI**, or set it up according to Step 5. |
-| iSCSI target not found | ① Verify the `IPXE_IQN_BASE` in `iscsi-server/.env` on the storage node hosting the Worker's system disk (authoritative: disk IQNs are built from it; `/boot-vars` returns it for the hosting node); ② Confirm the Worker is registered in the WebUI; ③ On the detail page, the IQN should be `…:worker-xx.debian` |
+| iSCSI target not found | ① Verify the `IPXE_IQN_BASE` in `iscsi-server/.env` on the storage node hosting the Worker's system disk (authoritative: disk IQNs are built from it; `/boot-vars` returns it for the hosting node); ② Confirm the device is bound to the Worker on the Devices page; ③ On the detail page, the IQN should be `…:worker-xx.debian` |
 | `VFS: Unable to mount root fs` | The initrd trio is incomplete (1.5 verification failed): missing module/iscsistart. Redo 1.3 and run `update-initramfs -u -k all`. |
 | Worried that the cloned disk has `root=UUID` hardcoded | This is expected: the UUID is a filesystem property that is copied as a whole during cloning; each cloned disk matches its own disk, no action needed. |
 | Golden image boots fine in a VM but the cloned disk won’t boot | Check whether BOOTX64.EFI was added as described in 1.4 (the most common hidden cause). |
