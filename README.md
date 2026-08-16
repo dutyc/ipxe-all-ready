@@ -65,8 +65,8 @@ Star / Watch / Discussions / PRs are all welcome. This project embraces AI-assis
 
 <a href="https://www.star-history.com/?repos=dutyc%2Fipxe-all-ready&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=dutyc/ipxe-all-ready&type=date&theme=dark&legend=top-left&sealed_token=2GnZM7hF89OGVvFKgwSHJzvriuimn3N7Xi5y9VDTyixaSDL8L27EfjHZ2WlIvWyvAlTF0eKh46w0l_KV-NxgooTMFGlkgeJ5C-hGfPXPkXUr32EmAfD4Gi6sZ4U05zX_79AzDUxYx52oDwvEurPOK00N50DPsQXKidymKFo-1q6_kXFv2rUdncunsjIB" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=dutyc/ipxe-all-ready&type=date&legend=top-left&sealed_token=2GnZM7hF89OGVvFKgwSHJzvriuimn3N7Xi5y9VDTyixaSDL8L27EfjHZ2WlIvWyvAlTF0eKh46w0l_KV-NxgooTMFGlkgeJ5C-hGfPXPkXUr32EmAfD4Gi6sZ4U05zX_79AzDUxYx52oDwvEurPOK00N50DPsQXKidymKFo-1q6_kXFv2rUdncunsjIB" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=dutyc/ipxe-all-ready&type=date&legend=top-left&sealed_token=2GnZM7hF89OGVvFKgwSHJzvriuimn3N7Xi5y9VDTyixaSDL8L27EfjHZ2WlIvWyvAlTF0eKh46w0l_KV-NxgooTMFGlkgeJ5C-hGfPXPkXUr32EmAfD4Gi6sZ4U05zX_79AzDUxYx52oDwvEurPOK00N50DPsQXKidymKFo-1q6_kXFv2rUdncunsjIB" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=dutyc/ipxe-all-ready&type=date&theme=dark&legend=top-left&sealed_token=zkQGmbPm0yH3EjnLTKc1DTe9hOaLnAeUdZlSlo92lycj2vyTy9VkyIW-uvH3P09ByCS5CiBI8QnhVbVNFyM211tGwSJ1yp7qE6ZsukdPCxJWkopIpVQepMXjrDwOAVENpL87Tr8qmmIYxQy6DawB8PaqrlfuVmGZPdnh9fPfJ8GtvnCIwkENEeVPSVp7" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=dutyc/ipxe-all-ready&type=date&legend=top-left&sealed_token=zkQGmbPm0yH3EjnLTKc1DTe9hOaLnAeUdZlSlo92lycj2vyTy9VkyIW-uvH3P09ByCS5CiBI8QnhVbVNFyM211tGwSJ1yp7qE6ZsukdPCxJWkopIpVQepMXjrDwOAVENpL87Tr8qmmIYxQy6DawB8PaqrlfuVmGZPdnh9fPfJ8GtvnCIwkENEeVPSVp7" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=dutyc/ipxe-all-ready&type=date&legend=top-left&sealed_token=zkQGmbPm0yH3EjnLTKc1DTe9hOaLnAeUdZlSlo92lycj2vyTy9VkyIW-uvH3P09ByCS5CiBI8QnhVbVNFyM211tGwSJ1yp7qE6ZsukdPCxJWkopIpVQepMXjrDwOAVENpL87Tr8qmmIYxQy6DawB8PaqrlfuVmGZPdnh9fPfJ8GtvnCIwkENEeVPSVp7" />
  </picture>
 </a>
