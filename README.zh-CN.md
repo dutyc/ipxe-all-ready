@@ -12,7 +12,7 @@
 
 ## 架构
 
-控制面 / 数据面分离与三个角色（Controller、iSCSI Server、Worker）详见 **[about/zh/ARCHITECTURE.md](./about/zh/ARCHITECTURE.md)**（English: [about/en/ARCHITECTURE.md](./about/en/ARCHITECTURE.md)）。
+控制面 / 数据面分离与三个角色（Controller、Storager、Devices）详见 **[about/zh/ARCHITECTURE.md](./about/zh/ARCHITECTURE.md)**（English: [about/en/ARCHITECTURE.md](./about/en/ARCHITECTURE.md)）。
 
 ## 快速上手
 

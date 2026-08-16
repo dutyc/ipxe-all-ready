@@ -12,7 +12,7 @@ Read our manifesto: **[about/en/Manifesto.md](./about/en/Manifesto.md)** — *Ou
 
 ## Architecture
 
-The control plane / data plane separation and the three roles — Controller, iSCSI Server, Worker — are detailed in **[about/en/ARCHITECTURE.md](./about/en/ARCHITECTURE.md)** (中文: [about/zh/ARCHITECTURE.md](./about/zh/ARCHITECTURE.md)).
+The control plane / data plane separation and the three roles — Controller, Storager, Devices — are detailed in **[about/en/ARCHITECTURE.md](./about/en/ARCHITECTURE.md)** (中文: [about/zh/ARCHITECTURE.md](./about/zh/ARCHITECTURE.md)).
 
 ## Quick Start
 
