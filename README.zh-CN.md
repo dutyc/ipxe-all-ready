@@ -4,7 +4,7 @@
 
 [中文版](./README.zh-CN.md) | [English](./README.md)
 
-**iPXE-All-Ready** 是基于纯开源组件（iPXE + iSCSI + FastAPI + React）的云原生无状态计算平台，把无状态贯彻到算力层本身：计算节点自身不持有任何持久状态——身份、系统与数据均由网络和控制面外部授予，插上网线即活：自动注册、自动开通、零手工介入。
+**iPXE-All-Ready** 是基于纯开源组件（iPXE + iSCSI + FastAPI + React）的云原生无状态计算平台，把无状态贯彻到算力层本身：计算节点自身不持有任何持久状态——身份、系统与数据均由网络和控制面外部授予，插上网线即活：上报指纹自动进入设备池，WebUI 绑定 Worker、克隆系统盘、设定默认系统后即自动进入目标系统。
 
 阅读我们的宣言：**[about/zh/Manifesto.md](./about/zh/Manifesto.md)** —《我们的云原生》（English: [about/en/Manifesto.md](./about/en/Manifesto.md)）。
 
@@ -34,7 +34,7 @@ docker compose up -d
 
 ## 核心特性
 
-新机器首启自动注册，WebUI 点几下即可分配系统盘与默认系统；一台 Worker 可挂载多块系统盘（Windows / Ubuntu / Debian / CentOS / ESXi）随时在线切换，Debian 11/12/13、Ubuntu 22.04/24.04/26.04、Windows 11 23H2/24H2/25H2 经 iPXE + iSCSI 全链路验证。不引入数据库，控制面状态全部为可 diff、可手工修复的文件；全部能力经 REST 开放，Web 界面只是其中一个客户端。
+新机器首启自动入设备池，WebUI 点几下即可绑定 Worker、分配系统盘与默认系统；一台 Worker 可挂载多块系统盘（Windows / Ubuntu / Debian / CentOS / ESXi）随时在线切换，Debian 11/12/13、Ubuntu 22.04/24.04/26.04、Windows 11 23H2/24H2/25H2 经 iPXE + iSCSI 全链路验证。不引入数据库，控制面状态全部为可 diff、可手工修复的文件；全部能力经 REST 开放，Web 界面只是其中一个客户端。
 
 ## 文档
 

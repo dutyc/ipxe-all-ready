@@ -22,6 +22,7 @@
 - **WebUI：Dashboard 新增设备数量统计卡**——统计卡由 Workers / Agents 两卡扩展为 Workers / 设备池 / Agents 三卡，设备数为 `GET /devices`（含全部状态）计数，与 Workers/Agents 同源并行拉取；中英文案同步
 - **WebUI：设备池「导入清单」更名为「登记设备入池」并加悬停提示**——与「绑定向导 → 清单配对」的混淆点消除：按钮文案改为「登记设备入池」（en: Register to Pool），鼠标悬停提示「不涉及绑定」（No binding involved，原生 title 提示）；页面介绍弹层中相关描述同步（自动注册开关说明、操作按钮说明）；《WebUI 使用指南》工具栏描述同步
 - **WebUI：Workers / Agents 页新增「页面介绍」按钮**——与 Devices 页同款弹层：Workers 页工具栏右侧（顶部操作按钮 / 筛选 / 列表列 / 行交互四区块，含批量创建、批量建盘分配方式、就绪度语义）；Agents 页工具栏右侧（工具栏两步探测注册与在线探测开关 / Agent 卡片字段 / 行交互三区块）；中英文案同步，《WebUI 使用指南》对应页面描述同步
+- **README 两版修正 P1 反转前的过期描述（简介 + 核心特性）**——「自动注册」→「自动入设备池」：简介改为「上报指纹自动进入设备池，WebUI 绑定 Worker、克隆系统盘、设定默认系统后即自动进入目标系统」（en 对应 "reports its fingerprint and joins the device pool automatically, then a few clicks in the Web UI bind it to a Worker, clone a system disk and set the default OS"）；核心特性改为「新机器首启自动入设备池，WebUI 点几下即可绑定 Worker、分配系统盘与默认系统」（en 对应 "report their fingerprints and join the device pool on first boot; a few clicks in the Web UI bind them to a Worker..."），与 2026-08-16 首页 Zero-Touch 表述及 P1 语义对齐
 
 ---
 

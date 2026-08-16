@@ -4,7 +4,7 @@
 
 [中文版](./README.zh-CN.md) | [English](./README.md)
 
-**iPXE-All-Ready** is a cloud-native stateless computing platform built entirely on open-source components (iPXE + iSCSI + FastAPI + React). It pushes statelessness down to the compute layer itself: compute nodes hold no persistent state — identity, OS, and data are granted externally by the network and the control plane. A node comes alive the moment a cable is plugged in: auto-registered, provisioned, and booted with zero manual steps.
+**iPXE-All-Ready** is a cloud-native stateless computing platform built entirely on open-source components (iPXE + iSCSI + FastAPI + React). It pushes statelessness down to the compute layer itself: compute nodes hold no persistent state — identity, OS, and data are granted externally by the network and the control plane. A node comes alive the moment a cable is plugged in: it reports its fingerprint and joins the device pool automatically, then a few clicks in the Web UI bind it to a Worker, clone a system disk and set the default OS.
 
 Read our manifesto: **[about/en/Manifesto.md](./about/en/Manifesto.md)** — *Our Definition of Cloud Native* (Chinese original: [about/zh/Manifesto.md](./about/zh/Manifesto.md)).
 
@@ -34,7 +34,7 @@ Storage-node deployment and worker master-image clones are covered by the step-b
 
 ## Key Features
 
-New machines auto-register on first boot, and a few clicks in the Web UI assign a system disk and a default OS. One worker can carry multiple system disks — Windows, Ubuntu, Debian, CentOS, ESXi — and switch between them online, with Debian 11/12/13, Ubuntu 22.04/24.04/26.04 and Windows 11 23H2/24H2/25H2 validated end-to-end over iPXE + iSCSI. There is no database: every control-plane state file is diff-able and manually repairable, and every capability is exposed as REST — the Web UI is just one client.
+New machines report their fingerprints and join the device pool on first boot; a few clicks in the Web UI bind them to a Worker and assign a system disk and a default OS. One worker can carry multiple system disks — Windows, Ubuntu, Debian, CentOS, ESXi — and switch between them online, with Debian 11/12/13, Ubuntu 22.04/24.04/26.04 and Windows 11 23H2/24H2/25H2 validated end-to-end over iPXE + iSCSI. There is no database: every control-plane state file is diff-able and manually repairable, and every capability is exposed as REST — the Web UI is just one client.
 
 ## Documentation
 
