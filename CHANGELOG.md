@@ -12,6 +12,17 @@
 
 ---
 
+## 2026-08-21
+
+### 变更
+
+- **ARCHITECTURE.md 协议演进章节细化（NVMe-oF 验证落地，中英同步）**——基于 ipxe-stateless research/nvme-of 分支验证结果：固件层 nvmetcp 驱动原生执行 `sanboot nvme://`、DH-HMAC-CHAP 认证（控制面按次启动注入 `nbft-secret`，不进固件镜像、不进引导菜单）、NBFT 接力链路 QEMU 端到端闭环；明确双数据面并存（iSCSI 生产路径 + Windows 回退通道，NVMe-oF 迁移方向）与认证/加密两条独立主线（TLS 为认证后开放主线）；蓝图侧同步更新（blueprint/ 不入库）：security-blueprint C6/已定决策 2 过时假设修正、ipxe-nvmeof-stack-blueprint 里程碑状态标注（M1/M2 已验证）、新增 nvmeof-credential-design.md 认证凭据落实设计（/boot-vars 注入契约、密钥库、3 个凭据 API 端点设计；密钥管理模型列为待定决策，暂不讨论）
+- **信任根架构裁定：固件内置 CA 作废，信任根归位设备 NVRAM 密钥（蓝图专项）**——裁定「固件里不放 CA 证书，固件是所有的局域网设备都可以获取的，固件里面放 CA 无意义」：security-blueprint 已定决策 3 修订（信任根 = 设备 NVRAM ECDSA P-256 私钥，固件侧生成、私钥不出设备、控制面只存公钥）、§6 三层身份 CA 层取消、§8 注册窗口改固件生成+公钥上报、待定决策 1（CA 归属）消解（TOFU 模式下自签证书即可）；新建 blueprint/trust-root-blueprint.md（双向信任模型：设备侧 TOFU 服务器证书指纹固化 NVRAM + 控制面侧挑战-响应设备签名；自研 EFI 变量 NVS 后端复用上游 NVO 层；UEFI-only、BIOS 遗留回退；T1-T5 实施分期）；nvmeof-credential-design 注入条件扩为四条（新增设备身份签名验证）；thirdparty/ipxe 上游源码克隆查证（NVO 抽象层 / SetVariable 先例 / ecdsa_sign / EFI RNG 熵源）
+- **抛弃传统 BIOS 引导：UEFI-only 升级为全系统基线（蓝图专项联动）**——裁定「抛弃 BIOS-only 设备」（存量可忽略，X3650 M4 级 2012 硬件已带 UEFI）：trust-root-blueprint 待定决策 2（BIOS 平台信任根）消解、§2.3/§3.4 BIOS 载体表述修订；ipxe-nvmeof-stack-blueprint 待定决策 2（BIOS 构型）消解、平台基线/引导链流程图/D3/D5/M7/风险表同步修订；security-blueprint 头部裁定声明追加；iSCSI 回退通道保留、载体收窄为 UEFI（照走 TOFU / 设备签名保护）；固件仓库 BIOS 构建目标（grub-bios / undionly / usb）**暂时保留不砍**（后续裁定：仅架构设计不考虑 BIOS）
+- **信任根蓝图待定决策收敛：证书轮换 = 重新进注册窗口，设备密钥算法 = ECDSA P-256（蓝图专项）**——裁定：trust-root-blueprint 待定决策 1（设备密钥算法）消解为 ECDSA P-256（上游 ecdsa_sign 已有、32B 私钥 NVRAM 占用最小、密码学零新写、nonce 重用风险由 EFI RNG 熵源覆盖）；待定决策 3（证书轮换）消解为重新进注册窗口（双指纹过渡被否——需设计受旧指纹保护的新指纹下发通道）；§4.3 证书轮换节更新；security-blueprint 待定决策 1 的证书轮换引用同步更新；至此信任根蓝图待用户裁定的决策项全部收敛（剩余为实施期/对齐项：EFI 变量 GUID、私钥轮换与吊销、密钥生成侧）
+
+---
+
 ## 2026-08-16
 
 ### 变更
@@ -251,7 +262,7 @@
 - WebUI Agents 页每张卡片右上角新增「编辑」按钮 — 点击后在列表上方弹出遮罩弹层（fixed 覆盖，不挤占原有布局；点遮罩空白处或「取消」关闭），编辑表单复用添加的两步探测流程：id 只读展示（走路径参数）、Token 留空保持不变（placeholder 提示，探测沿用注册表原值）、新增「启用（参与调度）」复选框，探测成功后方可保存，保存后刷新列表；停用的 Agent 卡片显示「停用」徽章
 - Agent：`GET /masters` — 列出存储节点 `DISK_DIR` 下 `*_tpl_*` 母盘（新增 `MasterScanner` 后台 daemon 线程，每 30 秒周期扫描并带锁缓存 `{name, size, mtime}`，识别文件名含 `_tpl_` 标记的镜像；纯读接口，Bearer 鉴权，不写操作日志）
 - Control Plane：`GET /masters` — 聚合列出全部启用磁盘角色 Agent 的母盘清单（遍历 `agents.yml` 中 `enabled` + `role.disk` 节点，逐台调用 Agent `list_masters()`；单台失败返回 `error` 字段并记审计 `master.list`（failed）不阻塞整体，全部失败 502 / 部分成功 200 / 无候选空列表）；`AgentClient` 新增 `list_masters()`
-- WebUI：母盘克隆下拉选择——Workers 批量创建与 Worker 详情页「创建系统盘」的母盘名由手工输入改为下拉选择（数据来自 Control Plane 聚合的母盘清单）：批量模式下拉为母盘名去重选项（不绑定存储节点，选择后不自动接管，节点分配由均摊 / 接管 / 拖拽侧边栏决定），支持多存储节点均摊克隆；提交时校验目标节点本地均有该母盘——均摊激活（≥2 个节点参与均摊）时校验全部参与均摊节点，否则校验实际分配节点，缺失时列出缺失节点并阻止提交（用户可移除缺失节点的「参与均摊」勾选，或先在对应节点上传该母盘后再提交），克隆在各节点本地完成；详情页按所选存储节点过滤母盘、切换节点自动清空已选
+- WebUI：母盘克隆下拉选择——Workers 批量创建与 Worker 详情页「创建系统盘」的母盘名由手工输入改为下拉选择（数据来自 Control Plane 聚合的母盘清单）：批量模式下拉为母盘名去重选项（不绑定存储节点，选择后不自动接管，节点分配由均摊 / 接管 / 拖拽侧边栏决定），支持多存储节点均摊克隆；提交时校验目标节点本地均有该母盘——均摊激活（≥2 个节点参与均摊）时校验全部参与均摊节点，否则校验实际分配节点，缺失时列出缺失节点并阻止提交（可移除缺失节点的「参与均摊」勾选，或先在对应节点上传该母盘后再提交），克隆在各节点本地完成；详情页按所选存储节点过滤母盘、切换节点自动清空已选
 
 ### 变更
 
