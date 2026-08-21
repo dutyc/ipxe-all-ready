@@ -71,4 +71,12 @@ Every capability is exposed as REST; the Web UI is just one client, and the CLI 
 
 ## Protocol Evolution
 
-The data plane is iSCSI today, but the semantics — stateless compute, disk-machine decoupling, one identity chain from MAC to boot — do not depend on it. Storager backends are already abstracted behind the Agent; swapping iSCSI for another protocol (e.g. NVMe-oF) changes the transport, not the architecture.
+The data plane is iSCSI today, but the semantics — stateless compute, disk-machine decoupling, one identity chain from MAC to boot — do not depend on it. Storager backends are already abstracted behind the Agent, so swapping the transport does not touch the architecture.
+
+The NVMe-oF (NVMe over TCP) track is under active research and already validated at the firmware layer (ipxe-stateless `research/nvme-of` branch):
+
+- an iPXE-native **nvmetcp driver** performs `sanboot nvme://` directly, mirroring the existing iSCSI pattern;
+- **DH-HMAC-CHAP authentication** (connection control) is implemented and verified — credentials are injected per boot through the control plane (`/boot-vars` → `nbft-secret`), never baked into firmware or menus;
+- the **NBFT hand-off chain** — iPXE sanboot → NBFT ACPI table → OS-native consumption (`nvme connect-all --nbft`) → rootfs mount → login — is verified end-to-end in QEMU.
+
+The two data planes coexist: iSCSI remains the production path (and the Windows fallback), NVMe-oF is the migration direction. Data-plane encryption (NVMe/TCP TLS) is the open mainline after authentication; the identity chain (device pool → binding → boot) is protocol-agnostic by design.

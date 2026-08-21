@@ -71,4 +71,12 @@
 
 ## 协议演进
 
-数据面当前是 iSCSI,但语义——无状态计算、盘机解耦、从 MAC 到引导的一条身份链——并不依赖它。Storager 后端已由 Agent 抽象;将 iSCSI 替换为其他协议(如 NVMe-oF)只换传输层,不动架构。
+数据面当前是 iSCSI,但语义——无状态计算、盘机解耦、从 MAC 到引导的一条身份链——并不依赖它。Storager 后端已由 Agent 抽象,更换传输层不触碰架构。
+
+NVMe-oF(NVMe over TCP)路线正处于研究推进期,固件层已验证(ipxe-stateless `research/nvme-of` 分支):
+
+- **nvmetcp 驱动**让 iPXE 原生执行 `sanboot nvme://`,复刻现有 iSCSI 模式;
+- **DH-HMAC-CHAP 认证**(连接控制)已实现并验证——凭据经控制面按次启动注入(`/boot-vars` → `nbft-secret`),不进固件镜像、不进引导菜单;
+- **NBFT 接力链路**——iPXE sanboot → NBFT ACPI 表 → OS 原生消费(`nvme connect-all --nbft`)→ rootfs 挂载 → 登录提示符——QEMU 端到端闭环验证。
+
+两个数据面并存:iSCSI 保持生产路径(兼作 Windows 回退通道),NVMe-oF 是迁移方向。数据面加密(NVMe/TCP TLS)是认证之后的开放主线;身份链(设备池 → 绑定 → 引导)按设计不依赖协议。
