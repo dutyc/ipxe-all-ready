@@ -72,12 +72,27 @@ export function bootVars(params) {
 }
 
 // ===== Settings =====
-export function getAutoRegister() {
-  return request('/settings/auto-register');
+export function getRegistrationWindow() {
+  // 注册窗口状态: { open, opened_at, ttl_minutes, closes_at, remaining_seconds }（TTL 到期自动关闭，懒计算）
+  return request('/settings/registration-window');
 }
 
-export function setAutoRegister(enabled) {
-  return request('/settings/auto-register', { method: 'PUT', body: { enabled } });
+export function openRegistrationWindow(ttlMinutes) {
+  // TTL 1-60 分钟硬上限（代码层不可配永久）；已开启返回 409（先关闭再开）
+  return request('/settings/registration-window', { method: 'POST', body: { ttl_minutes: ttlMinutes } });
+}
+
+export function closeRegistrationWindow() {
+  return request('/settings/registration-window', { method: 'DELETE' });
+}
+
+export function getEnforcement() {
+  // 设备身份验签强制开关（过渡期兼容：关闭时无密钥设备照现状放行）
+  return request('/settings/enforcement');
+}
+
+export function setEnforcement(enabled) {
+  return request('/settings/enforcement', { method: 'PUT', body: { enabled } });
 }
 
 // ===== Agents =====

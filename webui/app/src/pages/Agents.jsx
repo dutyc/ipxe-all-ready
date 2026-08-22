@@ -53,11 +53,11 @@ function AgentCard({ agent, t, onEdit }) {
           <span className="ap-value ap-mono">{agent.base_url || t('agents.unknown')}</span>
         </div>
         <div className="agent-prop">
-          <span className="ap-label">{t('agents.iscsiServer')}</span>
+          <span className="ap-label">{t('agents.baseNqn')}</span>
           <span className="ap-value ap-mono">
-            {agent.iscsi_server || agent.capabilities?.base_iqn
-              ? `${agent.iscsi_server || agent.capabilities.base_iqn}${agent.iscsi_server && agent.capabilities?.base_iqn ? ` (${agent.capabilities.base_iqn})` : ''}`
-              : t('agents.unknown')}
+            {agent.capabilities?.base_nqn
+              ? `${agent.capabilities.base_nqn}${agent.iscsi_server ? ` (${agent.iscsi_server})` : ''}`
+              : (agent.iscsi_server || t('agents.unknown'))}
           </span>
         </div>
         <div className="agent-prop">
@@ -257,8 +257,8 @@ function AgentForm({ mode, agentId, initial, onClose, onSaved }) {
             {probe.fs_type && (
               <span className="agent-tag">{t('agents.fsType')}: {probe.fs_type}</span>
             )}
-            {probe.base_iqn && (
-              <span className="agent-tag">{t('agents.probeBaseIqn')}: {probe.base_iqn}</span>
+            {probe.base_nqn && (
+              <span className="agent-tag">{t('agents.probeBaseNqn')}: {probe.base_nqn}</span>
             )}
             {probe.clone && <span className="agent-tag">{probe.clone}</span>}
             {probe.empty_disk && <span className="agent-tag">{probe.empty_disk}</span>}

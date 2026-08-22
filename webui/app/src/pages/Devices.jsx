@@ -7,8 +7,11 @@ import {
   unbindDevice,
   batchBindPreview,
   batchBind,
-  getAutoRegister,
-  setAutoRegister,
+  getRegistrationWindow,
+  openRegistrationWindow,
+  closeRegistrationWindow,
+  getEnforcement,
+  setEnforcement,
   getWorkers,
   batchCreateWorkers,
   getOperations,
@@ -28,6 +31,10 @@ const STATE_OPTIONS = (t) => [
   { value: 'bound', label: 'bound' },
   { value: 'revoked', label: 'revoked' },
 ]
+
+// 注册窗口 TTL 选项（服务端硬上限 1-60 分钟，代码层不可配永久）
+const TTL_OPTIONS = (t) =>
+  [5, 15, 30, 60].map((v) => ({ value: String(v), label: t('devices.regWindow.ttlUnit', { n: v }) }))
 
 // 解析配对清单：每行 mac, worker_id[, manufacturer, product, serial, uuid]（逗号/制表符分隔，# 注释行忽略）
 function parseManifestLines(text) {
@@ -84,10 +91,14 @@ export default function Devices() {
   const [bindings, setBindings] = useState(null) // null = 未加载/加载中
   const [bindingsError, setBindingsError] = useState(null)
 
-  // ===== 全局自动注册开关（运行时设置，立即生效并持久化） =====
-  const [autoRegister, setAutoRegisterState] = useState(null)
-  const [autoRegisterBusy, setAutoRegisterBusy] = useState(false)
-  const [autoRegisterError, setAutoRegisterError] = useState(null)
+  // ===== 注册窗口（部署期：仅窗口开启期间新设备上报可携公钥注册入池） + 设备身份验签强制开关 =====
+  const [regWindow, setRegWindow] = useState(null) // null = 未加载；{ open, opened_at, ttl_minutes, closes_at, remaining_seconds }
+  const [windowBusy, setWindowBusy] = useState(false)
+  const [windowError, setWindowError] = useState(null)
+  const [ttlChoice, setTtlChoice] = useState('30')
+  const [countdown, setCountdown] = useState(0) // 本地逐秒递减的剩余秒数（以服务端 remaining_seconds 为基准）
+  const [enforcement, setEnforcementState] = useState(null)
+  const [enforcementBusy, setEnforcementBusy] = useState(false)
 
   // ===== 页面介绍弹层 =====
   const [guideOpen, setGuideOpen] = useState(false)
@@ -144,12 +155,22 @@ export default function Devices() {
     fetchDevices()
   }, [fetchDevices])
 
-  const fetchAutoRegister = useCallback(async () => {
+  const fetchRegistrationWindow = useCallback(async () => {
     try {
-      const res = await getAutoRegister()
-      setAutoRegisterState(res.enabled)
+      const res = await getRegistrationWindow()
+      setRegWindow(res)
+      setCountdown(res.open ? res.remaining_seconds : 0)
     } catch (e) {
-      setAutoRegisterError(e.message)
+      setWindowError(e.message)
+    }
+  }, [])
+
+  const fetchEnforcement = useCallback(async () => {
+    try {
+      const res = await getEnforcement()
+      setEnforcementState(res.enabled)
+    } catch (e) {
+      setWindowError(e.message)
     }
   }, [])
 
@@ -181,20 +202,62 @@ export default function Devices() {
   }, [])
 
   useEffect(() => {
-    fetchAutoRegister()
-  }, [fetchAutoRegister])
+    fetchRegistrationWindow()
+    fetchEnforcement()
+  }, [fetchRegistrationWindow, fetchEnforcement])
 
-  // 切换全局自动注册开关：false 后新 MAC 不再自动入池（已入池/已绑定设备不受影响）
-  const handleToggleAutoRegister = async () => {
-    setAutoRegisterBusy(true)
-    setAutoRegisterError(null)
+  // 窗口开启期间每秒递减倒计时；归零后重新拉取（后端 TTL 到期懒计算关闭）
+  useEffect(() => {
+    if (!regWindow?.open) return undefined
+    const iv = setInterval(() => setCountdown((c) => c - 1), 1000)
+    return () => clearInterval(iv)
+  }, [regWindow?.open])
+
+  useEffect(() => {
+    if (regWindow?.open && countdown <= 0) fetchRegistrationWindow()
+  }, [countdown, regWindow?.open, fetchRegistrationWindow])
+
+  // 开启注册窗口：窗口开启期间新设备上报可携公钥自动注册入池（TTL 到期自动关闭）
+  const handleOpenWindow = async () => {
+    setWindowBusy(true)
+    setWindowError(null)
     try {
-      const res = await setAutoRegister(!autoRegister)
-      setAutoRegisterState(res.enabled)
+      const res = await openRegistrationWindow(Number(ttlChoice))
+      setRegWindow(res)
+      setCountdown(res.remaining_seconds || 0)
     } catch (e) {
-      setAutoRegisterError(e.message)
+      setWindowError(e.message)
     } finally {
-      setAutoRegisterBusy(false)
+      setWindowBusy(false)
+    }
+  }
+
+  // 提前关闭注册窗口：窗口期外上报只记指纹不入池（已入池/已绑定设备不受影响）
+  const handleCloseWindow = async () => {
+    setWindowBusy(true)
+    setWindowError(null)
+    try {
+      await closeRegistrationWindow()
+      setRegWindow({ open: false, opened_at: null, ttl_minutes: null, closes_at: null, remaining_seconds: 0 })
+      setCountdown(0)
+    } catch (e) {
+      setWindowError(e.message)
+    } finally {
+      setWindowBusy(false)
+    }
+  }
+
+  // 切换设备身份验签强制开关：开启后 /boot-vars 只向验签通过的已绑定设备下发
+  const handleToggleEnforcement = async () => {
+    setEnforcementBusy(true)
+    setWindowError(null)
+    try {
+      const res = await setEnforcement(!enforcement)
+      setEnforcementState(res.enabled)
+    } catch (e) {
+      setWindowError(e.message)
+    } finally {
+      setEnforcementBusy(false)
     }
   }
 
@@ -344,6 +407,13 @@ export default function Devices() {
   const byPoolOrder = (d) => {
     const t = Date.parse(d.first_seen)
     return Number.isFinite(t) ? t : Number.MAX_SAFE_INTEGER
+  }
+
+  // 注册窗口倒计时 mm:ss 格式化
+  const fmtCountdown = (sec) => {
+    const m = Math.floor(Math.max(0, sec) / 60)
+    const s = Math.max(0, sec) % 60
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
   }
 
   // 图形化：池中未绑定设备（与主列表同序，按入池时间）+ 未绑定设备、可接收绑定的 Worker
@@ -921,24 +991,56 @@ export default function Devices() {
         </div>
       )}
 
-      <div className="workers-toolbar">
-        <button
-          className={`auto-register-toggle ${autoRegister ? 'art-on' : 'art-off'}`}
-          onClick={handleToggleAutoRegister}
-          disabled={autoRegister === null || autoRegisterBusy}
-          title={t('devices.autoRegister.hint')}
+      {/* 注册窗口面板：部署期开启窗口供新设备携公钥注册入池；窗口关闭后上报只记指纹不入池 */}
+      <div className="reg-window-panel">
+        <div className="reg-window-head">
+          <span className="reg-window-title">{t('devices.regWindow.title')}</span>
+          <Badge variant={regWindow?.open ? 'ok' : 'default'}>
+            {regWindow?.open ? t('devices.regWindow.open') : t('devices.regWindow.closed')}
+          </Badge>
+        </div>
+        <div className="reg-window-body">
+          {regWindow?.open ? (
+            <>
+              <span className="reg-window-countdown" title={t('devices.regWindow.countdownHint')}>
+                {t('devices.regWindow.remaining', { time: fmtCountdown(countdown) })}
+              </span>
+              <Button variant="danger" onClick={handleCloseWindow} disabled={windowBusy}>
+                {t('devices.regWindow.closeBtn')}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Select
+                label=""
+                name="reg-ttl"
+                value={ttlChoice}
+                onChange={(e) => setTtlChoice(e.target.value)}
+                options={TTL_OPTIONS(t)}
+                style={{ minWidth: 110 }}
+              />
+              <Button variant="primary" onClick={handleOpenWindow} disabled={windowBusy}>
+                {t('devices.regWindow.openBtn')}
+              </Button>
+            </>
+          )}
+        </div>
+        <label
+          className={`reg-window-enforce${enforcement ? ' rwe-on' : ''}`}
+          title={t('devices.regWindow.enforceHint')}
         >
-          <span className="art-dot" />
-          {t('devices.autoRegister.label')}:{' '}
-          {autoRegister === null
-            ? t('devices.autoRegister.unknown')
-            : autoRegister
-              ? t('devices.autoRegister.on')
-              : t('devices.autoRegister.off')}
-        </button>
-        {autoRegisterError && (
-          <span className="workers-toolbar-error">{autoRegisterError}</span>
-        )}
+          <input
+            type="checkbox"
+            checked={enforcement === true}
+            onChange={handleToggleEnforcement}
+            disabled={enforcement === null || enforcementBusy}
+          />
+          <span>{t('devices.regWindow.enforce')}</span>
+        </label>
+        {windowError && <span className="workers-toolbar-error">{windowError}</span>}
+      </div>
+
+      <div className="workers-toolbar">
         <Select
           label=""
           name="state"
@@ -1124,7 +1226,7 @@ export default function Devices() {
           <div className="guide-panel" onClick={(e) => e.stopPropagation()}>
             <div className="guide-panel-title">{t('devices.guide.title')}</div>
             {[
-              ['autoRegisterTitle', 'autoRegisterBody'],
+              ['regWindowTitle', 'regWindowBody'],
               ['filterTitle', 'filterBody'],
               ['actionsTitle', 'actionsBody'],
               ['columnsTitle', 'columnsBody'],

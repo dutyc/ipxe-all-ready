@@ -381,40 +381,62 @@
   cursor: help;
 }
 
-/* ===== 全局自动注册开关 ===== */
-.auto-register-toggle {
+/* ===== 注册窗口面板 ===== */
+.reg-window-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--gray-300);
+  background: var(--gray-25);
+}
+
+.reg-window-head {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-family: var(--font-sans);
+}
+
+.reg-window-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-900);
+}
+
+.reg-window-body {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.reg-window-countdown {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-900);
+  cursor: help;
+}
+
+.reg-window-enforce {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
   font-size: 12px;
   font-weight: 600;
-  padding: 9px 14px;
-  border: 1px solid var(--gray-300);
+  color: var(--gray-600);
   cursor: pointer;
   white-space: nowrap;
-  background: var(--gray-25);
-  color: var(--gray-600);
 }
 
-.auto-register-toggle.art-on {
-  background: var(--gray-900);
-  border-color: var(--gray-900);
-  color: var(--white);
+.reg-window-enforce input {
+  accent-color: var(--gray-900);
+  cursor: pointer;
 }
 
-.auto-register-toggle .art-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--gray-400);
-}
-
-.auto-register-toggle.art-on .art-dot {
-  background: var(--white);
-}
-
-.auto-register-toggle:disabled {
+.reg-window-enforce:has(input:disabled) {
   opacity: 0.6;
   cursor: not-allowed;
 }

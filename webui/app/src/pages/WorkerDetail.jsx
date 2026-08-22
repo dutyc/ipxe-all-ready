@@ -425,6 +425,7 @@ export default function WorkerDetail() {
             <Card className="detail-card" key={d.iqn || `disk-${i}`}>
               <InfoRow label={t('workerDetail.os')} value={d.os} />
               <InfoRow label={t('workerDetail.agent')} value={d.agent} mono />
+              {d.nqn && <InfoRow label={t('workerDetail.nqn')} value={d.nqn} mono />}
               <InfoRow label={t('workerDetail.iqn')} value={d.iqn} mono />
               <InfoRow label={t('workerDetail.filename')} value={d.filename} mono />
               <InfoRow label={t('workerDetail.backing')} value={d.backing} mono />
