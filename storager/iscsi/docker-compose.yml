@@ -1,0 +1,64 @@
+# iSCSI 后端独立编排（stgt 用户态 / lio 内核态，二选一）；与 nvmeof/ 互斥（同一节点同一时刻仅一个后端）。
+# 部署：cd storager/iscsi && docker compose --env-file ../.env up -d
+# 本文件为完整编排：含共享 Agent 服务（代码在 storager/agent/，配置来自 storager/.env）。
+# 注：storager-agent 服务块与 storager/nvmeof/docker-compose.yml 保持一致。
+
+services:
+  # storager-iscsi:
+  #   build:
+  #     context: ./stgt
+  #     dockerfile: Dockerfile
+  #   image: ipxe-stgt
+  #   container_name: storager-iscsi
+  #   restart: unless-stopped
+  #   network_mode: host
+  #   volumes:
+  #     - /etc/localtime:/etc/localtime:ro
+  #     - /pool1/iscsi_img:/home/iscsi_img
+
+
+  # ── iSCSI 存储后端（默认 LIO）──
+  # 内核态 LIO target（生产推荐）：需 privileged + /sys/kernel/config 挂载
+  # 如需用户态 stgt（支持 CD/ISO），取消上方注释块并改为 ./stgt
+  storager-iscsi:
+    build:
+      context: ./lio
+      dockerfile: Dockerfile
+    image: ipxe-lio
+    container_name: storager-iscsi
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+    volumes:
+      - /sys/kernel/config:/sys/kernel/config
+      - /etc/localtime:/etc/localtime:ro
+      - /lib/modules:/lib/modules:ro
+      - /pool1/iscsi_img:/home/iscsi_img
+      - ./lio/etc/target:/etc/rtslib-fb-target
+    command:
+      - sh
+      - -c
+      - |
+        mkdir -p /run/dbus
+        dbus-uuidgen --ensure || true      # 补 machine-id，
+        dbus-daemon --system --fork        # 起总线
+        targetclid                         # 起管理守
+        sleep infinity                     # 兜底占住前台
+
+  # ── 存储节点 Agent（控制面数据面接口）──
+  # 经 docker.sock 调度 storager-iscsi 容器；配置来源：storager/.env（从 .env.example 复制后修改）
+  storager-agent:
+    build:
+      context: ../agent
+      dockerfile: Dockerfile
+    image: storager-agent
+    container_name: storager-agent
+    restart: unless-stopped
+    ports:
+      - "4840:8080"                    # 控制面 HTTP，给 Controller
+    env_file: ../.env
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock   # 用来 exec 进后端容器（stgt/lio 由 Agent 驱动）
+      - /etc/localtime:/etc/localtime:ro
+      - /pool1/iscsi_img:/home/iscsi_img            # 请修改为实际存储 img 硬盘的路径
+      - ../agent/logs:/var/log/ipxe-agent

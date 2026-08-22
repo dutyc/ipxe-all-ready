@@ -30,8 +30,21 @@ def _require_env(name: str) -> str:
     return val
 
 
+def nqn_to_iqn(nqn: str) -> str:
+    """NVMe NQN → iSCSI IQN（同后缀前缀变换，派生方向：NQN 权威，IQN 自动生成）：
+    nqn.2026-07.com.test:worker-01.ubuntu → iqn.2026-07.com.test:worker-01.ubuntu。
+    节点只配置 NQN 命名空间（IPXE_NQN_BASE），iSCSI 数据面消费的 IQN 由此派生。"""
+    nqn = nqn.strip().lower()
+    if nqn.startswith("iqn."):
+        return nqn
+    if nqn.startswith("nqn."):
+        return "iqn." + nqn[4:]
+    return "iqn." + nqn
+
+
 DISK_DIR = _require_env("IPXE_DISK_DIR")
-IQN_BASE = _require_env("IPXE_IQN_BASE")
+NQN_BASE = _require_env("IPXE_NQN_BASE")        # 权威：盘标识命名空间（NVMe-oF 首选协议）
+IQN_BASE = nqn_to_iqn(NQN_BASE)                 # 派生：iSCSI 数据面（同后缀前缀变换）
 BACKEND = _require_env("IPXE_BACKEND")
 TOKEN = _require_env("IPXE_AGENT_TOKEN")          # 必填，无默认值
 LOG_FILE = _require_env("IPXE_LOG_FILE")
@@ -513,7 +526,16 @@ def _make_backend() -> Backend:
         return StgtBackend()
     if BACKEND == "lio":
         return LioBackend()
-    raise RuntimeError(f"unknown IPXE_BACKEND: {BACKEND} (expect stgt|lio)")
+    if BACKEND == "nvmet":
+        # 宿主原生 nvmet（C4）：经 nvmet-host 服务调 configfs；env 按需读取，不影响其他后端
+        from .nvmet import NvmetBackend, NvmetCredentialCache, NvmetHostClient
+        host = NvmetHostClient(_require_env("IPXE_NVMET_HOST_URL"),
+                               _require_env("IPXE_NVMET_HOST_TOKEN"))
+        cache_path = os.environ.get("IPXE_NVMET_CACHE_FILE") or \
+            os.path.join(os.path.dirname(LOG_FILE), "nvmet-credentials.json")
+        cache = NvmetCredentialCache(host, cache_path)
+        return NvmetBackend(host, cache, DISK_DIR, NQN_BASE)
+    raise RuntimeError(f"unknown IPXE_BACKEND: {BACKEND} (expect stgt|lio|nvmet)")
 
 
 backend = _make_backend()
@@ -522,17 +544,37 @@ backend = _make_backend()
 def _startup() -> None:
     backend.wait_ready()
     result = backend.startup()
-    if result is not None:                       # stgt 返回 scan 结果，lio 返回 None
+    if result is not None:                       # stgt/nvmet 返回 scan 结果，lio 返回 None
         oplog.record("auto_scan", {}, "ok", "local",
                      created=len(result.get("created", [])),
                      skipped=len(result.get("skipped", [])))
+
+
+_reconcile_stop = threading.Event()
+
+
+def _reconcile_loop() -> None:
+    """nvmet 凭据缓存周期重放（仅 nvmet 后端）：覆盖宿主服务不可达窗口的推送丢失。"""
+    from .nvmet import NvmetBackend
+    if not isinstance(backend, NvmetBackend):
+        return
+    log.info(f"nvmet credential reconcile loop started: interval={backend.cache.interval}s")
+    while not _reconcile_stop.wait(backend.cache.interval):
+        try:
+            result = backend.cache.reconcile()
+            if result["failed"]:
+                log.warning(f"nvmet credential reconcile: applied={result['applied']} "
+                            f"failed={result['failed']}")
+        except Exception as exc:
+            log.warning(f"nvmet credential reconcile failed: {exc}")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     threading.Thread(target=_startup, daemon=True).start()
     masters.start()
-    log.info(f"agent started: backend={BACKEND}, base IQN={IQN_BASE}")
+    threading.Thread(target=_reconcile_loop, daemon=True).start()
+    log.info(f"agent started: backend={BACKEND}, base NQN={NQN_BASE}")
     yield
 
 
@@ -551,10 +593,34 @@ class CdReq(BaseModel):
     iso: str
     iqn: Optional[str] = None
 
+class CredentialPushReq(BaseModel):
+    """NVMe-oF 凭据推送（控制面驱动，仅 nvmet 后端）：
+    secret=null 吊销该 worker；sub_nqns = 该 worker 在本节点的盘子系统 NQN，host_nqns = 绑定设备派生 NQN。"""
+    worker_id: str
+    secret: Optional[str] = None
+    sub_nqns: list = []
+    host_nqns: list = []
+
 
 @app.get("/healthz")                             # 唯一不保护的接口，给健康检查/探活
 def healthz():
     return {"status": "ok"}
+
+
+@app.post("/credential", dependencies=[Depends(verify_token)])
+def push_credential(req: CredentialPushReq, request: Request):
+    """NVMe-oF 凭据推送（控制面驱动，仅 nvmet 后端）：更新缓存 + 转调宿主服务同步 hosts 矩阵。
+    secret=null 吊销该 worker 全部绑定设备认证；审计不记密钥本体。"""
+    from .nvmet import NvmetBackend, NvmetHostError
+    if not isinstance(backend, NvmetBackend):
+        raise HTTPException(400, "credential push requires IPXE_BACKEND=nvmet")
+    req_dict = {"worker_id": req.worker_id, "secret": bool(req.secret),
+                "sub_nqns": req.sub_nqns, "host_nqns": req.host_nqns}
+    with logged("credential", req_dict, request.client.host):
+        try:
+            return backend.cache.apply(req.worker_id, req.secret, req.sub_nqns, req.host_nqns)
+        except NvmetHostError as exc:
+            raise HTTPException(503, f"nvmet host error: {exc.detail}") from exc
 
 
 @app.post("/lun/disk", dependencies=[Depends(verify_token)])
@@ -639,7 +705,8 @@ def list_masters():
 @app.get("/capabilities", dependencies=[Depends(verify_token)])
 def capabilities():
     caps = backend.capabilities()
-    caps["base_iqn"] = IQN_BASE
+    # 盘标识命名空间权威 = NQN（控制面建盘生成盘 NQN 依赖此键；iSCSI 数据面 IQN 由 NQN 派生）
+    caps["base_nqn"] = NQN_BASE
     # 文件系统类型决定克隆方式：btrfs / ZFS(>=2.2 同数据集) / xfs(reflink 特性) 走 FICLONE 秒级，其余回退全量拷贝
     fs = _fs_type(DISK_DIR)
     caps["fs_type"] = fs

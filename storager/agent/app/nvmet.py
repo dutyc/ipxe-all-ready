@@ -1,0 +1,308 @@
+"""NVMe-oF 后端（C4，2026-08-22 裁定：宿主原生 nvmet + Agent HTTP 调用）。
+
+组件（按依赖顺序）：
+- NvmetHostClient：urllib 标准库 HTTP 客户端（不加依赖），token = IPXE_NVMET_HOST_TOKEN
+- NvmetCredentialCache：按 Worker 跟盘的凭据缓存（JSON 落盘 0600）+ hosts 矩阵同步与幂等重放
+- NvmetBackend：Backend 接口的第三实现（不继承基类——基类 __init__ 初始化 docker 客户端，
+  本后端无 docker 依赖，且直接继承会与 main 循环 import；接口契约与 StgtBackend/LioBackend 一致：
+  create/delete/list/capabilities/wait_ready/scan/startup）
+
+数据流（控制面推送驱动）：
+控制面（凭据设置/设备换绑/盘变更）→ Agent POST /credential → apply() 更新缓存并转调宿主服务
+→ 宿主服务直写 configfs（hosts/<hostnqn>/dhchap_key + allowed_hosts）。
+reconcile() 幂等重放：Agent 启动（scan 后）+ 周期后台线程，覆盖宿主服务不可达窗口。
+契约：blueprint/nvmeof-credential-design.md 第 6 节。
+"""
+
+import json
+import logging
+import os
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from typing import Any
+
+from fastapi import HTTPException
+
+log = logging.getLogger("agent")
+
+
+class NvmetHostError(Exception):
+    """nvmet-host 服务调用失败：status=0 表示不可达（无 HTTP 响应）。"""
+
+    def __init__(self, status: int, detail: str):
+        super().__init__(detail)
+        self.status = status
+        self.detail = detail
+
+
+def _quote(part: str) -> str:
+    return urllib.parse.quote(part, safe="")
+
+
+def _http_detail(exc: urllib.error.HTTPError) -> str:
+    try:
+        payload = json.loads(exc.read().decode("utf-8", errors="replace"))
+        if isinstance(payload, dict) and payload.get("detail"):
+            return str(payload["detail"])
+    except (ValueError, OSError):
+        pass
+    return f"HTTP {exc.code}"
+
+
+class NvmetHostClient:
+    """nvmet-host 宿主服务 HTTP 客户端（urllib 标准库，避免加依赖）。
+
+    本组件是宿主服务的唯一调用方（绑定 localhost + Bearer token）。"""
+
+    def __init__(self, base_url: str, token: str, timeout: float = 10.0):
+        self.base_url = base_url.rstrip("/")
+        self.token = token
+        self.timeout = timeout
+
+    def _request(self, method: str, path: str, body: dict | None = None) -> Any:
+        headers = {"Authorization": f"Bearer {self.token}"}
+        data = None
+        if body is not None:
+            data = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        req = urllib.request.Request(f"{self.base_url}{path}", data=data, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                raw = resp.read()
+                return json.loads(raw) if raw else None
+        except urllib.error.HTTPError as exc:
+            raise NvmetHostError(exc.code, _http_detail(exc)) from None
+        except (urllib.error.URLError, OSError) as exc:
+            raise NvmetHostError(0, f"nvmet host unreachable: {exc}") from None
+
+    def healthz(self) -> dict:
+        return self._request("GET", "/healthz") or {}
+
+    def capabilities(self) -> dict:
+        return self._request("GET", "/capabilities") or {}
+
+    def create_subsystem(self, nqn: str, backing: str) -> dict:
+        return self._request("POST", "/subsystems", {"nqn": nqn, "backing": backing}) or {}
+
+    def delete_subsystem(self, nqn: str) -> dict:
+        return self._request("DELETE", f"/subsystems/{_quote(nqn)}") or {}
+
+    def list_subsystems(self) -> list:
+        return (self._request("GET", "/subsystems") or {}).get("subsystems", [])
+
+    def set_host(self, nqn: str, hostnqn: str, secret: str) -> dict:
+        return self._request("PUT", f"/subsystems/{_quote(nqn)}/hosts",
+                             {"hostnqn": hostnqn, "secret": secret}) or {}
+
+    def delete_host(self, nqn: str, hostnqn: str) -> dict:
+        return self._request("DELETE", f"/subsystems/{_quote(nqn)}/hosts/{_quote(hostnqn)}") or {}
+
+
+class NvmetCredentialCache:
+    """按 Worker 跟盘的凭据缓存（控制面推送驱动）。
+
+    期望状态 {worker_id: {secret, sub_nqns, host_nqns}} 由控制面推送（POST /credential），
+    本缓存先落盘（0600 JSON，明文 DHHC-1——与控制面 credentials.yml 同等密级）再转调宿主服务；
+    宿主服务不可达时同步失败但缓存已更新，reconcile() 周期重放补上。
+    reconcile 遇子系统 404（盘已删且未收到清理推送）→ 移除过期条目，避免死重试。
+    """
+
+    def __init__(self, host: NvmetHostClient, path: str, interval: float = 60.0):
+        self.host = host
+        self.path = path
+        self.interval = interval
+        self.lock = threading.Lock()
+        self._entries: dict[str, dict[str, Any]] = {}
+        self._load()
+
+    def _load(self) -> None:
+        try:
+            with open(self.path, encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            data = {}
+        if isinstance(data, dict):
+            self._entries = {k: v for k, v in data.items() if isinstance(v, dict)}
+
+    def _save(self) -> None:
+        d = os.path.dirname(self.path)
+        if d:
+            os.makedirs(d, exist_ok=True)
+        tmp = f"{self.path}.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(self._entries, f, ensure_ascii=False, sort_keys=True)
+        os.replace(tmp, self.path)
+        try:
+            os.chmod(self.path, 0o600)
+        except OSError:
+            pass
+
+    def apply(self, worker_id: str, secret: str | None, sub_nqns: list[str], host_nqns: list[str]) -> dict:
+        """应用控制面推送的期望状态：更新缓存（secret=None 移除条目）→ 落盘 → 同步宿主服务。"""
+        with self.lock:
+            if secret:
+                self._entries[worker_id] = {"secret": secret,
+                                            "sub_nqns": list(sub_nqns), "host_nqns": list(host_nqns)}
+            else:
+                self._entries.pop(worker_id, None)
+            self._save()
+            return self._sync(worker_id, secret, sub_nqns, host_nqns)
+
+    def reconcile(self) -> dict:
+        """幂等重放全部缓存条目（Agent 启动 scan 后 + 周期线程）。"""
+        with self.lock:
+            applied, failed = 0, 0
+            for worker_id, entry in list(self._entries.items()):
+                try:
+                    self._sync(worker_id, entry.get("secret"),
+                               entry.get("sub_nqns", []), entry.get("host_nqns", []))
+                    applied += 1
+                except NvmetHostError as exc:
+                    if exc.status == 404:
+                        self._entries.pop(worker_id, None)  # 子系统已删：过期条目，丢弃
+                        self._save()
+                        log.info(f"credential cache: dropped stale entry worker={worker_id}")
+                        applied += 1
+                    else:
+                        log.warning(f"credential reconcile failed: worker={worker_id}: {exc.detail}")
+                        failed += 1
+            return {"applied": applied, "failed": failed}
+
+    def _sync(self, worker_id: str, secret: str | None, sub_nqns: list[str], host_nqns: list[str]) -> dict:
+        """同步单个 worker 的 hosts 矩阵：secret 非空 → set_host；空 → delete_host（404 幂等视为成功）。"""
+        for sub in sub_nqns:
+            for host in host_nqns:
+                if secret:
+                    self.host.set_host(sub, host, secret)
+                else:
+                    try:
+                        self.host.delete_host(sub, host)
+                    except NvmetHostError as exc:
+                        if exc.status != 404:
+                            raise
+        return {"worker_id": worker_id, "secret": bool(secret),
+                "sub_count": len(sub_nqns), "host_count": len(host_nqns)}
+
+
+def to_nqn(iqn: str) -> str:
+    """盘 IQN 形态 → NVMe NQN（同后缀前缀变换）。
+    盘标识权威 = NQN（NVMe-oF 首选），IQN 由 NQN 派生；create/delete 入参为控制面传的
+    派生 IQN 形态，此处还原为 NQN 写 configfs（NVMe Base Spec §7.9 要求 nqn. 前缀，
+    发起端拒绝 iqn. 前缀的子系统 NQN）。"""
+    iqn = iqn.strip().lower()
+    if iqn.startswith("nqn."):
+        return iqn
+    if iqn.startswith("iqn."):
+        return "nqn." + iqn[4:]
+    return "nqn." + iqn
+
+
+def nqn_to_iqn(nqn: str) -> str:
+    """NVMe NQN → iSCSI IQN（同后缀前缀变换，派生方向：NQN 权威，IQN 自动生成）。"""
+    nqn = nqn.strip().lower()
+    if nqn.startswith("iqn."):
+        return nqn
+    if nqn.startswith("nqn."):
+        return "iqn." + nqn[4:]
+    return "iqn." + nqn
+
+
+class NvmetBackend:
+    """nvmet 后端（宿主原生，第三实现）。
+
+    不继承 Backend 基类（其 __init__ 初始化 docker 客户端，本后端无 docker 依赖；
+    直接继承会与 main 循环 import）——接口契约与 StgtBackend/LioBackend 一致，
+    由 main._make_backend 按 IPXE_BACKEND=nvmet 分支实例化。
+    子系统标识使用 NQN（盘标识权威）：入参 iqn 为控制面盘标识的派生形态（由盘 NQN 同后缀
+    变换而来），内部经 to_nqn 还原为 NQN 写入 configfs（nvmet 不接受 iqn. 前缀的子系统 NQN）。"""
+
+    def __init__(self, host: NvmetHostClient, cache: NvmetCredentialCache,
+                 disk_dir: str, nqn_base: str):
+        self.host = host
+        self.cache = cache
+        self.disk_dir = disk_dir
+        self.nqn_base = nqn_base.rstrip(":")
+        self.iqn_base = nqn_to_iqn(self.nqn_base)  # 派生：scan 候选标识（iSCSI 形态）
+
+    def create_target(self, iqn: str, backing: str, cd: bool) -> None:
+        if cd:
+            raise HTTPException(400, "nvmet backend does not support cd (ISO optical drive); use stgt for cd")
+        try:
+            self.host.create_subsystem(to_nqn(iqn), backing)
+        except NvmetHostError as exc:
+            if exc.status == 409:
+                raise HTTPException(409, exc.detail) from exc
+            raise HTTPException(503, f"nvmet host error: {exc.detail}") from exc
+
+    def delete_target(self, iqn: str) -> None:
+        try:
+            self.host.delete_subsystem(to_nqn(iqn))
+        except NvmetHostError as exc:
+            if exc.status == 404:
+                raise HTTPException(404, exc.detail) from exc
+            raise HTTPException(503, f"nvmet host error: {exc.detail}") from exc
+
+    def list_targets(self) -> list:
+        try:
+            subs = self.host.list_subsystems()
+        except NvmetHostError as exc:
+            raise HTTPException(503, f"nvmet host error: {exc.detail}") from exc
+        # nvmet 的 target 标识 = 子系统 NQN：nqn 键语义正确，iqn 键保留历史接口契约
+        return [{"iqn": s["nqn"], "nqn": s["nqn"],
+                 "luns": [{"lun": ns.get("nsid"), "backing": ns.get("device_path")}
+                          for ns in s.get("namespaces", [])]}
+                for s in subs]
+
+    def capabilities(self) -> dict:
+        try:
+            caps = self.host.capabilities()
+        except NvmetHostError as exc:
+            raise HTTPException(503, f"nvmet host error: {exc.detail}") from exc
+        # 宿主服务不知道 IPXE_NQN_BASE：本地补 base_nqn（控制面建盘生成盘 NQN 依赖此键）
+        caps["base_nqn"] = self.nqn_base
+        return caps
+
+    def wait_ready(self, retries: int = 30, interval: int = 2) -> None:
+        for i in range(retries):
+            try:
+                if self.host.healthz().get("configfs"):
+                    return
+            except NvmetHostError:
+                pass
+            log.info(f"waiting nvmet host ready... ({i+1}/{retries})")
+            time.sleep(interval)
+        raise RuntimeError("nvmet host not ready after retries")
+
+    def scan(self) -> dict:
+        names = [n for n in os.listdir(self.disk_dir) if n.lower().endswith((".img", ".iso"))]
+        created, skipped = [], []
+        # 子系统标识是 NQN（list_targets 返回）：existing 集合统一 NQN 形态
+        existing = {t.get("nqn") or t.get("iqn") for t in self.list_targets()}
+        for name in names:
+            if name.lower().endswith(".iso"):
+                log.info(f"nvmet skips iso (cd unsupported): {name}")
+                skipped.append(f"{self.iqn_base}:{name}".lower())
+                continue
+            iqn = f"{self.iqn_base}:{name.rsplit('.', 1)[0]}".lower()
+            if to_nqn(iqn) in existing:
+                skipped.append(iqn)
+                continue
+            try:
+                self.create_target(iqn, f"{self.disk_dir}/{name}", cd=False)
+            except HTTPException as exc:
+                log.error(f"scan create failed for {name}: {exc.detail}")
+                continue
+            existing.add(to_nqn(iqn))
+            created.append({"iqn": iqn, "cd": False})
+        return {"created": created, "skipped": skipped}
+
+    def startup(self) -> dict | None:
+        result = self.scan()
+        res = self.cache.reconcile()
+        log.info(f"nvmet auto-scan done: created={len(result['created'])} "
+                 f"skipped={len(result['skipped'])}; credential reconcile: "
+                 f"applied={res['applied']} failed={res['failed']}")
+        return result

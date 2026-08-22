@@ -1,0 +1,19 @@
+# nvmet-host：NVMe-oF 配置面管理服务（容器形态）
+#
+# 内核 nvmet target 始终在宿主（modprobe nvmet nvmet-tcp + 挂载 configfs），
+# 本镜像只承载 Python 管理进程：bind mount /sys/kernel/config 后，容器内 root
+# 写 configfs 是普通文件操作，无需 privileged（与 LIO 的 targetclid/dbus 依赖无关）。
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY app ./app
+
+# 仅供文档提示；实际经 compose 端口映射（127.0.0.1:4841）与内部网络访问
+EXPOSE 4841
+
+# 监听地址由 compose 注入 NVMET_HOST_ADDR（容器内 0.0.0.0，对外仅 loopback 映射）
+CMD ["python", "-m", "app.main"]

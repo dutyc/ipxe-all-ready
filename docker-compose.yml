@@ -52,6 +52,8 @@ services:
     container_name: ipxe-cp-webui
     ports:
       - "4838:80"
+      # 宿主 HTTPS 入口端口可配（默认 443）：改这里时需同步 tftp/boot.ipxe.cfg 的 set https-port
+      - "${IPXE_HTTPS_PORT:-443}:443"
     volumes:
       - /etc/localtime:/etc/localtime:ro
       # ── Web UI 静态文件 (cd app && npm run build) ──
@@ -60,6 +62,10 @@ services:
       - ./webui/deploy/www/browse:/usr/share/nginx/browse:ro
       # ── iPXE 公开文件目录: ISO, kernel, initrd (被浏览和下载的数据) ──
       - ./webui/deploy/public:/data:ro
+      # ── TOFU 自签证书（控制面启动时自动生成到 state/certs，私钥不入库；nginx 只读挂载）──
+      - ./control_plane/state/certs:/etc/nginx/certs:ro
+      # ── iPXE 菜单/覆盖脚本 HTTPS 同源 (与 dnsmasq TFTP 同一目录) ──
+      - ./tftp:/tftp:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped

@@ -1,0 +1,330 @@
+"""NVMe-oF 认证凭据端点测试（C1）：DHHC-1 自检矩阵、CRUD、幂等、鉴权、审计不泄露密钥本体。"""
+
+import base64
+import json
+import zlib
+
+import pytest
+
+from control_plane.app.config import settings
+from control_plane.app.routers.workers import _secret_hash, _validate_dhhc1
+
+MAC_A = "00:11:22:33:44:55"
+
+
+def make_secret(key: bytes = b"0123456789abcdef0123456789abcdef") -> str:
+    """生成合法 DHHC-1 密钥（蓝图 2.1 契约：DHHC-1:01:<base64(key+CRC32 小端终值)>）。"""
+    return "DHHC-1:01:" + base64.b64encode(key + zlib.crc32(key).to_bytes(4, "little")).decode()
+
+
+def _create_worker(client, auth_headers, worker_id: str = "worker-01") -> None:
+    res = client.post("/workers", json={"worker_id": worker_id}, headers=auth_headers)
+    assert res.status_code == 201
+
+
+# ============================ DHHC-1 自检矩阵 ============================
+
+
+def test_validate_dhhc1_accepts_valid():
+    _validate_dhhc1(make_secret())
+    # 64 字节密钥（SHA-512 形态，68 总长）同样合法
+    _validate_dhhc1(make_secret(b"k" * 64))
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "DHHC-2:01:AAAA",            # 前缀错误
+        "DHHC-1:01",                 # 无 base64 段
+        "DHHC-1:1:" + base64.b64encode(b"x" * 36).decode(),   # 类型一位数
+        "DHHC-1:01:" + base64.b64encode(b"x" * 16).decode(),  # 长度错（16 字节）
+        "DHHC-1:01:" + base64.b64encode(b"x" * 40).decode(),  # 长度错（40 字节）
+        "DHHC-1:01:@@@",             # base64 非法字符
+        "DHHC-1:01:" + base64.b64encode(b"x" * 36).decode(),  # CRC 非终值
+        "not-a-secret",              # 无前缀
+    ],
+)
+def test_validate_dhhc1_rejects_invalid(bad):
+    with pytest.raises(ValueError):
+        _validate_dhhc1(bad)
+
+
+def test_secret_hash_prefix_audit_only():
+    secret = make_secret()
+    h = _secret_hash(secret)
+    assert h.startswith("sha256:")
+    assert len(h) == len("sha256:") + 64
+
+
+# ============================ API 端点 ============================
+
+
+def test_set_get_delete_roundtrip(client, auth_headers):
+    _create_worker(client, auth_headers)
+    secret = make_secret()
+
+    res = client.put("/workers/worker-01/credential", json={"secret": secret}, headers=auth_headers)
+    assert res.status_code == 200
+    meta = res.json()
+    assert meta["exists"] is True
+    assert meta["secret_hash"].startswith("sha256:")
+    assert "secret" not in meta
+
+    # GET 不返回明文，只给哈希前缀
+    res = client.get("/workers/worker-01/credential", headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json()["secret_hash"] == meta["secret_hash"]
+    assert secret not in res.text
+
+    # 落盘文件含明文（注入必需）与哈希
+    data = settings.credentials_file.read_text(encoding="utf-8")
+    assert secret in data
+    assert "sha256:" in data
+
+    res = client.delete("/workers/worker-01/credential", headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json()["deleted"] is True
+
+    res = client.get("/workers/worker-01/credential", headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json() == {"worker_id": "worker-01", "exists": False}
+
+    # 删除后再删 → 404
+    res = client.delete("/workers/worker-01/credential", headers=auth_headers)
+    assert res.status_code == 404
+
+
+def test_set_credential_worker_not_found(client, auth_headers):
+    res = client.put("/workers/nope/credential", json={"secret": make_secret()}, headers=auth_headers)
+    assert res.status_code == 404
+
+
+def test_set_credential_invalid_rejected(client, auth_headers):
+    _create_worker(client, auth_headers)
+    res = client.put("/workers/worker-01/credential", json={"secret": "DHHC-1:01:AAAA"}, headers=auth_headers)
+    assert res.status_code == 422
+    # 非法格式不落盘
+    if settings.credentials_file.exists():
+        assert "worker-01" not in settings.credentials_file.read_text(encoding="utf-8")
+
+
+def test_set_credential_idempotent(client, auth_headers):
+    _create_worker(client, auth_headers)
+    secret = make_secret()
+    first = client.put("/workers/worker-01/credential", json={"secret": secret}, headers=auth_headers).json()
+    second = client.put("/workers/worker-01/credential", json={"secret": secret}, headers=auth_headers).json()
+    assert second["updated_at"] == first["updated_at"]
+    assert second["created_at"] == first["created_at"]
+
+    # 换新密钥 → updated_at 变化，created_at 保留
+    new_secret = make_secret(b"y" * 32)
+    third = client.put("/workers/worker-01/credential", json={"secret": new_secret}, headers=auth_headers).json()
+    assert third["updated_at"] != first["updated_at"]
+    assert third["created_at"] == first["created_at"]
+
+
+def test_credential_requires_auth(client, auth_headers):
+    _create_worker(client, auth_headers)
+    res = client.put("/workers/worker-01/credential", json={"secret": make_secret()})
+    assert res.status_code == 401
+
+
+def test_credential_audit_no_secret(client, auth_headers):
+    _create_worker(client, auth_headers)
+    secret = make_secret()
+    client.put("/workers/worker-01/credential", json={"secret": secret}, headers=auth_headers)
+    client.get("/workers/worker-01/credential", headers=auth_headers)
+    client.delete("/workers/worker-01/credential", headers=auth_headers)
+
+    ops = settings.operations_file.read_text(encoding="utf-8")
+    assert "credential.set" in ops
+    assert "credential.get" in ops
+    assert "credential.revoke" in ops
+    assert secret not in ops  # 审计不记密钥本体
+
+
+# ============================ C2：/boot-vars 注入（按 Worker 跟盘） ============================
+
+
+def _bound_worker(client, auth_headers, register_claimed_device, worker_id="worker-01", mac=MAC_A):
+    """设备认领入池 + 绑定 worker（一对一）。"""
+    register_claimed_device(mac)
+    res = client.post("/workers", json={"worker_id": worker_id, "mac": mac}, headers=auth_headers)
+    assert res.status_code == 201
+    return worker_id
+
+
+def _bind_existing_worker(client, auth_headers, register_claimed_device, worker_id="worker-01", mac=MAC_A):
+    """设备认领入池 + 显式绑定已存在 worker（bind 端点是凭据推送触发点，create_worker 内部绑定不推送）。"""
+    register_claimed_device(mac)
+    res = client.post(f"/devices/{mac}/bind", params={"worker_id": worker_id}, headers=auth_headers)
+    assert res.status_code == 200
+    return worker_id
+
+
+def test_boot_vars_injects_nbft_secret(client, auth_headers, register_claimed_device):
+    _bound_worker(client, auth_headers, register_claimed_device)
+    secret = make_secret()
+    client.put("/workers/worker-01/credential", json={"secret": secret}, headers=auth_headers)
+
+    res = client.get("/boot-vars", params={"mac": MAC_A, "hostname": "worker-01"})
+    assert res.status_code == 200
+    assert f"set nbft-secret {secret}" in res.text
+
+    # JSON 格式同样投影 nbft_secret
+    res = client.get("/boot-vars", params={"mac": MAC_A, "hostname": "worker-01", "format": "json"})
+    assert res.json()["nbft_secret"] == secret
+
+
+def test_boot_vars_no_secret_without_credential(client, auth_headers, register_claimed_device):
+    _bound_worker(client, auth_headers, register_claimed_device)
+    res = client.get("/boot-vars", params={"mac": MAC_A, "hostname": "worker-01"})
+    assert "nbft-secret" not in res.text
+
+
+def test_boot_vars_no_secret_unbound(client, auth_headers, register_claimed_device):
+    """设备入池未绑定：即使 worker 有密钥，带 mac 请求被冒领拒绝（空脚本，无注入）。"""
+    register_claimed_device(MAC_A)
+    client.post("/workers", json={"worker_id": "worker-01"}, headers=auth_headers)
+    client.put("/workers/worker-01/credential", json={"secret": make_secret()}, headers=auth_headers)
+
+    res = client.get("/boot-vars", params={"mac": MAC_A, "hostname": "worker-01"})
+    assert "nbft-secret" not in res.text
+
+
+def test_boot_vars_credential_audit(client, auth_headers, register_claimed_device):
+    _bound_worker(client, auth_headers, register_claimed_device)
+    secret = make_secret()
+    client.put("/workers/worker-01/credential", json={"secret": secret}, headers=auth_headers)
+    client.get("/boot-vars", params={"mac": MAC_A, "hostname": "worker-01"})
+
+    ops = settings.operations_file.read_text(encoding="utf-8")
+    assert "boot_vars.credential" in ops
+    assert '"injected": true' in ops
+    assert secret not in ops  # 审计不记密钥本体
+
+
+# ============================ C4：控制面推送驱动（Agent 转调宿主服务） ============================
+
+HOST_NQN_FALLBACK = "nqn.2014-08.org.ipxe:ipxe"
+# 盘标识权威 = NQN（控制面 build_nqn 生成盘 NQN，IQN 由 NQN 派生；推送 sub_nqns 用 NQN）
+DISK_NQN = "nqn.2026-07.com.test:worker-01.ubuntu"
+DISK_IQN = "iqn." + DISK_NQN[4:]
+
+
+def _setup_agent_and_disk(client, auth_headers, worker_id="worker-01") -> dict:
+    """注册 disk agent + 空转 worker + 建系统盘（mock_agent_client 接管 Agent 调用）。"""
+    res = client.post("/agents", json={
+        "id": "ag-01", "base_url": "http://ag-01:8000", "token": "t",
+        "role": {"disk": True, "cd": False}, "tags": ["storage", "stgt"],
+    }, headers=auth_headers)
+    assert res.status_code == 201, res.text
+    client.post("/workers", json={"worker_id": worker_id}, headers=auth_headers)
+    res = client.post(f"/workers/{worker_id}/luns/disk", json={
+        "type": "master", "os": "ubuntu", "name": "ubuntu-24.04-master",
+    }, headers=auth_headers)
+    assert res.status_code == 201, res.text
+    return res.json()
+
+
+def test_push_on_credential_set(client, auth_headers, register_claimed_device, mock_agent_client):
+    """PUT credential → 向持盘 Agent 推送 {secret, sub_nqns, host_nqns}（审计不记密钥）。"""
+    _setup_agent_and_disk(client, auth_headers)
+    _bind_existing_worker(client, auth_headers, register_claimed_device)
+    secret = make_secret()
+    pushes = []
+    mock_agent_client.set_credential = lambda w, s, subs, hosts: pushes.append((w, s, subs, hosts)) or {}
+
+    res = client.put("/workers/worker-01/credential", json={"secret": secret}, headers=auth_headers)
+    assert res.status_code == 200
+    assert pushes == [( "worker-01", secret, [DISK_NQN], [HOST_NQN_FALLBACK] )]
+    ops = settings.operations_file.read_text(encoding="utf-8")
+    assert '"credential.push"' in ops
+    assert secret not in ops
+
+
+def test_push_on_credential_revoke(client, auth_headers, register_claimed_device, mock_agent_client):
+    """DELETE credential → 推送 secret=None（吊销该 worker 认证）。"""
+    _setup_agent_and_disk(client, auth_headers)
+    _bind_existing_worker(client, auth_headers, register_claimed_device)
+    client.put("/workers/worker-01/credential", json={"secret": make_secret()}, headers=auth_headers)
+    pushes = []
+    mock_agent_client.set_credential = lambda w, s, subs, hosts: pushes.append((w, s, subs, hosts)) or {}
+
+    res = client.delete("/workers/worker-01/credential", headers=auth_headers)
+    assert res.status_code == 200
+    assert pushes == [("worker-01", None, [DISK_NQN], [HOST_NQN_FALLBACK])]
+
+
+def test_push_host_nqn_derives_from_device_uuid(client, auth_headers, mock_agent_client):
+    """绑定设备带 UUID：Host NQN 按 UUID 派生（nqn.2014-08.org.ipxe:<uuid>）。"""
+    _setup_agent_and_disk(client, auth_headers)
+    uuid = "550e8400-e29b-41d4-a716-446655440000"
+    res = client.post("/devices", json={"mac": MAC_A, "uuid": uuid}, headers=auth_headers)
+    assert res.status_code == 201
+    res = client.post(f"/devices/{MAC_A}/bind", params={"worker_id": "worker-01"}, headers=auth_headers)
+    assert res.status_code == 200
+    pushes = []
+    mock_agent_client.set_credential = lambda w, s, subs, hosts: pushes.append((w, s, subs, hosts)) or {}
+
+    client.put("/workers/worker-01/credential", json={"secret": make_secret()}, headers=auth_headers)
+    assert pushes[0][3] == [f"nqn.2014-08.org.ipxe:{uuid}"]
+
+
+def test_push_on_bind_unbind(client, auth_headers, register_claimed_device, mock_agent_client):
+    """绑定/解绑触发推送：host_nqns 随绑定设备变化（空 ↔ 设备派生 NQN）。
+
+    注：create_worker 带 mac 走内部 _bind_device（不推送，建 worker 时无凭据可言）；
+    显式 bind/unbind 端点才是推送触发点。
+    """
+    _setup_agent_and_disk(client, auth_headers)
+    register_claimed_device(MAC_A)
+    secret = make_secret()
+    client.put("/workers/worker-01/credential", json={"secret": secret}, headers=auth_headers)
+    pushes = []
+    mock_agent_client.set_credential = lambda w, s, subs, hosts: pushes.append((w, s, subs, hosts)) or {}
+
+    res = client.post(f"/devices/{MAC_A}/bind", params={"worker_id": "worker-01"}, headers=auth_headers)
+    assert res.status_code == 200
+    assert pushes[-1][3] == [HOST_NQN_FALLBACK]  # 设备无 UUID → 回退共享 Host NQN
+
+    res = client.delete(f"/devices/{MAC_A}/bind", headers=auth_headers)
+    assert res.status_code == 200
+    assert pushes[-1] == ("worker-01", secret, [DISK_NQN], [])  # 解绑后 host_nqns 清空，密钥不变
+
+
+def test_push_on_disk_create(client, auth_headers, register_claimed_device, mock_agent_client):
+    """建盘触发推送：新子系统立即登记 hosts（worker 已有密钥时）。"""
+    res = client.post("/agents", json={
+        "id": "ag-01", "base_url": "http://ag-01:8000", "token": "t",
+        "role": {"disk": True, "cd": False}, "tags": ["storage", "stgt"],
+    }, headers=auth_headers)
+    assert res.status_code == 201
+    _bound_worker(client, auth_headers, register_claimed_device)
+    client.put("/workers/worker-01/credential", json={"secret": make_secret()}, headers=auth_headers)
+    pushes = []
+    mock_agent_client.set_credential = lambda w, s, subs, hosts: pushes.append((w, s, subs, hosts)) or {}
+
+    res = client.post("/workers/worker-01/luns/disk", json={
+        "type": "master", "os": "ubuntu", "name": "ubuntu-24.04-master",
+    }, headers=auth_headers)
+    assert res.status_code == 201, res.text
+    assert pushes[-1][0] == "worker-01"
+    assert pushes[-1][1] is not None
+    assert DISK_NQN in pushes[-1][2]
+
+
+def test_push_failure_nonblocking(client, auth_headers, register_claimed_device, mock_agent_client):
+    """Agent 离线/推送失败：仅审计 failed，不阻断凭据设置。"""
+    _setup_agent_and_disk(client, auth_headers)
+    _bind_existing_worker(client, auth_headers, register_claimed_device)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("agent unreachable")
+    mock_agent_client.set_credential = boom
+
+    res = client.put("/workers/worker-01/credential", json={"secret": make_secret()}, headers=auth_headers)
+    assert res.status_code == 200
+    ops = [json.loads(line) for line in settings.operations_file.read_text(encoding="utf-8").splitlines()]
+    assert any(e["op"] == "credential.push" and e["status"] == "failed" for e in ops)
+    assert "agent unreachable" in settings.operations_file.read_text(encoding="utf-8")
