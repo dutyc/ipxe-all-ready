@@ -14,9 +14,9 @@ Controller 节点 —— 根目录 docker-compose.yml（控制面）
 ├── ipxe-control-plane    控制面 API（4839），Worker 生命周期编排
 └── ipxe-cp-webui         WebUI + 文件分发（4838）
 
-存储节点 —— iscsi-server/docker-compose.yml（数据面，可与 Controller 同机）
-├── ipxe-iscsi            iSCSI 后端（3260，host 网络，stgt 或 LIO 二选一）
-└── ipxe-agent            Agent API（4840），接收控制面调度，操作本机后端
+存储节点 —— storager/（数据面，可与 Controller 同机）
+├── storager/iscsi/docker-compose.yml  iSCSI 后端（3260，host 网络，stgt 或 LIO 二选一）+ 共享 Agent（4840）
+└── storager/nvmeof/docker-compose.yml NVMe-oF 后端（nvmet 宿主服务，4841）+ 共享 Agent（4840）
 ```
 
 关键概念：
@@ -104,23 +104,33 @@ VITE_CP_TOKEN=你的token
 > 注意：`VITE_` 变量在构建时注入，修改后需重新构建 WebUI：`cd webui/app && npm install && npm run build`。
 > 若跳过本节（Token 留空），则无需构建。
 
-### 1.4.1 自动注册开关（可选，默认开启）
+### 1.4.1 注册窗口与验签强制（可选）
 
-新 MAC 设备上报指纹时自动入**设备池**（零接触，默认开启）。需要关闭时（例如批量接入机器期间先人工登记、防止未知设备自动入池），有两种方式：
+新设备部署期注册采用**注册窗口**模型（取代旧「自动注册」永久开关）：仅窗口开启期间，新设备 PXE 上报（携带固件生成的 ECDSA P-256 公钥）自动入**设备池**并完成密钥认领；窗口关闭后只记指纹不入池（无窗口外注册通道）。注册窗口默认关闭（TTL 1-60 分钟硬上限，到期自动关闭），用 WebUI 或 API 开启：
 
-**方式一：部署时固定（环境变量）**——`control_plane/control_plane.env` 追加，容器启动时生效：
+- WebUI：Devices（设备池）页顶部「注册窗口」面板——选择时长（5/15/30/60 分钟）→「开启窗口」；开启后显示剩余时间，可「提前关闭」
+- API：`POST /settings/registration-window`（body `{"ttl_minutes": 30}`，详见 API 参考 5.1）
 
-```env
-# false = 关闭自动注册（新 MAC 返回空脚本，等待手动注册）
-IPXE_CP_AUTO_REGISTER=false
-```
+> 窗口只影响**新 MAC**：关闭后新设备只上报指纹不入池，需在 Devices 页「注册设备」/「登记设备入池」或 `POST /devices` 手动入池，再经「绑定向导」绑定 Worker；已入池设备不受影响。存量设备在窗口期内开机即完成密钥认领（`key_hash` 填充）。
 
-**方式二：运行时切换（WebUI 按钮 / API）**——部署后随时切换，立即生效并持久化（`state/settings.json`），重启保留，优先级高于环境变量：
+**验签强制开关**（过渡期兼容，默认关闭）：建议全部存量设备完成密钥认领后开启——此后 `/boot-vars` 只向验签通过的已绑定设备下发，无密钥/无签名/验签失败设备拒绝引导。WebUI Devices 页「注册窗口」面板勾选「设备身份验签强制」，或 API `PUT /settings/enforcement`（详见 API 参考 5.1）。
 
-- WebUI：Devices（设备池）页面工具栏「自动注册」开关（深色 = 开，浅色 = 关）
-- API：`PUT /settings/auto-register`（详见 API 参考 5.1）
+### 1.4.2 HTTPS 引导链（T5，必需）
 
-> 开关只影响**新 MAC**：关闭后新设备只上报指纹不入池，需在 Devices 页「注册设备」/「登记设备入池」或 `POST /devices` 手动入池，再经「绑定向导」绑定 Worker；已入池设备不受影响。
+设备信任根链（固件 `keygen`/`pubkey`/`sign` + 控制面挑战-验签）使每台机器**通过 443 端口 HTTPS 引导**——nginx 入口是全部 HTTPS 目标（引导端点、`/file/` 资产、`/tftp/` 菜单）共享的**唯一 TOFU 信任锚**。不涉及 CA：iPXE 首次握手时直接 pin 自签叶证书指纹。
+
+证书由**控制面首次启动时自动生成**（幂等；RSA-2048 自签叶证书，CA=False），无需任何手动步骤——nginx 等待 `control_plane/state/certs/server.crt` 就绪后才提供服务：
+
+- **叶证书指纹**（TOFU pin 基准）：`cat control_plane/state/certs/fingerprint.txt`（DER SHA-256 hex，与 `openssl x509 -outform DER | sha256sum` 同格式）
+- **SAN** 可用 `IPXE_CP_CERT_SAN` 配置（逗号分隔 `IP:`/`DNS:` 条目，默认 `IP:127.0.0.1,DNS:localhost`）；TOFU 模式下 SAN 不参与设备侧校验——只 pin 指纹
+- **HTTPS 端口**：默认 `443`；可用 compose 变量 `IPXE_HTTPS_PORT` 配置（宿主映射 `IPXE_HTTPS_PORT:443`，容器内固定 443）——改动时需同步 `tftp/boot.ipxe.cfg` 的 `set https-port`（两处保持一致）
+- `tftp/boot.ipxe.cfg` 随后全链：report → challenge → sign → boot-vars（端点详见 API 参考 5.2 / 16.6）
+
+> ⚠️ **固件必须包含设备信任补丁（0008/0009/0010）**——即 HTTPS / `keygen` / `pubkey` / `sign` 命令。仍在运行旧固件的机器会**断链**（菜单与 boot-vars 的 HTTPS 拉取失败）。切换到本版 `boot.ipxe.cfg` 前，请先将全部机器升级到 [iPXE-Stateless Releases](https://github.com/dutyc/ipxe-stateless/releases) 的最新固件。
+>
+> 过渡期：验签强制开关**默认关闭**——迁移期间无密钥设备仍走降级路径（不带 nonce/sig）放行；待全部设备完成密钥认领后再开启强制（见 1.4.1）。
+>
+> 证书轮换 = 删除 `control_plane/state/certs/` → 重启控制面（自动重新生成）→ 重启 nginx；设备侧需清 NVRAM 指纹重新进入注册窗口。
 
 ### 1.5 启动 Controller
 
@@ -137,18 +147,18 @@ curl http://localhost:4839/healthz        # Control Plane
 
 ---
 
-## 第 2 步：部署存储节点（Agent + iSCSI 后端）
+## 第 2 步：部署存储节点（共享 Agent + 后端）
 
 > 每台存储节点执行一次本节；与 Controller 同机则就地执行。
 
 ### 2.1 准备 img 存储目录（决定克隆速度）
 
-编辑 `iscsi-server/docker-compose.yml`，将**两处卷映射的宿主机侧路径**改为本节点实际存放 img 文件的目录（`ipxe-iscsi` 与 `ipxe-agent` 两个服务块都要改，**必须一致**；容器内路径 `/home/iscsi_img` 保持不变，与 2.3 的 `IPXE_DISK_DIR` 对应）：
+编辑**所部署后端 compose** 的卷映射，将**宿主机侧路径**改为本节点实际存放 img 文件的目录：`storager/iscsi/docker-compose.yml`（`storager-iscsi` 与 `storager-agent` 两个服务块）或 `storager/nvmeof/docker-compose.yml`（`storager-agent` 服务块）——同一文件内两处**必须一致**；容器内路径 `/home/iscsi_img` 保持不变，与 2.3 的 `IPXE_DISK_DIR` 对应）：
 
 ```yaml
-# ipxe-iscsi 服务块
+# storager-iscsi 服务块
       - /pool1/iscsi_img:/home/iscsi_img   # 宿主目录按实际修改，如 /data/iscsi_img
-# ipxe-agent 服务块
+# storager-agent 服务块
       - /pool1/iscsi_img:/home/iscsi_img   # 两处必须一致
 ```
 
@@ -166,30 +176,58 @@ curl http://localhost:4839/healthz        # Control Plane
 
 ### 2.2 选择后端类型
 
-编辑 `iscsi-server/docker-compose.yml`，**二选一**启用后端服务块（容器同名 `ipxe-iscsi`，不可同时启用）：
+后端分两个目录放在 `storager/` 下，各自为**完整独立编排**（Agent 服务内嵌两份，仅代码共享 `storager/agent/`）；同一节点同一时刻只能启用一个后端（`storager-agent` 容器名固定）：
 
 | 后端 | 位置 | 特点 |
 |---|---|---|
-| `stgt` | 取消 `ipxe-stgt` 服务块注释，注释掉 `ipxe-lio` 块 | 用户态，支持把 ISO 挂成虚拟光驱（`role.cd`），受限环境友好 |
-| `lio` | 取消 `ipxe-lio` 服务块注释，注释掉 `ipxe-stgt` 块 | 内核态，生产级磁盘性能（推荐系统盘） |
+| `stgt` | `storager/iscsi/docker-compose.yml`：取消 `ipxe-stgt` 块注释，注释掉 `ipxe-lio` 块 | 用户态，支持把 ISO 挂成虚拟光驱（`role.cd`），受限环境友好 |
+| `lio` | `storager/iscsi/docker-compose.yml`：取消 `ipxe-lio` 块注释，注释掉 `ipxe-stgt` 块 | 内核态，生产级磁盘性能（推荐系统盘） |
+| `nvmet` | `storager/nvmeof/docker-compose.yml`（见 2.2.1） | 内核 NVMe-oF（NVMe/TCP），生产级磁盘性能；配置面在宿主机 configfs（内核 target），管理进程容器化，Agent 经 HTTP 调用（见 nvmet-host README） |
+
+### 2.2.1 nvmet 后端（NVMe-oF，可选）：启动 nvmet 管理服务容器
+
+`IPXE_BACKEND=nvmet` 时，内核 nvmet target 与 configfs 在宿主（无法容器化），**管理服务以容器运行**（`ipxe-nvmet-host`，由 `storager/nvmeof/docker-compose.yml` 托管——独立编排，Agent 服务内嵌，不手动跑 Python）：
+
+```bash
+# 1. 内核模块 + configfs（宿主，唯一宿主步骤；重启后需重新加载或写入 /etc/modules-load.d）
+modprobe nvmet
+modprobe nvmet-tcp
+mount -t configfs configfs /sys/kernel/config
+
+# 2. 配置 storager/.env（见下方 2.3）：IPXE_BACKEND=nvmet + token/URL
+
+# 3. 构建并启动（Agent 服务内嵌本编排）
+cd storager/nvmeof
+docker compose --env-file ../.env up -d --build
+
+# 4. 验证（端口映射仅绑宿主 loopback）
+curl http://127.0.0.1:4841/healthz
+# → {"status":"ok","configfs":true}
+```
+
+容器无 privileged：configfs 经 bind mount 进入容器，容器内 root 写操作是普通文件写 + symlink 创建，无需特权（与 LIO 的 targetclid/dbus 依赖无关）。端口映射仅绑 `127.0.0.1:4841`，局域网不可达；Agent 经 compose 内部网络 `http://nvmet-host:4841` 访问。
 
 ### 2.3 配置 `.env`
 
-编辑 `iscsi-server/.env`：
+编辑 `storager/.env`：
 
 ```env
-IPXE_ISCSI_CONTAINER=ipxe-iscsi
-IPXE_DISK_DIR=/home/iscsi_img              # 容器内盘目录（对应 2.1 设置的宿主存储目录）
-IPXE_IQN_BASE=iqn.2026-07.com.controller   # 本节点 IQN 前缀（权威值）：建盘按它生成盘 IQN，Worker 启动时 /boot-vars 按盘所在节点返回该前缀
-IPXE_BACKEND=lio                           # 与 2.2 的选择一致（stgt / lio）
-IPXE_AGENT_TOKEN=<生成一个token>           # 生成：openssl rand -hex 32
+IPXE_BACKEND=nvmet                           # nvmet = NVMe-oF（首选/默认）；stgt / lio = iSCSI（降级，见 2.2）
+IPXE_AGENT_TOKEN=<生成一个token>             # 生成：openssl rand -hex 32
+IPXE_DISK_DIR=/home/iscsi_img                # 容器内盘目录（对应 2.1 设置的宿主存储目录）
+IPXE_NQN_BASE=nqn.2026-07.com.controller     # 盘标识命名空间基础（权威 = NQN）；iSCSI 数据面 IQN 由它派生（iqn. + nqn[4:]）
+IPXE_NVMET_HOST_URL=http://nvmet-host:4841   # compose 内部服务名，Agent 专用
+IPXE_NVMET_HOST_TOKEN=<生成一个token>         # compose 插值注入 nvmet-host 容器（NVMET_HOST_TOKEN）
+IPXE_NVMET_CACHE_FILE=/var/log/ipxe-agent/nvmet-credentials.json
 TZ=Asia/Shanghai
+# ── 仅 IPXE_BACKEND=stgt|lio（iSCSI 降级，见 2.2）时需要 ──
+# IPXE_ISCSI_CONTAINER=storager-iscsi
 ```
 
-> **IQN 按 Worker 启动时动态解析**:`tftp/boot.ipxe.cfg` 里的 `base-iqn` 只是静态兜底值（占位符）。
+> **`base-iqn` 按 Worker 启动时动态解析**:`tftp/boot.ipxe.cfg` 里的静态值只是兜底（占位符）。
 > Worker 启动时，iPXE 从 Control Plane 拉取 `/boot-vars`，该端点按 Worker 系统盘所在存储节点返回实际的 `base-iqn`
-> （即盘 IQN 前缀，源自该节点 `IPXE_IQN_BASE`），并覆盖静态兜底值。
-> 因此各存储节点的 `IPXE_IQN_BASE` 对自身承载的盘是权威值，无需与 `boot.ipxe.cfg` 静态值一致。
+> （即盘 IQN 前缀——盘标识权威 = NQN，由该节点 `IPXE_NQN_BASE` 生成，IQN 由 NQN 派生），并覆盖静态兜底值。
+> 因此各存储节点的 `IPXE_NQN_BASE` 对自身承载的盘是权威值，无需与 `boot.ipxe.cfg` 静态值一致。
 
 ### 2.4 登记 Agent
 
@@ -214,7 +252,7 @@ agents:
       cd: false
     tags:
       - storage
-      - lio
+      - lio        # nvmet 后端改为 - nvmet（探测可自动识别）
     enabled: true
 ```
 
@@ -223,8 +261,10 @@ agents:
 ### 2.5 启动存储节点
 
 ```bash
-cd iscsi-server
-docker compose up -d
+# iSCSI 后端（stgt / lio，按 2.2 选择）：
+cd storager/iscsi && docker compose --env-file ../.env up -d
+# NVMe-oF 后端（按 2.2.1）：
+cd storager/nvmeof && docker compose --env-file ../.env up -d
 ```
 
 ### 2.6 验证
@@ -232,6 +272,8 @@ docker compose up -d
 ```bash
 curl http://localhost:4840/healthz            # Agent 存活
 # WebUI → Agents 页面确认 Agent 状态为在线（live）
+# nvmet 后端额外确认宿主服务：
+curl http://localhost:4841/healthz            # 返回 {"status":"ok","configfs":true} 即就绪
 ```
 
 > 注：Agent 状态确认与后续页面操作均见《WebUI 使用指南》。
@@ -244,9 +286,11 @@ curl http://localhost:4840/healthz            # Agent 存活
 |---|---|---|
 | dnsmasq（DHCP/TFTP） | 67/69/UDP | Worker 开机能拿到 IP 并加载 iPXE |
 | Control Plane | 4839 | `curl http://localhost:4839/healthz` |
+| HTTPS 引导链 | 443 | `openssl s_client -connect <IP>:443 -brief` 成功；机器经信任根链引导 |
 | WebUI | 4838 | 浏览器可访问 |
 | iSCSI Agent | 4840 | `curl http://localhost:4840/healthz`；WebUI Agents 页在线 |
 | iSCSI 后端 | 3260 | WebUI 创建盘后 Workers 页显示 target |
+| nvmet 宿主服务（可选） | 4841 | `curl http://localhost:4841/healthz` 返回 `configfs:true`（仅 nvmet 后端需要） |
 
 环境就绪后，进入母盘制备与无盘上线流程 ↓
 

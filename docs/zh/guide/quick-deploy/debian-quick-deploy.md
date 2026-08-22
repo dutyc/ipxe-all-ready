@@ -33,7 +33,7 @@ Ubuntu 等 Debian 系发行版走同一链路,制备与克隆流程完全一致�
 ## 环境准备
 
 Controller(控制面)与存储节点(Agent + iSCSI 后端)的部署见《项目环境部署》,平台无关,对 Windows / Debian 一视同仁。
-唯一契约:各存储节点的 `IPXE_IQN_BASE` 对自身承载的盘是权威值——建盘按它生成盘 IQN,Worker 启动时 iPXE 经 `/boot-vars` 按系统盘所在节点获取实际 `base-iqn` 并覆盖 `tftp/boot.ipxe.cfg` 的静态兜底值(占位符),两者无需一致。
+唯一契约:各存储节点的 `IPXE_NQN_BASE` 对自身承载的盘是权威值——建盘按它生成盘 NQN(iSCSI 数据面 IQN 由 NQN 派生),Worker 启动时 iPXE 经 `/boot-vars` 按系统盘所在节点获取实际 `base-iqn` 并覆盖 `tftp/boot.ipxe.cfg` 的静态兜底值(占位符),两者无需一致。
 
 ---
 
@@ -197,7 +197,7 @@ iscsiadm -m session        # 当前 iSCSI 会话
 |---|---|
 | 克隆盘报 `Boot from SAN device failed: Error 0x7f22208e` | ESP 缺 BOOTX64.EFI:按 1.4 补文件后**重新克隆**(旧克隆盘不带);确认母盘为 UEFI + GPT 安装 |
 | 启动停在 iPXE 菜单 | 未设置默认启动,手动选择 **Boot Debian from iSCSI**,或按第 5 步设置 |
-| 找不到 iSCSI 目标 | ① 核对 Worker 系统盘所在存储节点 `iscsi-server/.env` 的 `IPXE_IQN_BASE`(权威值:建盘按它生成盘 IQN,`/boot-vars` 按盘所在节点返回);② 设备已在 Devices 页绑定到 Worker(hostname 绑定生效);③ 详情页 IQN 为 `…:worker-xx.debian` |
+| 找不到 iSCSI 目标 | ① 核对 Worker 系统盘所在存储节点 `storager/.env` 的 `IPXE_NQN_BASE`(权威值:建盘按它生成盘 NQN,IQN 由 NQN 派生,`/boot-vars` 按盘所在节点返回);② 设备已在 Devices 页绑定到 Worker(hostname 绑定生效);③ 详情页 IQN 为 `…:worker-xx.debian` |
 | `VFS: Unable to mount root fs` | initrd 三件套未齐(1.5 验证失败):缺模块/iscsistart,回 1.3 重做并 `update-initramfs -u -k all` |
 | 担心克隆盘 `root=UUID` 写死 | 属预期:UUID 是文件系统属性随克隆整体复制,克隆盘各自匹配自身盘,无需处理 |
 | 母盘在虚拟机正常、克隆盘无法启动 | 检查 1.4 BOOTX64.EFI 是否已补(最常见的隐蔽原因) |

@@ -95,13 +95,17 @@ curl -s "$BASE_URL/workers" \
 | `GET` | `/healthz` | 健康检查 |
 | `GET` | `/boot-vars` | iPXE 启动变量动态注入，不鉴权 |
 | `GET` | `/devices/report` | iPXE 设备信息上报（不鉴权，11 字段，见 16.6） |
+| `GET` | `/devices/challenge` | 一次性 nonce 签发（不鉴权，挑战-响应，见 5.2） |
 | `GET` | `/devices` | 设备池列表（state 过滤，见 16.1） |
 | `GET` | `/devices/{mac}` | 单设备详情（见 16.2） |
 | `POST` | `/devices` | 手动注册设备入池（见 16.3） |
 | `POST` | `/devices/import` | 批量导入设备清单（见 16.4） |
 | `DELETE` | `/devices/{mac}` | 注销设备（吊销，见 16.5） |
-| `GET` | `/settings/auto-register` | 查询全局自动注册开关（运行时状态，见 5.1） |
-| `PUT` | `/settings/auto-register` | 切换全局自动注册开关（持久化、立即生效，见 5.1） |
+| `GET` | `/settings/registration-window` | 查询注册窗口状态（见 5.1） |
+| `POST` | `/settings/registration-window` | 开启注册窗口（TTL 1-60 分钟硬上限，见 5.1） |
+| `DELETE` | `/settings/registration-window` | 提前关闭注册窗口（见 5.1） |
+| `GET` | `/settings/enforcement` | 查询设备身份验签强制开关（见 5.1） |
+| `PUT` | `/settings/enforcement` | 切换设备身份验签强制开关（见 5.1） |
 | `GET` | `/agents` | 查询 Agent 列表与能力 |
 | `POST` | `/agents` | 注册新 Agent（写入 agents.yml，重复 id 返回 409） |
 | `POST` | `/agents/probe` | 探测 Agent 并自动推导注册参数（预览，不写文件） |
@@ -124,6 +128,9 @@ curl -s "$BASE_URL/workers" \
 | `GET` | `/workers/{worker_id}/status` | 查询 Worker 台账与实时状态 |
 | `DELETE` | `/workers/{worker_id}` | 删除 Worker |
 | `POST` | `/workers/delete/batch` | 批量删除 Worker（逐项独立，成功/失败汇总） |
+| `PUT` | `/workers/{worker_id}/credential` | 设置/更新 NVMe-oF 认证密钥（DHHC-1 自检，见 7.7） |
+| `DELETE` | `/workers/{worker_id}/credential` | 删除 NVMe-oF 认证密钥（吊销认证，见 7.7） |
+| `GET` | `/workers/{worker_id}/credential` | 查询凭据元数据（不返回明文，见 7.7） |
 | `GET` | `/operations` | 读取操作日志 |
 
 ---
@@ -154,7 +161,7 @@ curl -s "$BASE_URL/healthz"
 
 给 iPXE 启动脚本读取 per-worker 启动变量。该接口不鉴权，只暴露受控内网启动所需变量。
 
-> **注意**：该端点**只读**（启动变量投影，无写副作用）。自动注册（新 MAC 入设备池）已收敛到 `GET /devices/report`（见 16.6），由 `boot.ipxe.cfg` 在请求 `/boot-vars` 之前先 `chain`。
+> **注意**：该端点**只读**（启动变量投影，无写副作用）。注册窗口期注册（新 MAC 携公钥入设备池）已收敛到 `GET /devices/report`（见 16.6），由 `boot.ipxe.cfg` 在请求 `/boot-vars` 之前先 `chain`。
 
 Control Plane 按以下顺序识别设备并投影启动变量：
 
@@ -172,9 +179,11 @@ Control Plane 按以下顺序识别设备并投影启动变量：
 
 | 返回字段 | 来源 |
 |---|---|
-| `base_iqn` | `workers.yml` 中该 Worker 默认启动盘（`default_os` 对应的盘，未设时取第一块）的 `iqn` 去掉最后一个 `:` 后的前缀；Worker 无系统盘时**不返回**（iPXE 沿用 `boot.ipxe.cfg` 静态默认值） |
+| `nqn` | 默认启动盘（同选盘规则）的盘 NQN（NVMe-oF 子系统标识，**权威字段**）——固件侧 `sanboot nvme://<ip>:<port>/${nqn}` 拼装消费（C3 引导链分支后置，当前只投影变量）；盘记录缺 `nqn`（存量盘）时不返回（不兼容遗留、不派生）；Worker 无系统盘时不返回 |
+| `base_iqn` | `workers.yml` 中该 Worker 默认启动盘（`default_os` 对应的盘，未设时取第一块）的 `iqn` 去掉最后一个 `:` 后的前缀——盘标识权威 = NQN，IQN 由盘 NQN 派生；Worker 无系统盘时**不返回**（iPXE 沿用 `boot.ipxe.cfg` 静态默认值） |
 | `iscsi_server` | 默认启动盘（同上选盘规则）的 `agent` -> `agents.yml` 中该 Agent 的 `iscsi_server`；无系统盘时不返回 |
 | `iscsi_sep` | iSCSI root **连接符**（`${iscsi-server}` 与 `${base-iqn}` 之间的分隔字段），root-path 拼装由 iPXE 侧完成。**按 Agent 后端类型生成**：stgt 后端为 `:::1:`（lun 占位 1），LIO 后端为 `::::`（空占位）；后端类型优先读 `agents.yml` 该 Agent 的 `tags`（含 `lio` / `stgt` 标记），未标记时查询 Agent `/capabilities` 的 `backend` 字段，查询失败默认 stgt 格式；无系统盘时不返回 |
+| `nbft_secret` | 该 Worker 的 NVMe-oF 认证密钥（DHHC-1，`state/credentials.yml` 按 worker_id 索引，见 7.7）；**已绑定 Worker 且密钥库有条目时注入**，无密钥 / 未绑定 / 请求被拒时不返回。固件侧消费：`sanboot nvme://...?secret=${nbft-secret}`（C3 引导链分支后置，当前只投影变量，iSCSI 路径不受影响） |
 | `menu_default` | 推导链：`workers.yml` 的 `default_os`（建盘后单独设置）> `boot.menu_default`（显式配置）> `reboot`（未配置时循环重启等待） |
 | `menu_timeout` | 已配置默认启动时：`boot.menu_timeout` > `IPXE_CP_BOOT_MENU_TIMEOUT`（默认 5000）；处于 `reboot` 循环时：固定用 `IPXE_CP_AUTO_BOOT_TIMEOUT`（默认 1）。单位均为毫秒 |
 
@@ -186,8 +195,8 @@ hostname 未命中或未传 -> mac -> devices.yml（设备台账）-> bound_work
 未识别且 mac 已传 ->
   - 设备在池中（pooled）-> reboot 循环（menu-default=reboot + 短超时），等待绑定
   - 设备已吊销（revoked）-> 空脚本（菜单停留）
-  - 未知 MAC + 自动注册开 -> 入设备池（见下「自动注册」），返回 reboot 循环
-  - 未知 MAC + 自动注册关 -> 空脚本（菜单停留）
+  - 未知 MAC + 注册窗口开启且带有效公钥 -> 入设备池（见下「注册窗口期注册」），返回 reboot 循环
+  - 未知 MAC + 窗口关闭 / 无公钥 -> 空脚本（菜单停留；上报只记指纹不入池）
 ```
 
 ### 默认启动项规则
@@ -209,22 +218,25 @@ os=windows -> menu_default=windows
 - 也可以不设置 `default_os`，改用 `boot.menu_default` 指定 iPXE 菜单默认项（如安装期 `menu-install`、退出 `exit`）
 - 两者都没有时，`menu_default` 返回 `reboot`（短超时循环重启，等待管理员建盘 / 设置默认系统；`exit` 仅出现在显式设置时）
 
-### 自动注册（Zero-touch Provisioning）
+### 注册窗口期注册（Zero-touch Provisioning）
 
-新设备开机时没有身份，iPXE 先 `chain` `/devices/report`（11 字段上报，见 16.6）再请求 `/boot-vars`。若 MAC 未注册，Control Plane 只把它**收进设备池**（不再自动创建 Worker）：
+新设备开机时没有身份，iPXE 先 `chain` `/devices/report`（11 字段上报 + 可选 `pubkey`，见 16.6）再请求 `/boot-vars`。**注册只在窗口期**（2026-08-21 裁定）：仅当注册窗口开启且上报携带有效 ECDSA P-256 公钥时，未知 MAC 才被收进设备池；窗口关闭后上报只更新指纹、不入池（无窗口外注册通道，代码层不可配永久）。
 
-1. `GET /devices/report`：未知 MAC 且自动注册开启 → 写入 `state/devices.yml`（`state=pooled`，指纹入库，`source=ipxe`）
+1. `GET /devices/report`：未知 MAC + 窗口开启 + 带 `pubkey` → 写入 `state/devices.yml`（`state=pooled`，指纹入库，`key_hash` 填充，`source=ipxe`）
 2. `GET /boot-vars`：MAC 在池中未绑定 → 返回 `menu-default=reboot` + 短超时，循环重启等待管理员绑定
 3. 管理员将设备绑定到 Worker（WebUI / API，单绑 16.7、批量预览/执行 16.9/16.10）后，下次启动即按 Worker 配置正常引导
 
-控制项（环境变量）：
+存量设备密钥认领：已入池设备在窗口期内带公钥上报即填充 `key_hash`（认领完成）；密钥不一致拒绝覆盖（吊销/重注册走删登记流程）。认领完成后建议开启验签强制（见 5.1）。
 
-| 变量 | 默认 | 说明 |
+控制项：
+
+| 项 | 默认 | 说明 |
 |---|---:|---|
-| `IPXE_CP_AUTO_REGISTER` | `true` | 自动注册的**启动默认值**——语义为「新 MAC 是否自动入设备池」；运行时可用 `GET/PUT /settings/auto-register` 切换（持久化到 `state/settings.json`，重启保留，优先于环境变量，见 5.1） |
+| 注册窗口 | 关闭 | 部署期用 `POST /settings/registration-window` 开启（TTL 1-60 分钟硬上限，到期自动关闭），见 5.1 |
+| 验签强制 | 关闭 | `GET/PUT /settings/enforcement`：开启后 `/boot-vars` 只向验签通过的已绑定设备下发，见 5.1 |
 | `IPXE_CP_AUTO_BOOT_TIMEOUT` | `1` | reboot 循环的菜单超时（毫秒） |
 
-自动注册全程有操作日志（`device.register`），失败回滚台账并返回空脚本，下次请求重试，不影响 iPXE 引导。
+注册全程有操作日志（`device.register` / `device.claim`），失败回滚台账并返回空脚本，下次请求重试，不影响 iPXE 引导。
 
 ### 防冒领（绑定即认证）
 
@@ -237,6 +249,8 @@ os=windows -> menu_default=windows
 | `mac` | 否 | 无 | MAC 地址。后端自动剥离 `:` / `-` / `.` 后归一化，带冒号（`00:0c:29:b9:8b:2d`）与 `mac:hexraw`（`000c29b98b2d`）格式都支持 |
 | `hostname` | 否 | 无 | 主机名，如 `worker-01` |
 | `format` | 否 | `ipxe` | `ipxe` 或 `json` |
+| `nonce` | 否 | 无 | 挑战-响应一次性 nonce（`/devices/challenge` 签发，见 5.2）；验签强制开启时缺失 → `missing_sig` 拒绝 |
+| `sig` | 否 | 无 | ECDSA P-256 签名 base64(DER)，签名数据 `nonce‖mac‖hostname` 无分隔拼接（见 5.2）；验签强制开启时缺失 → `missing_sig` 拒绝 |
 
 `mac` 和 `hostname` 至少建议传一个。iPXE 端推荐两个都传：
 
@@ -257,11 +271,13 @@ curl -s "$BASE_URL/boot-vars?mac=000c29b98b2d&hostname=worker-01"
 ```ipxe
 #!ipxe
 # boot vars for worker-01
+set nqn nqn.2026-07.com.controller:worker-01.ubuntu
 set base-iqn iqn.2026-07.com.controller
 set iscsi-server 192.168.80.3
 set iscsi-sep :::1:
 set menu-default ubuntu
 set menu-timeout 5000
+set nbft-secret DHHC-1:01:<base64>   # 仅 NVMe-oF 认证启用时返回（见 7.7）
 ```
 
 已注册但未配置默认启动（无系统盘 / 未设 `default_os` / 未显式设 `boot.menu_default`）时返回：
@@ -273,7 +289,7 @@ set menu-default reboot
 set menu-timeout 1
 ```
 
-新 MAC（触发自动注册）与完全无法识别时，若自动注册失败或未开启则返回空脚本：
+新 MAC（窗口期注册）与完全无法识别时，窗口关闭或无公钥则返回空脚本：
 
 ```ipxe
 #!ipxe
@@ -290,11 +306,13 @@ curl -s "$BASE_URL/boot-vars?mac=000c29b98b2d&hostname=worker-01&format=json"
 
 ```json
 {
+  "nqn": "nqn.2026-07.com.controller:worker-01.ubuntu",
   "base_iqn": "iqn.2026-07.com.controller",
   "iscsi_server": "192.168.80.3",
   "iscsi_sep": ":::1:",
   "menu_default": "ubuntu",
-  "menu_timeout": 5000
+  "menu_timeout": 5000,
+  "nbft_secret": "DHHC-1:01:<base64>"
 }
 ```
 
@@ -307,7 +325,7 @@ curl -s "$BASE_URL/boot-vars?mac=000c29b98b2d&hostname=worker-01&format=json"
 }
 ```
 
-无法识别且未触发自动注册时返回：
+无法识别且未注册（窗口关闭 / 无公钥）时返回：
 
 ```json
 {}
@@ -315,18 +333,29 @@ curl -s "$BASE_URL/boot-vars?mac=000c29b98b2d&hostname=worker-01&format=json"
 
 ### iPXE 接入方式
 
-`tftp/boot.ipxe.cfg` 末尾会拉取该端点：
+`tftp/boot.ipxe.cfg` 中，信任根链在挑战-应答握手后**经 HTTPS（nginx 443，TOFU 信任锚）**拉取该端点（见 5.2）：
 
 ```ipxe
-chain --autofree http://${controller_ip}:4839/boot-vars?mac=${mac}&hostname=${hostname} || goto vars-done
-# chain 失败（端点不可达）时静默跳过，沿用本文件顶部的静态默认值；
-# 成功后返回的 base-iqn / iscsi-server 可能覆盖静态默认，需重建派生变量
-# isset 守卫：/boot-vars 已下发按后端生成的 iscsi-sep（stgt `:::1:` / LIO `::::`）时不覆盖
-isset ${iscsi-sep} || set iscsi-sep :::1:
-isset ${hostname} && set initiator-iqn ${base-iqn}:${hostname} || set initiator-iqn ${base-iqn}:${mac}
+# 阶段 3：挑战-应答（R7）——签名请求携带 nonce+sig
+:challenge
+chain --autofree ${https-url}devices/challenge?mac=${mac} && goto signed || goto bootvars
+
+:signed
+sign ${nonce}${mac}${hostname} || goto bootvars
+chain --autofree ${https-url}boot-vars?mac=${mac}&hostname=${hostname}&nonce=${nonce}&sig=${sig} || goto vars-done
+goto vars-done
+
+# 降级路径（challenge 失败：未注册/未认领，或旧固件）：
+# 验签强制关闭期间放行；强制开启后 missing_sig 拒绝
+:bootvars
+chain --autofree ${https-url}boot-vars?mac=${mac}&hostname=${hostname} || goto vars-done
 
 :vars-done
+isset ${iscsi-sep} || set iscsi-sep :::1:
+isset ${hostname} && set initiator-iqn ${base-iqn}:${hostname} || set initiator-iqn ${base-iqn}:${mac}
 ```
+
+成功后返回的 `base-iqn` / `iscsi-server` 可能覆盖静态默认值，派生变量在 `:vars-done` 重建；`isset` 守卫保留 `/boot-vars` 按后端下发的连接符（stgt `:::1:` / LIO `::::`）。
 
 `menu.ipxe` 各系统项与安装项用 `${iscsi-sep}` 插入 root-path（如 `set root-path iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.windows`），`iscsi:` 协议头与拼装结构保持静态，仅连接符由后端投影。
 
@@ -343,58 +372,101 @@ agents:
 
 如果没有配置 `iscsi_server`，Control Plane 会退回使用 `base_url` 的 host 部分；但当 `base_url` 是 `host.docker.internal` 时，这个值不适合给物理 Worker 使用。
 
-### 5.1 GET/PUT /settings/auto-register
+### 5.1 注册窗口与验签强制（/settings/registration-window、/settings/enforcement）
 
 #### 说明
 
-全局自动注册开关：控制**新 MAC** 是否自动进入设备池（自动注册流程见 5 节「自动注册」）。开启时，未知 MAC 请求 `/devices/report` 或 `/boot-vars` 会被写入 `state/devices.yml`（`state=pooled`）；关闭后新 MAC 返回空脚本，需管理员手动注册（`POST /devices` 或 `POST /devices/import`）。**已注册设备与已绑定 Worker 不受影响**——开关只作用于新 MAC。
+注册窗口是部署期的受控注册通道（2026-08-21 裁定取代原 `auto-register` 永久开关，旧端点已删除）：仅窗口开启期间，新设备上报（`GET /devices/report`）可携公钥自动注册入池并完成密钥认领；窗口关闭后上报只记指纹不入池（无窗口外注册通道）。TTL 硬上限 60 分钟（代码层不可配永久），到期自动关闭（懒计算，状态以查询结果为准）。全部端点需 `Authorization: Bearer`。
 
-启用/禁用有两种方式，运行时 API 优先于环境变量：
+验签强制开关（过渡期兼容）：关闭时无密钥设备照现状放行（防冒领边界）；开启后 `/boot-vars` 对已绑定设备执行注入四条件第 4 条——无 `key_hash` → `no_key` 拒绝；缺 `nonce`/`sig` → `missing_sig` 拒绝；重放或签名无效 → 拒绝。已认领设备带无效签名在过渡期同样拒绝（伪造签名不放行）。建议全部存量设备完成密钥认领后再开启。
 
-| 方式 | 生效时机 | 持久性 | 优先级 |
-|---|---|---|---|
-| 环境变量 `IPXE_CP_AUTO_REGISTER=true/false`（compose 环境，见上方配置表） | 容器启动时 | 随 compose 配置 | 低（启动默认值） |
-| `PUT /settings/auto-register` | 立即 | `state/settings.json`，重启保留 | 高 |
+#### GET /settings/registration-window
 
-#### GET /settings/auto-register
-
-查询当前生效值：运行时状态（`state/settings.json`）优先，未设置时回退环境变量默认。
-
-**响应**：
+查询注册窗口状态（无记录/已过期 → `open=false`）。
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `enabled` | bool | 当前是否自动注册 |
+| `open` | bool | 窗口是否开启 |
+| `opened_at` | str | 开启时刻 ISO8601（未开启为 `null`） |
+| `ttl_minutes` | int | 开启时配置的 TTL 分钟数（未开启为 `null`） |
+| `closes_at` | str | 预计关闭时刻 ISO8601（未开启为 `null`） |
+| `remaining_seconds` | int | 剩余秒数（未开启为 `0`） |
 
 ```json
-{"enabled": true}
+{"open": true, "opened_at": "2026-08-21T10:00:00+08:00", "ttl_minutes": 30, "closes_at": "2026-08-21T10:30:00+08:00", "remaining_seconds": 1799}
 ```
 
-#### PUT /settings/auto-register
+#### POST /settings/registration-window
 
-切换开关并持久化，立即生效；写入操作日志（`settings.auto_register`）。
+开启注册窗口（状态码 201）。已开启 → 409（先关闭再开）；过期残留记录可直接重开（覆盖）。写入操作日志（`settings.registration_window`）。
 
 **请求体**：
 
 | 字段 | 必填 | 类型 | 说明 |
 |---|---|---|---|
-| `enabled` | 是 | bool | `false` = 关闭自动注册（新 MAC 不再自动入设备池） |
-
-**响应**：同 GET，返回切换后的 `{"enabled": bool}`。
-
-#### curl
+| `ttl_minutes` | 是 | int | 1-60（超出返回 400） |
 
 ```bash
-# 启用
-curl -X PUT http://<host>:4839/settings/auto-register \
+curl -X POST http://<host>:4839/settings/registration-window \
+  -H "Authorization: Bearer $CP_TOKEN" -H "Content-Type: application/json" \
+  -d '{"ttl_minutes": 30}'
+```
+
+**响应**：同 GET（开启后的窗口状态）。
+
+#### DELETE /settings/registration-window
+
+提前关闭注册窗口（从未开启/无记录 → 409）。写入操作日志（`settings.registration_window`）。
+
+```bash
+curl -X DELETE http://<host>:4839/settings/registration-window \
+  -H "Authorization: Bearer $CP_TOKEN"
+```
+
+**响应**：`{"open": false}`
+
+#### GET/PUT /settings/enforcement
+
+查询/切换设备身份验签强制开关（持久化到 `state/settings.json`，重启保留）。
+
+**请求体（PUT）**：
+
+| 字段 | 必填 | 类型 | 说明 |
+|---|---|---|---|
+| `enabled` | 是 | bool | `true` = 开启强制（无密钥/无签名设备拒绝引导） |
+
+```bash
+curl -X PUT http://<host>:4839/settings/enforcement \
   -H "Authorization: Bearer $CP_TOKEN" -H "Content-Type: application/json" \
   -d '{"enabled": true}'
-
-# 禁用
-curl -X PUT http://<host>:4839/settings/auto-register \
-  -H "Authorization: Bearer $CP_TOKEN" -H "Content-Type: application/json" \
-  -d '{"enabled": false}'
 ```
+
+**响应**：`{"enabled": bool}`（GET/PUT 相同）。PUT 写入操作日志（`settings.enforcement`）。
+
+### 5.2 GET /devices/challenge
+
+挑战端点（**不鉴权**）：为 `/boot-vars` 验签链路签发一次性 nonce（短 TTL、绑定 MAC、防重放，nonce 本身无秘密）。设备不存在或未认领（无 `key_hash`）→ **404**（无法走验签链路）。
+
+**Query 参数**：
+
+| 参数 | 必填 | 说明 |
+|---|---|---|
+| `mac` | 是 | MAC 地址（归一化规则同 `/boot-vars`） |
+
+**成功返回（200，`text/plain`）**：`#!ipxe` 脚本体——iPXE 用 `chain` 直接消费，执行后 `${nonce}` 即为 64 hex 字符一次性 nonce：
+
+```ipxe
+#!ipxe
+set nonce 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+```
+
+**错误**：`400`（非法 MAC）；`404`（设备不存在/未认领）。
+
+**挑战-响应链路（与 `/boot-vars` 配合，设备身份验签）**：
+
+1. `GET /devices/challenge?mac=<mac>` → 执行响应脚本后取得 `${nonce}`
+2. iPXE 用设备密钥对 `nonce‖mac‖hostname`（UTF-8 无分隔拼接，mac 小写冒号格式）做 ECDSA P-256 签名 → `sig`（base64(DER)）
+3. `GET /boot-vars?mac=&hostname=&nonce=&sig=` → 验签通过才下发凭据（注入四条件第 4 条，见 5.1）；验签失败 → 空脚本（拒绝下发，审计 `boot_vars.credential`，reason 见 5.1）
 
 ---
 
@@ -448,7 +520,7 @@ curl -s "$BASE_URL/agents?live=false" \
       "fs_type": "btrfs",
       "cd": false,
       "persistent": "saveconfig (auto-load on start)",
-      "base_iqn": "iqn.2026-07.com.controller",
+      "base_nqn": "nqn.2026-07.com.controller",
       "clone": "reflink (FICLONE) -> shutil.copy fallback",
       "empty_disk": "truncate (sparse)"
     }
@@ -804,7 +876,8 @@ curl -s -X POST "$BASE_URL/workers/worker-00/luns/disk" \
   "disks": [
     {
       "agent": "storage-lio-01",
-      "iqn": "iqn.2026-07.com.controller:worker-01.ubuntu",
+      "nqn": "nqn.2026-07.com.controller:worker-01.ubuntu",  # NVMe-oF 数据面标识（权威，NQN 不用 IQN 定义）
+      "iqn": "iqn.2026-07.com.controller:worker-01.ubuntu",  # iSCSI 数据面标识（由 NQN 派生）
       "filename": "worker-01.ubuntu.img",
       "backing": "/home/iscsi_img/worker-01.ubuntu.img",
       "os": "ubuntu",
@@ -1227,6 +1300,82 @@ curl -s -X POST "$BASE_URL/workers/batch" \
 | `400` | `name_prefix` 为空 / 生成的 `worker_id` 非法 / `macs` 长度不等于 `count` |
 | `401` | 缺少 Token 或 Token 错误 |
 | `422` | `count` 缺失 / 不在 1–100 范围 |
+
+---
+
+## 7.7 NVMe-oF 认证凭据（/workers/{worker_id}/credential）
+
+### 说明
+
+NVMe-oF 连接认证密钥库（按 Worker 跟盘裁定 2026-08-22）：密钥按 `worker_id` 索引，绑定到该
+Worker 的设备共享同一密钥（换绑即换钥）。密钥为 **DHHC-1** 格式（蓝图 2.1 契约）：
+`DHHC-1:<两位数字类型>:<base64(密钥 + CRC32 小端 4 字节)>`，密钥体 32 字节（SHA-256）或 64 字节（SHA-512）。
+
+凭据写入后控制面会**推送期望状态给持有该 Worker 系统盘的 Agent**（审计 `credential.push`，不记密钥本体）：
+Agent 转调存储节点 nvmet 宿主服务登记 hosts（子系统 = 盘（NQN 命名：盘标识权威 = NQN，IQN 由 NQN 派生（`iqn.` + nqn[4:]），如
+`nqn.2026-07.com.controller:worker-01.ubuntu` → `iqn.2026-07.com.controller:worker-01.ubuntu`；
+IQN 不作子系统 NQN 使用，NVMe Base Spec §7.9 要求 `nqn.` 前缀），Host NQN = 绑定设备 UUID 派生
+`nqn.2014-08.org.ipxe:<uuid>`，无 UUID 设备回退共享 NQN `nqn.2014-08.org.ipxe:ipxe`）；
+推送失败仅审计不阻断（Agent 缓存先行，reconcile 周期重放补齐）。
+
+触发推送的操作：设置/删除凭据、设备绑定/解绑/换绑（`PUT /workers/{worker_id}/mac`）、建盘/删盘（含批量）、删除 Worker。
+
+### PUT /workers/{worker_id}/credential
+
+设置或更新密钥（幂等：重复设置同值 `updated_at` 不变）。
+
+```bash
+curl -X PUT "$BASE_URL/workers/worker-01/credential" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"secret": "DHHC-1:01:<base64>"}'
+```
+
+成功返回：
+
+```json
+{
+  "worker_id": "worker-01",
+  "exists": true,
+  "secret_hash": "sha256:1a2b3c4d5e6f",
+  "created_at": "2026-08-22T08:00:00+00:00",
+  "updated_at": "2026-08-22T08:00:00+00:00"
+}
+```
+
+| HTTP 状态码 | 常见原因 |
+|---:|---|
+| `422` | DHHC-1 自检失败（前缀/类型位数/base64/长度 36/68/CRC 终值任一不符） |
+| `404` | Worker 不存在 |
+
+### DELETE /workers/{worker_id}/credential
+
+删除密钥（吊销该 Worker 名下全部绑定设备的认证资格，下次启动回落明文连接）：
+
+```bash
+curl -X DELETE "$BASE_URL/workers/worker-01/credential" -H "Authorization: Bearer $TOKEN"
+```
+
+成功返回 `{"deleted": "worker-01"}`；Worker 或条目不存在 → `404`。
+
+### GET /workers/{worker_id}/credential
+
+查询凭据元数据（**不返回明文**，`secret_hash` 只给前缀便于轮换比对）：
+
+```bash
+curl -s "$BASE_URL/workers/worker-01/credential" -H "Authorization: Bearer $TOKEN"
+```
+
+```json
+{
+  "worker_id": "worker-01",
+  "exists": true,
+  "secret_hash": "sha256:1a2b3c4d5e6f",
+  "created_at": "2026-08-22T08:00:00+00:00",
+  "updated_at": "2026-08-22T08:00:00+00:00"
+}
+```
+
+无条目时 `exists=false` 且无 `secret_hash`。
 
 ---
 
@@ -1706,7 +1855,7 @@ curl -s "$BASE_URL/agents/storage-lio-01/luns" \
 
 | 字段 | 必填 | 说明 |
 |---|---:|---|
-| `iqn` | 是 | target IQN，必须以该 Agent 的 `base_iqn` 为前缀 |
+| `iqn` | 是 | target IQN（盘 NQN 的派生形态），必须以该 Agent 的 IQN base（源自 `IPXE_NQN_BASE`）为前缀 |
 | `filename` | 否 | backing 文件名；不传时由 Agent 按 IQN 自动生成 |
 | `master` | 条件必填 | 母盘文件名（存在 `DISK_DIR` 下），与 `size` 二选一 |
 | `size` | 条件必填 | 空白盘大小，如 `40G`，与 `master` 二选一 |
@@ -1752,7 +1901,7 @@ curl -s -X POST "$BASE_URL/agents/storage-lio-01/luns/disk" \
 | 字段 | 必填 | 说明 |
 |---|---:|---|
 | `iso` | 是 | ISO 文件名（存在于 `DISK_DIR` 下） |
-| `iqn` | 否 | target IQN；不传时由 Agent 按 `base_iqn:iso文件名` 自动生成 |
+| `iqn` | 否 | target IQN；不传时由 Agent 按派生 IQN base（源自 `IPXE_NQN_BASE`）:iso文件名 自动生成 |
 
 #### curl
 
@@ -1885,7 +2034,7 @@ curl -s "$BASE_URL/masters" \
 
 ## 16. 设备池（设备台账）
 
-设备台账（`state/devices.yml`）是三层实体模型（设备 / Worker / 系统盘）的底层实体：自动注册与手动导入只入设备池，**注册 ≠ 授权**——设备需绑定到 Worker 后才有身份。绑定关系权威在设备侧（`bound_worker_id`），Worker 侧只投影不存储。
+设备台账（`state/devices.yml`）是三层实体模型（设备 / Worker / 系统盘）的底层实体：窗口期注册与手动导入只入设备池，**注册 ≠ 授权**——设备需绑定到 Worker 后才有身份。绑定关系权威在设备侧（`bound_worker_id`），Worker 侧只投影不存储。
 
 **绑定语义（P2）**：设备 ↔ Worker 严格**一对一**。绑定走 `POST /devices/{mac}/bind`（16.7）；`force=true` 原子换绑（预校验 → 新绑定落盘 → 旧绑定清除 → 失败回滚）。解绑（`DELETE /devices/{mac}/bind`，16.8）后设备回池，Worker 的系统盘保留。删除 Worker 联动解绑（11 节）。`POST /workers` 传 `mac` 也直接完成绑定（7 节）。
 
@@ -1988,20 +2137,21 @@ curl http://<host>:4839/devices?state=pooled \
 
 ### 16.6 GET /devices/report
 
-iPXE 设备信息上报入口（**不鉴权**，由 `boot.ipxe.cfg` 在请求 `/boot-vars` 之前先 `chain`）：更新指纹 + `last_seen`；未知 MAC 且自动注册开启 → 入池。**返回空响应**（`chain` 无脚本副作用）。
+iPXE 设备信息上报入口（**不鉴权**，由 `boot.ipxe.cfg` 在请求 `/boot-vars` 之前先 `chain`）：更新指纹 + `last_seen`；未知 MAC 仅在注册窗口开启且带有效公钥时入池。**返回空响应**（`chain` 无脚本副作用）。
 
 | 参数 | 必填 | 说明 |
 |---|---|---|
 | `mac` | 是 | MAC，支持带冒号（`${mac}`）与 hex 无分隔（`${netX/mac}`）格式 |
 | `uuid` / `manufacturer` / `product` / `serial` / `cpumodel` / `mem-type` / `chip` / `busid` | 否 | 字符串字段，空值容忍 |
 | `mem-total` / `mem-speed` | 否 | 整数，兼容 `0x` hex 与十进制，归一化十进制存储 |
+| `pubkey` | 否 | ECDSA P-256 公钥（130 hex 未压缩点），注册/认领用；无参数或非法 → 忽略 |
 
 行为：
 
-- 已注册设备：更新指纹（非空字段覆盖）+ `last_seen`，`state` 不变
+- 已注册设备：更新指纹（非空字段覆盖）+ `last_seen`，`state` 不变；窗口开启且带有效公钥时填充 `key_hash`（密钥认领），密钥不一致 → 拒绝覆盖（仅审计 `device.claim rejected`）
 - 吊销设备：忽略（不更新、不复活）
-- 未知 MAC + 自动注册开：入池（`state=pooled`，`source=ipxe`）
-- 未知 MAC + 自动注册关：忽略
+- 未知 MAC + 注册窗口开启 + 带有效公钥：入池（`state=pooled`，`key_hash` 填充，`source=ipxe`）
+- 未知 MAC + 窗口关闭 / 无公钥：只更新指纹不入池（注册只在窗口期，见 5.1）
 
 **curl**（模拟 iPXE 上报）：
 
@@ -2105,7 +2255,7 @@ curl -X POST "http://<host>:4839/devices/bind/batch" \
 - Worker `mac` 换绑映射（`PUT /workers/{worker_id}/mac`，7 节）
 - 删除 Worker 联动解绑（11 / 11.1 节）
 - boot-vars 防冒领（绑定即认证，5 节）
-- iPXE 设备信息上报（11 字段指纹，`GET /devices/report`，自动注册只入池不建 Worker）
+- iPXE 设备信息上报（11 字段指纹，`GET /devices/report`，窗口期注册只入池不建 Worker）
 - Worker 系统盘创建（`POST /workers/{worker_id}/luns/disk`）
 - Worker 默认启动配置设置（系统 / 菜单项 / 超时，`PUT /workers/{worker_id}/default-os`）
 - Worker 删除
@@ -2116,6 +2266,8 @@ curl -X POST "http://<host>:4839/devices/bind/batch" \
 - dnsmasq 主机名绑定
 - Worker 与操作轨迹查询
 - 多系统盘（一个 Worker 可挂载多个系统的系统盘，同一系统至多一个，由 `os` 区分、`default_os` 决定默认启动）
+- NVMe-oF 认证凭据库（DHHC-1，按 Worker 跟盘，7.7 节；/boot-vars 注入 `nbft_secret`，5 节）
+- 凭据推送驱动（凭据设置/吊销、绑定/解绑/换绑、建盘/删盘、删 Worker 时推送 Agent，Agent 转调 nvmet 宿主服务同步 hosts 矩阵）
 
 当前版本还没有做：
 

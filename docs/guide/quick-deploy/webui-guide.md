@@ -33,12 +33,12 @@ Worker list (`worker_id` is the hostname, 1:1):
 Device ledger page (the device entity of the three-entity model; the binding relationship is authoritative on the device side):
 
 - **Toolbar**:
-  - Auto-register switch: whether unknown-MAC devices reporting fingerprints are auto-admitted into the pool (on = report & join pool awaiting binding; off = report only, not pooled).
+  - Registration Window panel: open the window during deployment (5/15/30/60 min; auto-closes on expiry) and new devices reporting with their public key auto-join the pool and complete key claim; while closed, reports are recorded without pool entry. The panel also hosts the “Enforce Device Signature” switch (when on, only bound devices that pass signature verification can boot).
   - `+ Register device`: manually enter a MAC (+ optional UUID / vendor / model / serial) into the pool.
   - `Register to Pool`: bulk-paste a MAC manifest to admit devices into the pool (each line independent, duplicates skipped; hovering shows "No binding involved" — this action creates no Worker binding; bindings are made via the "Bind wizard").
   - `Bind wizard`: device ↔ Worker binding (see core workflow below).
   - Multi-select unbind: bulk-unbind selected devices (devices return to the pool; system disks stay on the Worker).
-- **List**: sorted by intake time (`first_seen`); a copy button sits beside each MAC; status (`pooled` / `bound` / `revoked`), bound Worker, fingerprint summary, source (`ipxe` auto-intake / `manual`), first-reported time.
+- **List**: sorted by intake time (`first_seen`); a copy button sits beside each MAC; status (`pooled` / `bound` / `revoked`), bound Worker, fingerprint summary, source (`ipxe` window intake / `manual`), first-reported time.
 - **Expanded row**: full fingerprint (vendor/model/serial/CPU/memory etc.), UUID, last report, **binding history** (historical bind/unbind events, newest first; rebinds show `old worker → new worker`).
 - The toolbar "Page guide" button explains each zone of the page in a popover.
 
@@ -64,8 +64,8 @@ Using "new machine → diskless Worker" as the example:
 
 ### 1. Device Intake
 
-- **Auto intake**: with the auto-register switch ON, powering the machine on (PXE boot) pools it automatically — no manual registration.
-- **Manual intake**: Devices page "Register device" / "Register to Pool" (used when auto-register is OFF).
+- **Window auto-intake**: while the registration window is open, powering the machine on (PXE boot) pools it automatically with its public key and completes key claim — no manual registration.
+- **Manual intake**: Devices page "Register device" / "Register to Pool" (used when the window is closed).
 
 ### 2. Bind Worker (Bind Wizard)
 
@@ -104,7 +104,7 @@ Reboot the Worker: iPXE → iSCSI login → OS boot logo → desktop/login. Conf
 | Problem | Resolution |
 |---|---|
 | 401 / invalid token | Check `webui/app/.env` `VITE_CP_TOKEN` matches `control_plane/control_plane.env` `IPXE_CP_TOKEN` (VITE_ variables are injected at build time; rebuild after changing) |
-| Machine powered on but no new device in the pool | ① Is the auto-register switch ON? ② Check the Operations page for `device.report` entries (when the switch is OFF, reports are recorded without pooling) |
+| Machine powered on but no new device in the pool | ① Is the registration window open (top panel of the Devices page)? ② Check the Operations page for `device.register` entries (when the window is closed, reports are recorded without pooling) |
 | No devices in the wizard's left column | Devices must be pooled (`pooled`) and unbound first; bound devices are excluded from allocation |
 | No master in the clone dropdown | Master files must be named with a `_tpl_` prefix (e.g. `_tpl_windows_25h2.img`) and uploaded to the storage node's image directory |
 | Worker stuck at the iPXE menu | Default boot is unset: configure "Default OS" in the Worker detail page, or pick the system entry manually in the menu |

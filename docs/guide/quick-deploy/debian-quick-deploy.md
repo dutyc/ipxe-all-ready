@@ -31,7 +31,7 @@ Mechanism prerequisites (all are standard components of Debian-family distributi
 ## Environment Preparation
 
 Deployment of the Controller (Control Plane) and the storage node (Agent + iSCSI backend) is covered in *Environment Deployment*. The process is platform‑agnostic and treats Windows and Debian identically.  
-The only contract: each storage node's `IPXE_IQN_BASE` is authoritative for the disks it hosts — disk IQNs are built from it at creation time, and at Worker boot iPXE fetches the actual `base-iqn` from `/boot-vars` (resolved to the node hosting the Worker's system disk), overriding the static fallback (placeholder) in `tftp/boot.ipxe.cfg`. The two do not need to match.
+The only contract: each storage node's `IPXE_NQN_BASE` is authoritative for the disks it hosts — disk NQNs are built from it at creation time (the iSCSI IQN is derived from the NQN), and at Worker boot iPXE fetches the actual `base-iqn` from `/boot-vars` (resolved to the node hosting the Worker's system disk), overriding the static fallback (placeholder) in `tftp/boot.ipxe.cfg`. The two do not need to match.
 
 ---
 
@@ -195,7 +195,7 @@ iscsiadm -m session        # Current iSCSI session
 |---|---|
 | Cloned disk reports `Boot from SAN device failed: Error 0x7f22208e` | BOOTX64.EFI is missing from the ESP. Add the file as described in 1.4 and **re‑clone** (old cloned disks lack it). Confirm the golden image was installed as UEFI + GPT. |
 | Boot stops at the iPXE menu | The default boot is not set. Manually select **Boot Debian from iSCSI**, or set it up according to Step 5. |
-| iSCSI target not found | ① Verify the `IPXE_IQN_BASE` in `iscsi-server/.env` on the storage node hosting the Worker's system disk (authoritative: disk IQNs are built from it; `/boot-vars` returns it for the hosting node); ② Confirm the device is bound to the Worker on the Devices page; ③ On the detail page, the IQN should be `…:worker-xx.debian` |
+| iSCSI target not found | ① Verify the `IPXE_NQN_BASE` in `storager/.env` on the storage node hosting the Worker's system disk (authoritative: disk NQNs are built from it, IQNs derived from the NQNs; `/boot-vars` returns it for the hosting node); ② Confirm the device is bound to the Worker on the Devices page; ③ On the detail page, the IQN should be `…:worker-xx.debian` |
 | `VFS: Unable to mount root fs` | The initrd trio is incomplete (1.5 verification failed): missing module/iscsistart. Redo 1.3 and run `update-initramfs -u -k all`. |
 | Worried that the cloned disk has `root=UUID` hardcoded | This is expected: the UUID is a filesystem property that is copied as a whole during cloning; each cloned disk matches its own disk, no action needed. |
 | Golden image boots fine in a VM but the cloned disk won’t boot | Check whether BOOTX64.EFI was added as described in 1.4 (the most common hidden cause). |

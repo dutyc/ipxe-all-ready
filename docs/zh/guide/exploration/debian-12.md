@@ -281,7 +281,7 @@ Check /var/log/syslog or see virtual console 4 for the details.
 root@vm-ubuntu:/home/dutyc/ipxe-all-ready# docker compose ps
 NAME           IMAGE                                                                                      COMMAND                  SERVICE        CREATED             STATUS             PORTS
 ipxe-dnsmasq   jpillora/dnsmasq@sha256:98b69ad825942089fb7c4b9153e3c5af0205eda3a103c691e30b1a13fd912830   "/usr/sbin/dnsmasq --…"   ipxe-dnsmasq   About an hour ago   Up About an hour   
-ipxe-iscsi     wtnb75/stgt@sha256:1b609555f26bb7a2b2a49a093eff8473e196a8cff49acc684345020eb79f813e        "tgtd -f"                ipxe-iscsi     About an hour ago   Up About an hour   
+storager-iscsi   wtnb75/stgt@sha256:1b609555f26bb7a2b2a49a093eff8473e196a8cff49acc684345020eb79f813e        "tgtd -f"                storager-iscsi     About an hour ago   Up About an hour   
 ipxe-nginx     nginx@sha256:54f2a904c251d5a34adf545a72d32515a15e08418dae0266e23be2e18c66fefa              "/docker-entrypoint.…"   ipxe-nginx     About an hour ago   Up About an hour   0.0.0.0:88->80/tcp, [::]:88->80/tcp
 root@vm-ubuntu:/home/dutyc/ipxe-all-ready# 
 ```

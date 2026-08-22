@@ -95,13 +95,17 @@ Notes:
 | `GET` | `/healthz` | Health check |
 | `GET` | `/boot-vars` | Dynamic iPXE boot variable injection, no auth required |
 | `GET` | `/devices/report` | iPXE device info reporting (no auth, 11 fields, see 16.6) |
+| `GET` | `/devices/challenge` | One-time nonce issuance (no auth, challenge-response, see 5.2) |
 | `GET` | `/devices` | Device pool list (state filter, see 16.1) |
 | `GET` | `/devices/{mac}` | Single device detail (see 16.2) |
 | `POST` | `/devices` | Manually register a device into the pool (see 16.3) |
 | `POST` | `/devices/import` | Bulk import device manifest (see 16.4) |
 | `DELETE` | `/devices/{mac}` | Revoke a device (see 16.5) |
-| `GET` | `/settings/auto-register` | Get the global auto-register switch (runtime state, see 5.1) |
-| `PUT` | `/settings/auto-register` | Toggle the global auto-register switch (persisted, takes effect immediately, see 5.1) |
+| `GET` | `/settings/registration-window` | Get registration window status (see 5.1) |
+| `POST` | `/settings/registration-window` | Open the registration window (TTL hard cap 1-60 min, see 5.1) |
+| `DELETE` | `/settings/registration-window` | Close the registration window early (see 5.1) |
+| `GET` | `/settings/enforcement` | Get the device signature enforcement switch (see 5.1) |
+| `PUT` | `/settings/enforcement` | Toggle the device signature enforcement switch (see 5.1) |
 | `GET` | `/agents` | List Agents and their capabilities |
 | `POST` | `/agents` | Register a new Agent (writes agents.yml; 409 if id exists) |
 | `POST` | `/agents/probe` | Probe an Agent and auto-derive registration parameters (preview, no file writes) |
@@ -123,6 +127,9 @@ Notes:
 | `GET` | `/workers/{worker_id}/status` | Query Worker inventory and real-time status |
 | `DELETE` | `/workers/{worker_id}` | Delete a Worker |
 | `POST` | `/workers/delete/batch` | Batch delete Workers (each item processed independently, with success/failure summary) |
+| `PUT` | `/workers/{worker_id}/credential` | Set/update the NVMe-oF authentication key (DHHC-1 validation, see 7.7) |
+| `DELETE` | `/workers/{worker_id}/credential` | Delete the NVMe-oF authentication key (revoke authentication, see 7.7) |
+| `GET` | `/workers/{worker_id}/credential` | Query credential metadata (never returns plaintext, see 7.7) |
 | `GET` | `/operations` | Read operation audit log |
 
 ---
@@ -153,7 +160,7 @@ curl -s "$BASE_URL/healthz"
 
 Provides per-worker boot variables for iPXE boot scripts. This endpoint does not require authentication and only exposes variables needed for booting within a controlled network.
 
-> **Note**: This endpoint is **read-only** (a projection of boot variables, no write side effects). Auto-registration (new MACs entering the device pool) has been consolidated into `GET /devices/report` (see 16.6), which `boot.ipxe.cfg` chains **before** `/boot-vars`.
+> **Note**: This endpoint is **read-only** (a projection of boot variables, no write side effects). Registration-window enrollment (new MACs entering the device pool with a public key) has been consolidated into `GET /devices/report` (see 16.6), which `boot.ipxe.cfg` chains **before** `/boot-vars`.
 
 The Control Plane identifies the device and projects boot variables in the following order:
 
@@ -171,9 +178,11 @@ The response of `/boot-vars` is a projection of the inventory:
 
 | Response Field | Origin |
 |---|---|
-| `base_iqn` | The IQN of the Worker’s default boot disk (the disk for `default_os`; if not set, the first disk) with the last colon-and-following part stripped. **Not returned** if the Worker has no system disk (iPXE falls back to the static default in `boot.ipxe.cfg`). |
+| `nqn` | The disk NQN of the default boot disk (same disk selection rule) — the NVMe-oF subsystem identifier (**authoritative field**), consumed by the firmware as `sanboot nvme://<ip>:<port>/${nqn}` (the C3 bootchain branch is deferred; only the variable is projected for now). Not returned when the disk record lacks `nqn` (legacy disk; no derivation — legacy environments are not supported) or when the Worker has no system disk. |
+| `base_iqn` | The IQN of the Worker’s default boot disk (the disk for `default_os`; if not set, the first disk) with the last colon-and-following part stripped — the disk NQN is the authoritative identifier, the IQN is derived from it. **Not returned** if the Worker has no system disk (iPXE falls back to the static default in `boot.ipxe.cfg`). |
 | `iscsi_server` | The `iscsi_server` of the Agent that hosts the default boot disk (same disk selection rule as above). Not returned when there is no system disk. |
 | `iscsi_sep` | The iSCSI root **separator** (the part between `${iscsi-server}` and `${base-iqn}`). The root-path assembly is done on the iPXE side. **Generated according to the Agent backend type**: `:::1:` for stgt backends (lun placeholder 1), `::::` for LIO backends (empty placeholder). The backend type is determined first from the Agent’s `tags` in `agents.yml` (the presence of `lio`/`stgt`), then by querying the Agent’s `/capabilities` `backend` field, and finally defaulting to stgt format if the query fails. Not returned when there is no system disk. |
+| `nbft_secret` | The Worker’s NVMe-oF authentication key (DHHC-1, `state/credentials.yml` indexed by worker_id, see 7.7). **Injected when the Worker is bound and has a key entry**; not returned when there is no key / the Worker is unbound / the request is denied. Consumed by the firmware as `sanboot nvme://...?secret=${nbft-secret}` (the C3 bootchain branch is deferred; only the variable is projected for now, the iSCSI path is unaffected) |
 | `menu_default` | Derived chain: `workers.yml` `default_os` (set separately after disk creation) > `boot.menu_default` (explicit configuration) > `reboot` (loop reboot waiting when not configured) |
 | `menu_timeout` | When a default boot is configured: `boot.menu_timeout` > `IPXE_CP_BOOT_MENU_TIMEOUT` (default 5000). When in `reboot` loop: always uses `IPXE_CP_AUTO_BOOT_TIMEOUT` (default 1). Units are milliseconds. |
 
@@ -185,8 +194,8 @@ hostname miss or not provided -> mac -> devices.yml (device inventory) -> bound_
 not identified and mac provided ->
   - device in pool (pooled) -> reboot loop (menu-default=reboot + short timeout), waiting for binding
   - device revoked -> empty script (menu stays)
-  - unknown MAC + auto-register on -> enter the device pool (see “Auto-Registration” below), return reboot loop
-  - unknown MAC + auto-register off -> empty script (menu stays)
+  - unknown MAC + registration window open with a valid public key -> enter the device pool (see “Registration-Window Enrollment” below), return reboot loop
+  - unknown MAC + window closed / no public key -> empty script (menu stays; report only records the fingerprint, no pool entry)
 ```
 
 ### Default Boot Item Rules
@@ -206,22 +215,25 @@ default_os (set separately after disk creation, see 7.3) -> boot.menu_default (e
 - Alternatively, you can leave `default_os` unset and use `boot.menu_default` to specify a default item on the iPXE menu (e.g., `menu-install` during installation, or `exit`).
 - When neither is configured, `menu_default` returns `reboot` (a short-timeout reboot loop waiting for the admin to create a disk / set a default OS; `exit` is only used when explicitly configured).
 
-### Auto-Registration (Zero-touch Provisioning)
+### Registration-Window Enrollment (Zero-touch Provisioning)
 
-When a new device boots without an identity, iPXE first `chain`s `/devices/report` (11-field report, see 16.6) and then requests `/boot-vars`. If the MAC is not registered, the Control Plane only **adds it to the device pool** (it no longer creates a Worker automatically):
+When a new device boots without an identity, iPXE first `chain`s `/devices/report` (11-field report plus optional `pubkey`, see 16.6) and then requests `/boot-vars`. **Enrollment only happens during the registration window** (2026-08-21 ruling): only when the window is open and the report carries a valid ECDSA P-256 public key does an unknown MAC enter the device pool; once the window closes, reports only update the fingerprint without pool entry (there is no enrollment channel outside the window, and a permanent window cannot be configured at the code level).
 
-1. `GET /devices/report`: unknown MAC with auto-register on → written to `state/devices.yml` (`state=pooled`, fingerprint stored, `source=ipxe`)
+1. `GET /devices/report`: unknown MAC + window open + `pubkey` present → written to `state/devices.yml` (`state=pooled`, fingerprint stored, `key_hash` filled, `source=ipxe`)
 2. `GET /boot-vars`: MAC in the pool and unbound → returns `menu-default=reboot` + short timeout, rebooting in a loop until the admin binds it
 3. After the admin binds the device to a Worker (WebUI / API; single bind 16.7, batch bind preview/execution 16.9/16.10), the next boot follows the Worker configuration normally
 
-Configuration (environment variables):
+Key claim for existing devices: an already-pooled device reporting with a public key during the window gets its `key_hash` filled in (claim complete); a key mismatch is rejected (revoke/re-register by deleting the inventory entry). After all devices have claimed their keys, enable signature enforcement (see 5.1).
 
-| Variable | Default | Description |
+Controls:
+
+| Item | Default | Description |
 |---|---:|---|
-| `IPXE_CP_AUTO_REGISTER` | `true` | **Startup default** for auto-registration — its semantics are “whether a new MAC automatically enters the device pool”; the runtime value can be toggled via `GET/PUT /settings/auto-register` (persisted to `state/settings.json`, survives restarts, takes precedence over the env var, see 5.1) |
+| Registration window | Closed | Open it with `POST /settings/registration-window` during deployment (TTL hard cap 1-60 min, auto-closes on expiry), see 5.1 |
+| Signature enforcement | Off | `GET/PUT /settings/enforcement`: when on, `/boot-vars` is only served to bound devices that pass signature verification, see 5.1 |
 | `IPXE_CP_AUTO_BOOT_TIMEOUT` | `1` | Menu timeout in milliseconds during the reboot loop. |
 
-The entire auto-registration process is logged as operations (`device.register`). On failure, the inventory is rolled back and an empty script is returned, so the next request will retry without affecting the iPXE boot process.
+The entire enrollment process is logged as operations (`device.register` / `device.claim`). On failure, the inventory is rolled back and an empty script is returned, so the next request will retry without affecting the iPXE boot process.
 
 ### Anti-Impersonation (Binding as Authentication)
 
@@ -234,6 +246,8 @@ When a request carries a `mac`, the Control Plane verifies that the device is **
 | `mac` | No | None | MAC address. The backend normalizes it by stripping `:` / `-` / `.`. Both colon-separated (`00:0c:29:b9:8b:2d`) and `mac:hexraw` (`000c29b98b2d`) formats are supported. |
 | `hostname` | No | None | Hostname, e.g., `worker-01`. |
 | `format` | No | `ipxe` | `ipxe` or `json`. |
+| `nonce` | No | None | One-time challenge-response nonce (issued by `/devices/challenge`, see 5.2); when enforcement is on, missing → `missing_sig` rejected |
+| `sig` | No | None | ECDSA P-256 signature as base64(DER) over `nonce‖mac‖hostname` (no separator, see 5.2); when enforcement is on, missing → `missing_sig` rejected |
 
 It is recommended to pass at least one of `mac` or `hostname`. From iPXE, it is best to pass both:
 
@@ -254,11 +268,13 @@ Example success response:
 ```ipxe
 #!ipxe
 # boot vars for worker-01
+set nqn nqn.2026-07.com.controller:worker-01.ubuntu
 set base-iqn iqn.2026-07.com.controller
 set iscsi-server 192.168.80.3
 set iscsi-sep :::1:
 set menu-default ubuntu
 set menu-timeout 5000
+set nbft-secret DHHC-1:01:<base64>   # only when NVMe-oF authentication is enabled (see 7.7)
 ```
 
 Registered but no default boot configured (no system disk / no `default_os` / no explicit `boot.menu_default`):
@@ -270,7 +286,7 @@ set menu-default reboot
 set menu-timeout 1
 ```
 
-New MAC (triggered auto-registration) or completely unrecognized, and if auto-registration fails or is disabled, returns an empty script:
+New MAC (window enrollment) or completely unrecognized, and if the window is closed or no public key is carried, returns an empty script:
 
 ```ipxe
 #!ipxe
@@ -287,11 +303,13 @@ Example success response:
 
 ```json
 {
+  "nqn": "nqn.2026-07.com.controller:worker-01.ubuntu",
   "base_iqn": "iqn.2026-07.com.controller",
   "iscsi_server": "192.168.80.3",
   "iscsi_sep": ":::1:",
   "menu_default": "ubuntu",
-  "menu_timeout": 5000
+  "menu_timeout": 5000,
+  "nbft_secret": "DHHC-1:01:<base64>"
 }
 ```
 
@@ -304,7 +322,7 @@ Registered but no default boot configured:
 }
 ```
 
-Unrecognized and no auto-registration triggered:
+Unrecognized and not enrolled (window closed / no public key):
 
 ```json
 {}
@@ -312,18 +330,29 @@ Unrecognized and no auto-registration triggered:
 
 ### iPXE Integration
 
-At the end of `tftp/boot.ipxe.cfg`, this endpoint is fetched:
+In `tftp/boot.ipxe.cfg`, the trust chain fetches this endpoint over HTTPS (nginx 443, TOFU anchor) after the challenge-respond handshake (see 5.2):
 
 ```ipxe
-chain --autofree http://${controller_ip}:4839/boot-vars?mac=${mac}&hostname=${hostname} || goto vars-done
-# If the chain fails (endpoint unreachable), it silently continues with the static defaults at the top of this file.
-# On success, the returned base-iqn / iscsi-server may override the static defaults; derived variables must be re-built.
-# isset guard: do not override iscsi-sep if /boot-vars already provided a backend-specific separator (stgt `:::1:` / LIO `::::`)
-isset ${iscsi-sep} || set iscsi-sep :::1:
-isset ${hostname} && set initiator-iqn ${base-iqn}:${hostname} || set initiator-iqn ${base-iqn}:${mac}
+# Stage 3: challenge-respond (R7) — signed request carries nonce+sig
+:challenge
+chain --autofree ${https-url}devices/challenge?mac=${mac} && goto signed || goto bootvars
+
+:signed
+sign ${nonce}${mac}${hostname} || goto bootvars
+chain --autofree ${https-url}boot-vars?mac=${mac}&hostname=${hostname}&nonce=${nonce}&sig=${sig} || goto vars-done
+goto vars-done
+
+# Degraded path (challenge failed: not registered/claimed, or legacy firmware):
+# served while signature enforcement is off — missing_sig is denied once enforcement is on
+:bootvars
+chain --autofree ${https-url}boot-vars?mac=${mac}&hostname=${hostname} || goto vars-done
 
 :vars-done
+isset ${iscsi-sep} || set iscsi-sep :::1:
+isset ${hostname} && set initiator-iqn ${base-iqn}:${hostname} || set initiator-iqn ${base-iqn}:${mac}
 ```
+
+On success, the returned `base-iqn` / `iscsi-server` may override the static defaults; derived variables are re-built at `:vars-done`. The `isset` guard keeps the backend-specific separator (`stgt` `:::1:` / LIO `::::`) projected by `/boot-vars`.
 
 In `menu.ipxe`, each OS and installation entry uses `${iscsi-sep}` in the root-path (e.g., `set root-path iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.windows`). The `iscsi:` protocol prefix and assembly structure remain static; only the separator is projected from the backend.
 
@@ -340,58 +369,101 @@ agents:
 
 If `iscsi_server` is not configured, the Control Plane falls back to the host portion of `base_url`. However, when `base_url` is `host.docker.internal`, this value is not suitable for physical Workers.
 
-### 5.1 GET/PUT /settings/auto-register
+### 5.1 Registration Window & Enforcement (/settings/registration-window, /settings/enforcement)
 
 #### Description
 
-The global auto-register switch controls whether a **new MAC** automatically enters the device pool (see “Auto-Registration” in Section 5). When enabled, unknown MACs requesting `/devices/report` or `/boot-vars` are written to `state/devices.yml` (`state=pooled`); when disabled, new MACs receive an empty script and must be registered manually via `POST /devices` or `POST /devices/import`. **Registered devices and bound Workers are unaffected** — the switch only applies to new MACs.
+The registration window is the controlled enrollment channel for the deployment phase (2026-08-21 ruling; it replaces the former `auto-register` permanent switch, whose endpoint has been removed): only while the window is open can new devices report with their public key (`GET /devices/report`) to auto-join the pool and complete key claim; once it closes, reports only record fingerprints without pool entry (no enrollment channel outside the window). The TTL has a hard cap of 60 minutes (a permanent window cannot be configured at the code level) and auto-closes on expiry (lazy computation; query for the actual state). All endpoints require `Authorization: Bearer`.
 
-There are two ways to enable/disable auto-registration; the runtime API takes precedence over the env var:
+The signature enforcement switch (transition-period compatibility): when off, keyless devices are served as before (anti-impersonation boundary only); when on, `/boot-vars` applies the 4th injection condition to bound devices — no `key_hash` → rejected as `no_key`; missing `nonce`/`sig` → rejected as `missing_sig`; replay or invalid signature → rejected. Claimed devices carrying an invalid signature are rejected during the transition period as well (forged signatures are never served). It is recommended to turn enforcement on only after all existing devices have completed key claim.
 
-| Method | Takes effect | Persistence | Priority |
-|---|---|---|---|
-| Env var `IPXE_CP_AUTO_REGISTER=true/false` (compose environment, see config table above) | Container startup | With compose config | Low (startup default) |
-| `PUT /settings/auto-register` | Immediately | `state/settings.json`, survives restarts | High |
+#### GET /settings/registration-window
 
-#### GET /settings/auto-register
-
-Queries the effective value: runtime state (`state/settings.json`) takes precedence; falls back to the env var default when unset.
-
-**Response**:
+Queries the registration window status (no record / already expired → `open=false`).
 
 | Field | Type | Description |
 |---|---|---|
-| `enabled` | bool | Whether auto-registration is currently on |
+| `open` | bool | Whether the window is open |
+| `opened_at` | str | ISO8601 opening time (`null` when closed) |
+| `ttl_minutes` | int | TTL in minutes configured when opened (`null` when closed) |
+| `closes_at` | str | ISO8601 expected closing time (`null` when closed) |
+| `remaining_seconds` | int | Remaining seconds (`0` when closed) |
 
 ```json
-{"enabled": true}
+{"open": true, "opened_at": "2026-08-21T10:00:00+08:00", "ttl_minutes": 30, "closes_at": "2026-08-21T10:30:00+08:00", "remaining_seconds": 1799}
 ```
 
-#### PUT /settings/auto-register
+#### POST /settings/registration-window
 
-Toggles the switch and persists it; takes effect immediately; recorded as an operation (`settings.auto_register`).
+Opens the registration window (status 201). If already open → 409 (close it first); an expired leftover record can be re-opened directly (overwrite). Recorded as an operation (`settings.registration_window`).
 
 **Request body**:
 
 | Field | Required | Type | Description |
 |---|---|---|---|
-| `enabled` | Yes | bool | `false` = disable auto-registration (new MACs are no longer auto-registered) |
-
-**Response**: same as GET, returns the new `{"enabled": bool}`.
-
-#### curl
+| `ttl_minutes` | Yes | int | 1-60 (returns 400 outside the range) |
 
 ```bash
-# Enable
-curl -X PUT http://<host>:4839/settings/auto-register \
+curl -X POST http://<host>:4839/settings/registration-window \
+  -H "Authorization: Bearer $CP_TOKEN" -H "Content-Type: application/json" \
+  -d '{"ttl_minutes": 30}'
+```
+
+**Response**: same as GET (window status after opening).
+
+#### DELETE /settings/registration-window
+
+Closes the registration window early (409 when never opened / no record). Recorded as an operation (`settings.registration_window`).
+
+```bash
+curl -X DELETE http://<host>:4839/settings/registration-window \
+  -H "Authorization: Bearer $CP_TOKEN"
+```
+
+**Response**: `{"open": false}`
+
+#### GET/PUT /settings/enforcement
+
+Gets/toggles the device signature enforcement switch (persisted to `state/settings.json`, survives restarts).
+
+**Request body (PUT)**:
+
+| Field | Required | Type | Description |
+|---|---|---|---|
+| `enabled` | Yes | bool | `true` = enforce (keyless / signature-less devices are denied boot) |
+
+```bash
+curl -X PUT http://<host>:4839/settings/enforcement \
   -H "Authorization: Bearer $CP_TOKEN" -H "Content-Type: application/json" \
   -d '{"enabled": true}'
-
-# Disable
-curl -X PUT http://<host>:4839/settings/auto-register \
-  -H "Authorization: Bearer $CP_TOKEN" -H "Content-Type: application/json" \
-  -d '{"enabled": false}'
 ```
+
+**Response**: `{"enabled": bool}` (same for GET and PUT). PUT is recorded as an operation (`settings.enforcement`).
+
+### 5.2 GET /devices/challenge
+
+Challenge endpoint (**no auth**): issues a one-time nonce (short TTL, bound to MAC, replay protection; the nonce itself holds no secret) for the `/boot-vars` signature verification chain. Device missing or unclaimed (no `key_hash`) → **404** (cannot take the signature path).
+
+**Query parameters**:
+
+| Parameter | Required | Description |
+|---|---|---|
+| `mac` | Yes | MAC address (normalization rules same as `/boot-vars`) |
+
+**Success (200, `text/plain`)**: a `#!ipxe` script body — iPXE consumes it directly with `chain`, and `${nonce}` becomes the one-time 64-hex-char nonce afterwards:
+
+```ipxe
+#!ipxe
+set nonce 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+```
+
+**Errors**: `400` (invalid MAC); `404` (device missing/unclaimed).
+
+**Challenge-response chain (with `/boot-vars`, device identity verification)**:
+
+1. `GET /devices/challenge?mac=<mac>` → obtain `${nonce}` by executing the response script
+2. iPXE signs `nonce‖mac‖hostname` (UTF-8, no separator; MAC in lowercase colon form) with the device key (ECDSA P-256) → `sig` (base64(DER))
+3. `GET /boot-vars?mac=&hostname=&nonce=&sig=` → credentials are served only after verification passes (injection condition #4, see 5.1); verification failure → empty script (deny, audited as `boot_vars.credential`, reasons see 5.1)
 
 ---
 
@@ -445,7 +517,7 @@ curl -s "$BASE_URL/agents?live=false" \
       "fs_type": "btrfs",
       "cd": false,
       "persistent": "saveconfig (auto-load on start)",
-      "base_iqn": "iqn.2026-07.com.controller",
+      "base_nqn": "nqn.2026-07.com.controller",
       "clone": "reflink (FICLONE) -> shutil.copy fallback",
       "empty_disk": "truncate (sparse)"
     }
@@ -802,7 +874,8 @@ curl -s -X POST "$BASE_URL/workers/worker-00/luns/disk" \
   "disks": [
     {
       "agent": "storage-lio-01",
-      "iqn": "iqn.2026-07.com.controller:worker-01.ubuntu",
+      "nqn": "nqn.2026-07.com.controller:worker-01.ubuntu",  # NVMe-oF 数据面标识（权威，NQN 不用 IQN 定义）
+      "iqn": "iqn.2026-07.com.controller:worker-01.ubuntu",  # iSCSI 数据面标识（由 NQN 派生）
       "filename": "worker-01.ubuntu.img",
       "backing": "/home/iscsi_img/worker-01.ubuntu.img",
       "os": "ubuntu",
@@ -1181,6 +1254,92 @@ curl -s -X POST "$BASE_URL/workers/batch" \
 | `400` | `name_prefix` empty / generated `worker_id` invalid / `macs` length not equal to `count` |
 | `401` | Missing or incorrect Token |
 | `422` | `count` missing or out of 1–100 range |
+
+---
+
+## 7.7 NVMe-oF Authentication Credentials (/workers/{worker_id}/credential)
+
+### Description
+
+The NVMe-oF connection authentication key store (key follows the Worker ruling, 2026-08-22):
+keys are indexed by `worker_id`, and all devices bound to that Worker share the same key
+(a rebind rotates the key). Keys use the **DHHC-1** format (blueprint 2.1 contract):
+`DHHC-1:<two-digit type>:<base64(key + CRC32 little-endian 4 bytes)>`, with a 32-byte
+(SHA-256) or 64-byte (SHA-512) key body.
+
+After a credential write, the Control Plane **pushes the desired state to the Agent(s) hosting
+the Worker’s system disks** (audited as `credential.push`, never logging the key itself). The
+Agent relays to the storage node’s nvmet host service to register hosts (subsystem = disk,
+named by the disk’s NQN — the NQN is the authoritative disk identifier, the IQN is derived
+from it (`iqn.` + nqn[4:], e.g. `nqn.2026-07.com.controller:worker-01.ubuntu` →
+`iqn.2026-07.com.controller:worker-01.ubuntu`);
+IQNs are never used as subsystem NQNs (NVMe Base Spec §7.9 requires the `nqn.` prefix),
+Host NQN derived from the bound device UUID as `nqn.2014-08.org.ipxe:<uuid>`; devices without
+UUID fall back to the shared NQN `nqn.2014-08.org.ipxe:ipxe`). Push failures are audited but
+never block the main flow (the Agent writes its cache first, and a periodic reconcile replays
+the desired state).
+
+Operations that trigger a push: setting/deleting credentials, device bind/unbind/rebind
+(`PUT /workers/{worker_id}/mac`), disk create/delete (including batch), and Worker deletion.
+
+### PUT /workers/{worker_id}/credential
+
+Set or update the key (idempotent: setting the same value again leaves `updated_at` unchanged).
+
+```bash
+curl -X PUT "$BASE_URL/workers/worker-01/credential" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"secret": "DHHC-1:01:<base64>"}'
+```
+
+Success response:
+
+```json
+{
+  "worker_id": "worker-01",
+  "exists": true,
+  "secret_hash": "sha256:1a2b3c4d5e6f",
+  "created_at": "2026-08-22T08:00:00+00:00",
+  "updated_at": "2026-08-22T08:00:00+00:00"
+}
+```
+
+| HTTP Status | Common Causes |
+|---:|---|
+| `422` | DHHC-1 validation failed (prefix / digit-count of type / base64 / length 36 or 68 / CRC final value, any mismatch) |
+| `404` | Worker not found |
+
+### DELETE /workers/{worker_id}/credential
+
+Delete the key (revokes the authentication for all devices bound to this Worker; the next boot
+falls back to plaintext connections):
+
+```bash
+curl -X DELETE "$BASE_URL/workers/worker-01/credential" -H "Authorization: Bearer $TOKEN"
+```
+
+Success returns `{"deleted": "worker-01"}`; missing Worker or entry → `404`.
+
+### GET /workers/{worker_id}/credential
+
+Query credential metadata (**never returns plaintext**; `secret_hash` only exposes a prefix
+for rotation comparison):
+
+```bash
+curl -s "$BASE_URL/workers/worker-01/credential" -H "Authorization: Bearer $TOKEN"
+```
+
+```json
+{
+  "worker_id": "worker-01",
+  "exists": true,
+  "secret_hash": "sha256:1a2b3c4d5e6f",
+  "created_at": "2026-08-22T08:00:00+00:00",
+  "updated_at": "2026-08-22T08:00:00+00:00"
+}
+```
+
+When there is no entry, `exists=false` and `secret_hash` is absent.
 
 ---
 
@@ -1660,7 +1819,7 @@ Creates a disk LUN on the specified Agent. Pass `master` to clone from a master 
 
 | Field | Required | Description |
 |---|---:|---|
-| `iqn` | Yes | Target IQN. Must be prefixed with the Agent’s `base_iqn`. |
+| `iqn` | Yes | Target IQN (the derived form of the disk NQN). Must be prefixed with the Agent’s IQN base (derived from `IPXE_NQN_BASE`). |
 | `filename` | No | Backing filename. If omitted, the Agent auto-generates one from the IQN. |
 | `master` | Conditionally required | Master image filename (located in `DISK_DIR`). Mutually exclusive with `size`. |
 | `size` | Conditionally required | Empty disk size, e.g., `40G`. Mutually exclusive with `master`. |
@@ -1706,7 +1865,7 @@ Creates a CD (ISO virtual drive) LUN on the specified Agent. Only Agents with `r
 | Field | Required | Description |
 |---|---:|---|
 | `iso` | Yes | ISO filename (present in `DISK_DIR`). |
-| `iqn` | No | Target IQN. If omitted, the Agent auto-generates one from `base_iqn:iso_filename`. |
+| `iqn` | No | Target IQN. If omitted, the Agent auto-generates one from the derived IQN base (from `IPXE_NQN_BASE`):`iso_filename`. |
 
 #### curl
 
@@ -1852,7 +2011,7 @@ The device inventory (`state/devices.yml`) is the bottom-layer entity of the thr
 
 | State | Description |
 |---|---|
-| `pooled` | In the device pool, unbound (auto-registered / manually registered / bulk imported) |
+| `pooled` | In the device pool, unbound (window-enrolled / manually registered / bulk imported) |
 | `bound` | Bound to a Worker (one-to-one); see `bound_worker_id` |
 | `revoked` | Revoked; no longer accepts reports and cannot be re-registered |
 
@@ -1942,20 +2101,21 @@ Revoke a device: `pooled` → `revoked`; the record stays in the inventory (audi
 
 ### 16.6 GET /devices/report
 
-iPXE device info reporting endpoint (**no auth**; `boot.ipxe.cfg` chains it before `/boot-vars`): updates the fingerprint + `last_seen`; unknown MAC with auto-register on → enters the pool. **Returns an empty response** (no script side effects for `chain`).
+iPXE device info reporting endpoint (**no auth**; `boot.ipxe.cfg` chains it before `/boot-vars`): updates the fingerprint + `last_seen`; an unknown MAC enters the pool only while the registration window is open and a valid public key is carried. **Returns an empty response** (no script side effects for `chain`).
 
 | Parameter | Required | Description |
 |---|---|---|
 | `mac` | Yes | MAC; accepts colon format (`${mac}`) and compact hex (`${netX/mac}`) |
 | `uuid` / `manufacturer` / `product` / `serial` / `cpumodel` / `mem-type` / `chip` / `busid` | No | String fields; empty values tolerated |
 | `mem-total` / `mem-speed` | No | Integer; accepts `0x` hex and decimal; stored normalized as decimal |
+| `pubkey` | No | ECDSA P-256 public key (130-hex uncompressed point), used for enrollment/claim; absent or invalid → ignored |
 
 Behavior:
 
-- Registered device: updates the fingerprint (non-empty fields overwrite) + `last_seen`; `state` unchanged
+- Registered device: updates the fingerprint (non-empty fields overwrite) + `last_seen`; `state` unchanged; while the window is open, a valid public key fills in `key_hash` (key claim); a key mismatch is rejected (only audited as `device.claim rejected`)
 - Revoked device: ignored (not updated, not resurrected)
-- Unknown MAC + auto-register on: enters the pool (`state=pooled`, `source=ipxe`)
-- Unknown MAC + auto-register off: ignored
+- Unknown MAC + window open + valid public key: enters the pool (`state=pooled`, `key_hash` filled, `source=ipxe`)
+- Unknown MAC + window closed / no public key: fingerprint only, no pool entry (enrollment only during the window, see 5.1)
 
 **curl** (simulating an iPXE report):
 
@@ -2070,6 +2230,8 @@ The current version supports:
 - dnsmasq hostname bindings
 - Worker and operation audit trail queries
 - Multi-OS system disks (a Worker can have disks for multiple OSes, at most one per OS, distinguished by `os`, with `default_os` determining the default boot)
+- NVMe-oF authentication key store (DHHC-1, key follows Worker, 7.7; `/boot-vars` injects `nbft_secret`, 5)
+- Credential push driver (pushes to Agents on credential set/revoke, device bind/unbind/rebind, disk create/delete, Worker deletion; the Agent relays to the nvmet host service to sync the hosts matrix)
 
 The current version does **not** yet include:
 

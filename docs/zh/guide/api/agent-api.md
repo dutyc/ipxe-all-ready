@@ -14,14 +14,15 @@ http://localhost:4840
 
 ## 1. Agent 职责
 
-Agent 是每台 iSCSI Server 上的本地执行器。Control Plane 只通过 HTTP 调用 Agent；Agent 再进入本机 iSCSI 服务端容器，执行 `tgtadm` 或 `targetcli`，完成 Target、LUN、backing file 的创建、扫描、删除与查询。
+Agent 是每台存储节点上的本地执行器。Control Plane 只通过 HTTP 调用 Agent；Agent 再进入本机 iSCSI 服务端容器（stgt/lio），或调用本机 nvmet 宿主服务（nvmet），完成 Target、LUN、backing file 的创建、扫描、删除与查询。
 
-当前支持两个后端：
+当前支持三个后端：
 
 | 后端 | 作用 | ISO 虚拟光驱 | 持久化方式 |
 |---|---|---:|---|
 | `stgt` | 用户态 iSCSI Target，适合 ISO 光驱与安装期链路 | 支持 | 启动时扫描镜像目录重建 |
 | `lio` | Linux 内核态 iSCSI Target，适合生产磁盘 LUN | 不支持 | `targetcli saveconfig` |
+| `nvmet` | Linux 内核 NVMe-oF Target（NVMe/TCP），生产磁盘 LUN；盘文件管理仍归 Agent，target 由 nvmet 宿主服务直写 configfs | 不支持 | configfs（内核，重启后由 Agent startup 扫描重建） |
 
 ## 2. 全局规则
 
@@ -41,17 +42,17 @@ Authorization: Bearer <IPXE_AGENT_TOKEN>
 
 Token 比对采用常量时间算法（防时序攻击）；失败统一返回 `401`，不回显 Token 详情，日志中亦不记录 Token 值。
 
-### 2.2 IQN Base 校验
+### 2.2 Base Identifier 校验
 
-凡是请求中带 `iqn` 的接口，Agent 都会检查它是否以本 Agent 的 base IQN 开头。
+凡是请求中带 `iqn` 的接口，Agent 都会检查它是否以本 Agent 的基础前缀开头。盘标识权威 = **NQN**（NVMe-oF，首选协议）；IQN 由 NQN 派生（`iqn.` + nqn[4:]），是 iSCSI 数据面消费的形态——NQN 绝不由 IQN 定义。
 
-base IQN 来自 `.env`：
+base NQN 来自 `.env`：
 
 ```text
-IPXE_IQN_BASE=iqn.2026-07.com.controller
+IPXE_NQN_BASE=nqn.2026-07.com.controller
 ```
 
-合法示例：
+派生的 IQN base 即 `iqn.2026-07.com.controller`；合法请求示例：
 
 ```text
 iqn.2026-07.com.controller:worker-02.Ubuntu
@@ -95,6 +96,7 @@ IQN 含有冒号。作为 query 参数传递时，建议使用 `curl -G --data-u
 | `GET` | `/capabilities` | 查询 Agent 后端能力 | 是 |
 | `GET` | `/masters` | 列出 *_tpl_* 母盘（后台周期扫描缓存） | 是 |
 | `GET` | `/logs` | 查询操作日志 | 是 |
+| `POST` | `/credential` | NVMe-oF 凭据推送（nvmet 后端专用，见 12 节） | 是 |
 
 ## 4. GET /healthz
 
@@ -149,7 +151,7 @@ iqn.2026-07.com.controller:worker-02.Ubuntu
 
 ### 5.3 创建流程
 
-1. 校验 IQN base。
+1. 校验 IQN base（由节点 NQN base 派生）。
 2. 计算 backing 文件路径。
 3. 如果 backing 已存在，返回 `409`。
 4. 如果传入 `master`，优先使用 reflink 克隆，失败后回退到普通复制。
@@ -215,7 +217,7 @@ curl -s -X POST http://localhost:4840/lun/disk \
 | 字段 | 必填 | 说明 |
 |---|---:|---|
 | `iso` | 是 | ISO 文件名，必须已存在于 `IPXE_DISK_DIR` |
-| `iqn` | 否 | 指定 Target IQN；不传则使用 `base_iqn:iso文件名` |
+| `iqn` | 否 | 指定 Target IQN；不传则使用派生 IQN base（源自 `IPXE_NQN_BASE`）:iso文件名 |
 
 ### 6.3 示例
 
@@ -371,7 +373,7 @@ curl -s -H "Authorization: Bearer $TOKEN" http://localhost:4840/capabilities
   "backend": "stgt",
   "cd": true,
   "persistent": "auto-scan on startup",
-  "base_iqn": "iqn.2026-07.com.controller",
+  "base_nqn": "nqn.2026-07.com.controller",
   "fs_type": "btrfs",
   "clone": "reflink (FICLONE; xfs requires the reflink feature enabled) -> shutil.copy fallback",
   "empty_disk": "truncate (sparse)"
@@ -385,7 +387,7 @@ curl -s -H "Authorization: Bearer $TOKEN" http://localhost:4840/capabilities
   "backend": "lio",
   "cd": false,
   "persistent": "saveconfig (auto-load on start)",
-  "base_iqn": "iqn.2026-07.com.controller",
+  "base_nqn": "nqn.2026-07.com.controller",
   "fs_type": "zfs",
   "clone": "reflink (FICLONE on OpenZFS >= 2.2, master and work disk in the same dataset) -> shutil.copy fallback",
   "empty_disk": "truncate (sparse)"
@@ -490,6 +492,56 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 无母盘时返回 `{"masters": []}`。
 
+## 12. POST /credential（NVMe-oF 凭据推送，nvmet 后端专用）
+
+控制面凭据推送驱动端点（C4）：`IPXE_BACKEND=nvmet` 时，控制面在凭据设置/吊销、设备绑定/解绑/换绑、建盘/删盘、删 Worker 时调用本端点，把该 Worker 的 NVMe-oF 认证期望状态同步到存储节点（Agent 转调 nvmet 宿主服务登记 hosts 矩阵）。
+
+### 12.1 请求
+
+```bash
+curl -X POST http://localhost:4840/credential \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{
+    "worker_id": "worker-01",
+    "secret": "DHHC-1:01:<base64>",
+    "sub_nqns": ["nqn.2026-07.com.controller:worker-01.ubuntu"],
+    "host_nqns": ["nqn.2014-08.org.ipxe:550e8400-e29b-41d4-a716-446655440000"]
+  }'
+```
+
+| 字段 | 必填 | 说明 |
+|---|---:|---|
+| `worker_id` | 是 | Worker ID（缓存键，同值重复推送幂等） |
+| `secret` | 否 | DHHC-1 密钥明文；`null` = 吊销（删除该 worker 的 hosts 登记） |
+| `sub_nqns` | 否 | 该 Worker 的系统盘子系统 NQN 列表（= 盘，逐个子系统登记 hosts） |
+| `host_nqns` | 否 | 该 Worker 绑定设备派生的 Host NQN 列表（设备 UUID → `nqn.2014-08.org.ipxe:<uuid>`，无 UUID 回退共享 NQN `nqn.2014-08.org.ipxe:ipxe`） |
+
+### 12.2 响应
+
+```json
+{
+  "worker_id": "worker-01",
+  "secret": true,
+  "sub_count": 1,
+  "host_count": 1
+}
+```
+
+### 12.3 语义
+
+- **缓存先行**：先更新本地凭据缓存（`IPXE_NVMET_CACHE_FILE`，0600）再同步宿主服务；宿主服务不可达时返回 `503`，但缓存已更新，`reconcile` 周期线程（60 秒）自动重放补齐
+- 子系统不存在（已删盘）时条目标记过期丢弃，避免死重试；Agent 启动（startup）与周期线程都会触发 reconcile
+- 非 nvmet 后端调用本端点返回 `400`
+- 审计 `credential` 操作只记 `secret` 布尔与计数，不记密钥本体
+
+### 12.4 错误码
+
+| 状态码 | 常见触发条件 |
+|---:|---|
+| `400` | `IPXE_BACKEND` 非 nvmet |
+| `401` | 缺少 token 或 token 错误 |
+| `503` | nvmet 宿主服务不可达或 configfs 操作失败（缓存已先行更新） |
+
 ## 13. 错误码
 
 | 状态码 | 常见触发条件 |
@@ -498,8 +550,8 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 | `401` | 缺少 token 或 token 错误 |
 | `404` | master 文件不存在；ISO 文件不存在；target 不存在 |
 | `409` | backing 文件已存在；IQN 已存在 |
-| `500` | `tgtadm` 或 `targetcli` 执行失败 |
-| `503` | iSCSI 容器不存在；Docker 连接失败 |
+| `500` | `tgtadm` / `targetcli` / nvmet configfs 操作执行失败 |
+| `503` | iSCSI 容器不存在；Docker 连接失败；nvmet 宿主服务不可达 |
 
 ## 14. Control Plane 调用建议
 
@@ -510,13 +562,16 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 3. 对系统盘调用 `POST /lun/disk`。
 4. Windows 安装期如需 ISO 光驱，只调度到 `cd=true` 的 Agent。
 5. 写操作后通过 `GET /logs?since=<cursor>` 拉取审计日志。
+6. nvmet 后端：凭据/绑定/建盘变更后调用 `POST /credential` 推送期望状态（见 12 节）。
 
 ## 15. 部署注意事项
 
-当前 Agent 通过 Docker socket 操作本机 iSCSI 容器：
+当前 Agent 通过 Docker socket 操作本机 iSCSI 容器（stgt/lio）：
 
 ```text
 /var/run/docker.sock:/var/run/docker.sock
 ```
+
+nvmet 后端不经 Docker：Agent 通过 HTTP 调用本机 nvmet 宿主服务（`IPXE_NVMET_HOST_URL`，默认 `http://127.0.0.1:4841`，root 运行，见 nvmet-host README），盘文件仍由 Agent 管理。
 
 因此 Agent 应只暴露在控制网或可信管理网络中，不应直接暴露到公网。

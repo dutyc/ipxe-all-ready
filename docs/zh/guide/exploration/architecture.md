@@ -28,7 +28,7 @@
 
 1. **ipxe-dnsmasq**：负责 DHCP 身份分配与 TFTP 固件/脚本分发。
 2. **ipxe-nginx**：作为 HTTP 资源服务，提供内核、initrd 或 PE 镜像的下载。
-3. **ipxe-iscsi**：基于 `stgt` 提供 iSCSI 块存储服务，映射系统盘 LUN 与 ISO 虚拟光驱。
+3. **storager-iscsi**：基于 `stgt` 提供 iSCSI 块存储服务，映射系统盘 LUN 与 ISO 虚拟光驱。
 
 **架构考量：**
 
@@ -102,7 +102,7 @@ set iscsi-sep :::1:
 isset ${hostname} && set initiator-iqn ${base-iqn}:${hostname} || set initiator-iqn ${base-iqn}:${mac}
 ```
 
-随后 `boot.ipxe.cfg` 在启动早期 chain Control Plane 的 `/boot-vars` 端点：控制面按 Worker 系统盘所在存储节点解析，返回该节点实际的 `base-iqn`（即盘 IQN 前缀，源自该节点 `IPXE_IQN_BASE`），覆盖上面的静态兜底值——`boot.ipxe.cfg` 的静态 `base-iqn` 无需与任何节点的 `IPXE_IQN_BASE` 一致。
+随后 `boot.ipxe.cfg` 在启动早期 chain Control Plane 的 `/boot-vars` 端点：控制面按 Worker 系统盘所在存储节点解析，返回该节点实际的 `base-iqn`（即盘 IQN 前缀——盘标识权威 = NQN，由该节点 `IPXE_NQN_BASE` 生成，IQN 由 NQN 派生），覆盖上面的静态兜底值——`boot.ipxe.cfg` 的静态 `base-iqn` 无需与任何节点的 `IPXE_NQN_BASE` 一致。
 
 ```ipxe
 # 拉取 per-worker 变量，再用 isset 守卫重建派生变量
@@ -269,12 +269,12 @@ fallocate -l 60G worker-01.win11.img
 
 由于项目代码在系统盘，而 iSCSI 镜像在数据盘，在 `docker-compose.yml` 中需要通过 `volumes` 将物理路径映射到容器内部。
 
-以 `ipxe-iscsi` 容器为例：
+以 `storager-iscsi` 容器为例：
 
 ```yaml
-  ipxe-iscsi:
+  storager-iscsi:
     image: wtnb75/stgt
-    container_name: ipxe-iscsi
+    container_name: storager-iscsi
     network_mode: host
     privileged: true
     volumes:

@@ -37,7 +37,7 @@ After cloning, the iBFT mechanism guarantees bootability — no in‑disk proces
 ## Environment Preparation
 
 Deployment of the Controller (Control Plane) and the storage node (Agent + iSCSI backend) is covered in *Environment Deployment*. The process is platform‑agnostic and treats Windows and Debian identically.  
-The only contract: each storage node's `IPXE_IQN_BASE` is authoritative for the disks it hosts — disk IQNs are built from it at creation time, and at Worker boot iPXE fetches the actual `base-iqn` from `/boot-vars` (resolved to the node hosting the Worker's system disk), overriding the static fallback (placeholder) in `tftp/boot.ipxe.cfg`. The two do not need to match.
+The only contract: each storage node's `IPXE_NQN_BASE` is authoritative for the disks it hosts — disk NQNs are built from it at creation time (the iSCSI IQN is derived from the NQN), and at Worker boot iPXE fetches the actual `base-iqn` from `/boot-vars` (resolved to the node hosting the Worker's system disk), overriding the static fallback (placeholder) in `tftp/boot.ipxe.cfg`. The two do not need to match.
 
 ---
 
@@ -130,11 +130,11 @@ scp .\_tpl_windows_23h2.img user@192.168.80.3:/pool1/iscsi_img
 Set the diskless Worker to network boot (PXE) and power it on:
 
 1. Obtain an address via DHCP → load iPXE → report its fingerprint.
-2. **New MAC auto‑intake**: the device appears on the Devices (device pool) page with status `pooled`, awaiting binding.
+2. **New MAC window intake**: while the registration window is open, the device appears on the Devices (device pool) page with status `pooled`, awaiting binding.
 3. Open the WebUI (`http://x.x.x.x:4838`) → **Devices** page and confirm the device is pooled.
 4. Click the **Bind wizard** → default **Sequential allocation** mode: check the device in the left column, check a Worker in the right column (fill in a prefix to auto‑create if none are available) → preview → confirm. After binding the device status becomes `bound`, the hostname is `worker-01`, and its next boot follows the Worker configuration.
 
-> When the auto‑register switch is OFF, new devices only report fingerprints without entering the pool: pool them manually via "Register device" / "Register to Pool" on the Devices page, then bind (see the *WebUI User Guide*).
+> When the registration window is closed, new devices only report fingerprints without entering the pool: open the window via the "Registration Window" panel on the Devices page (new devices then join with their public key), or pool them manually via "Register device" / "Register to Pool", then bind (see the *WebUI User Guide*).
 
 ## Step 4: Instant Clone via WebUI
 
@@ -180,6 +180,6 @@ After saving, the boot variables for this Worker are delivered immediately (`/bo
 | After booting, the cloned disk stops at the iPXE menu | The default boot is not set; manually select **Boot Windows from iSCSI**, or set it up according to Step 5 |
 | The cloned disk fails to boot (spinning circle / blue screen) | Issue with the golden image itself: check that the network driver is in place in the golden image, and that the golden image boots correctly inside a VM |
 | Multiple clones share the same computer name | This is expected (no machine identity is written inside the disk). If you need to differentiate them, handle it manually (rename / sysprep) — it does not affect bootability |
-| iSCSI target not found | ① Verify the `IPXE_IQN_BASE` in `iscsi-server/.env` on the storage node hosting the Worker's system disk (authoritative: disk IQNs are built from it; `/boot-vars` returns it for the hosting node); ② Confirm the device is bound to the Worker on the Devices page (the hostname binding is in effect); ③ On the detail page, the IQN in the disk list should be `…:worker-xx.windows` |
+| iSCSI target not found | ① Verify the `IPXE_NQN_BASE` in `storager/.env` on the storage node hosting the Worker's system disk (authoritative: disk NQNs are built from it, IQNs derived from the NQNs; `/boot-vars` returns it for the hosting node); ② Confirm the device is bound to the Worker on the Devices page (the hostname binding is in effect); ③ On the detail page, the IQN in the disk list should be `…:worker-xx.windows` |
 | WebUI operation returns 401 | The Control Plane has `IPXE_CP_TOKEN` set but `webui/app/.env` is not synchronized (see *Environment Deployment* 1.4), or the WebUI was not rebuilt after the change |
 | Want to switch the golden‑image version | Upload a new golden image → choose the new golden image when cloning the target Worker. Existing Worker disks are not affected |

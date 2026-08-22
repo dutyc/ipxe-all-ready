@@ -28,7 +28,7 @@ The control‑plane stack consists of three core containers:
 
 1. **ipxe-dnsmasq**: Handles DHCP identity assignment and TFTP firmware/script distribution.
 2. **ipxe-nginx**: Acts as the HTTP resource service, providing downloads of the kernel, initrd, or PE images.
-3. **ipxe-iscsi**: Based on `stgt`, provides iSCSI block storage services, mapping system‑disk LUNs and ISO virtual optical drives.
+3. **storager-iscsi**: Based on `stgt`, provides iSCSI block storage services, mapping system‑disk LUNs and ISO virtual optical drives.
 
 **Architecture Considerations:**
 
@@ -102,7 +102,7 @@ set iscsi-sep :::1:
 isset ${hostname} && set initiator-iqn ${base-iqn}:${hostname} || set initiator-iqn ${base-iqn}:${mac}
 ```
 
-Early in the boot process `boot.ipxe.cfg` chains the Control Plane's `/boot-vars` endpoint: the Control Plane resolves the storage node hosting the Worker's system disk and returns that node's actual `base-iqn` (the disk's IQN prefix, derived from the node's `IPXE_IQN_BASE`), overriding the static fallback above — the static `base-iqn` in `boot.ipxe.cfg` never needs to match any node's `IPXE_IQN_BASE`.
+Early in the boot process `boot.ipxe.cfg` chains the Control Plane's `/boot-vars` endpoint: the Control Plane resolves the storage node hosting the Worker's system disk and returns that node's actual `base-iqn` (the disk's IQN prefix — the disk NQN is the authoritative identifier, built from the node's `IPXE_NQN_BASE`, and the IQN is derived from it), overriding the static fallback above — the static `base-iqn` in `boot.ipxe.cfg` never needs to match any node's `IPXE_NQN_BASE`.
 
 ```ipxe
 # Fetch per-worker variables, then rebuild derived values behind an isset guard
@@ -269,12 +269,12 @@ An automated registration script `iscsi-target-gen.sh` is provided in the root o
 
 Since the project code resides on the system disk while the iSCSI images are on the data disk, you must map the physical paths into the containers via `volumes` in `docker-compose.yml`.
 
-Taking the `ipxe-iscsi` container as an example:
+Taking the `storager-iscsi` container as an example:
 
 ```yaml
-  ipxe-iscsi:
+  storager-iscsi:
     image: wtnb75/stgt
-    container_name: ipxe-iscsi
+    container_name: storager-iscsi
     network_mode: host
     privileged: true
     volumes:

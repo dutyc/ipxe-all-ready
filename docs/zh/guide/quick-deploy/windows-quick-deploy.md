@@ -37,7 +37,7 @@ Windows 无盘启动依赖 iPXE 写入的 iBFT(iSCSI Boot Firmware Table):启动
 ## 环境准备
 
 Controller(控制面)与存储节点(Agent + iSCSI 后端)的部署见《项目环境部署》,平台无关,对 Windows / Debian 一视同仁。
-唯一契约:各存储节点的 `IPXE_IQN_BASE` 对自身承载的盘是权威值——建盘按它生成盘 IQN,Worker 启动时 iPXE 经 `/boot-vars` 按系统盘所在节点获取实际 `base-iqn` 并覆盖 `tftp/boot.ipxe.cfg` 的静态兜底值(占位符),两者无需一致。
+唯一契约:各存储节点的 `IPXE_NQN_BASE` 对自身承载的盘是权威值——建盘按它生成盘 NQN(iSCSI 数据面 IQN 由 NQN 派生),Worker 启动时 iPXE 经 `/boot-vars` 按系统盘所在节点获取实际 `base-iqn` 并覆盖 `tftp/boot.ipxe.cfg` 的静态兜底值(占位符),两者无需一致。
 
 ---
 
@@ -136,7 +136,7 @@ scp .\_tpl_windows_23h2.img dutyc@192.168.80.3:/pool1/iscsi_img
 3. 打开 WebUI(`http://x.x.x.x:4838`)→ **Devices** 页面,确认设备已入池。
 4. 点击「绑定向导」→ 默认**顺序分配**模式:左栏勾选该设备,右栏勾选 Worker(不足时填写前缀自动补建)→ 预览 → 确认执行。绑定后设备状态变为 `bound`,hostname 即 `worker-01`,下次引导按 Worker 配置执行。
 
-> 自动注册开关关闭时,新设备只上报不入池:需在 Devices 页「注册设备」/「登记设备入池」手动入池后再绑定(详见《WebUI 使用指南》)。
+> 注册窗口关闭时,新设备只上报不入池:需在 Devices 页「注册窗口」面板开启窗口（新设备携公钥自动入池）,或「注册设备」/「登记设备入池」手动入池后再绑定(详见《WebUI 使用指南》)。
 
 ## 第 4 步:WebUI 秒级克隆
 
@@ -183,6 +183,6 @@ scp .\_tpl_windows_23h2.img dutyc@192.168.80.3:/pool1/iscsi_img
 | 克隆盘启动后停在 iPXE 菜单 | 未设置默认启动,手动选择 **Boot Windows from iSCSI**,或按第 5 步设置 |
 | 克隆盘无法启动(转圈/蓝屏) | 母盘自身问题:检查母盘网卡驱动是否就绪、母盘在虚拟机中能否正常启动 |
 | 多台克隆机计算机名相同 | 属于预期行为(盘内身份未写入机器信息)。如需区分,自行处理(改名 / sysprep),不影响启动 |
-| 找不到 iSCSI 目标 | ① 核对 Worker 系统盘所在存储节点 `iscsi-server/.env` 的 `IPXE_IQN_BASE`(权威值:建盘按它生成盘 IQN,`/boot-vars` 按盘所在节点返回);② 确认设备已在 Devices 页绑定到 Worker(hostname 绑定生效);③ 详情页磁盘列表中 IQN 为 `…:worker-xx.windows` |
+| 找不到 iSCSI 目标 | ① 核对 Worker 系统盘所在存储节点 `storager/.env` 的 `IPXE_NQN_BASE`(权威值:建盘按它生成盘 NQN,IQN 由 NQN 派生,`/boot-vars` 按盘所在节点返回);② 确认设备已在 Devices 页绑定到 Worker(hostname 绑定生效);③ 详情页磁盘列表中 IQN 为 `…:worker-xx.windows` |
 | WebUI 操作报 401 | Control Plane 设了 `IPXE_CP_TOKEN` 但 `webui/app/.env` 未同步(见《项目环境部署》1.4),或改后未重新构建 WebUI |
 | 想换母盘版本 | 上传新母盘 → 对目标 Worker 克隆时选择新母盘。已有 Worker 盘不受影响 |
