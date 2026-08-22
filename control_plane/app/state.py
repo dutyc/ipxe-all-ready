@@ -63,9 +63,39 @@ class DeviceStore:
         _atomic_write_text(self.devices_file, yaml.safe_dump(data, sort_keys=True, allow_unicode=False))
 
 
+class CredentialStore:
+    """NVMe-oF 认证凭据库（credentials.yml）：键 = worker_id（按 Worker 跟盘裁定，2026-08-22）。
+    原子写 + 线程锁，模式同 FileStateStore/DeviceStore。DHHC-1 明文（启动注入必需）与
+    secret_hash（审计比对）并存——与控制面「只存哈希」原则的差异及理由见
+    blueprint/nvmeof-credential-design.md 4.1 秘密分类。"""
+
+    def __init__(self, credentials_file: Path):
+        self.credentials_file = credentials_file
+        self._lock = threading.RLock()
+
+    @contextmanager
+    def locked(self):
+        with self._lock:
+            yield
+
+    def load(self) -> dict[str, Any]:
+        data = _load_yaml(self.credentials_file, {"credentials": {}})
+        creds = data.get("credentials")
+        if creds is None:
+            data["credentials"] = {}
+        if not isinstance(data["credentials"], dict):
+            raise ValueError(f"invalid credentials file: {self.credentials_file}")
+        return data
+
+    def save(self, data: dict[str, Any]) -> None:
+        if "credentials" not in data:
+            data["credentials"] = {}
+        _atomic_write_text(self.credentials_file, yaml.safe_dump(data, sort_keys=True, allow_unicode=False))
+
+
 class RuntimeSettings:
-    """运行时设置（布尔开关）：文件存在则覆盖环境变量默认值（进程内立即生效、重启保留），
-    文件不存在时回退环境变量默认。
+    """运行时设置（任意 JSON 值）：文件存在则覆盖环境变量默认值（进程内立即生效、重启保留），
+    文件不存在时回退默认。布尔开关（auto_register 已废止）与结构化字段（注册窗口）共用。
     """
 
     def __init__(self, path: Path):
@@ -77,18 +107,18 @@ class RuntimeSettings:
         with self._lock:
             yield
 
-    def get(self, key: str, default: bool) -> bool:
+    def get(self, key: str, default: Any = None) -> Any:
         data = _load_yaml(self.path, {})
         if key in data:
-            return bool(data[key])
+            return data[key]
         return default
 
-    def set(self, key: str, value: bool) -> bool:
+    def set(self, key: str, value: Any) -> Any:
         with self._lock:
             data = _load_yaml(self.path, {})
-            data[key] = bool(value)
+            data[key] = value
             _atomic_write_text(self.path, yaml.safe_dump(data, sort_keys=True))
-            return bool(value)
+            return value
 
 
 class OperationLog:

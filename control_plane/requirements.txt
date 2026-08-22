@@ -3,4 +3,5 @@ uvicorn
 httpx
 PyYAML
 docker
+cryptography
 

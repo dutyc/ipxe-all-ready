@@ -53,6 +53,11 @@ class UpdateWorkerMacRequest(BaseModel):
     mac: str
 
 
+class CredentialRequest(BaseModel):
+    """NVMe-oF 认证密钥（DHHC-1）设置请求。secret 必填，服务端自检（前缀/类型/长度/CRC32）。"""
+    secret: str
+
+
 class CreateWorkerDiskRequest(BaseModel):
     """给指定 Worker 创建系统盘 LUN（母盘克隆或空白盘）。os 为该盘对应的系统，决定 IQN 后缀与文件名。"""
     type: Literal["master", "empty"]
@@ -131,9 +136,15 @@ class SetWorkerDefaultBootRequest(BaseModel):
     menu_timeout: int | None = None
 
 
-class SetAutoRegisterRequest(BaseModel):
-    """运行时切换全局自动注册开关。enabled=false 后新 MAC 不再自动注册为 Worker。
-    持久化到 state/settings.json，优先于环境变量 IPXE_CP_AUTO_REGISTER（后者为启动默认）。"""
+class OpenRegistrationWindowRequest(BaseModel):
+    """开启注册窗口（2026-08-21 裁定：注册只在窗口期，取代 auto_register 永久开关）。
+    ttl_minutes 为窗口时长，硬上限 60 分钟（代码层强制自动关闭，不可配置为永久）。"""
+    ttl_minutes: int
+
+
+class SetEnforcementRequest(BaseModel):
+    """切换设备身份验签强制开关（2026-08-21 裁定：显式强制开关）。
+    enabled=true 后，无 key_hash 设备的 /boot-vars 请求直接拒绝下发（注入四条件第 4 条硬性）。"""
     enabled: bool
 
 

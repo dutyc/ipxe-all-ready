@@ -139,8 +139,8 @@ class AgentRegistry:
             if require_cd and not caps.get("cd"):
                 errors.append(f"{agent.id}: cd not supported by backend")
                 continue
-            if "base_iqn" not in caps:
-                errors.append(f"{agent.id}: capabilities missing base_iqn")
+            if "base_nqn" not in caps:
+                errors.append(f"{agent.id}: capabilities missing base_nqn")
                 continue
             return agent, caps
         role = "cd" if require_cd else "disk"
