@@ -14,7 +14,7 @@ NQN_UBUNTU = "nqn.2026-07.com.test:worker-01.ubuntu"
 NQN_WINDOWS = "nqn.2026-07.com.test:worker-01.windows"
 IQN_UBUNTU = "iqn." + NQN_UBUNTU[4:]
 IQN_WINDOWS = "iqn." + NQN_WINDOWS[4:]
-HOST_NQN = "nqn.2014-08.org.ipxe:550e8400-e29b-41d4-a716-446655440000"
+HOST_NQN = "nqn.2026-07.com.kurrent:host.worker-01"
 SECRET = "DHHC-1:01:YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXo="
 
 

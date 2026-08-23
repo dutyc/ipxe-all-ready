@@ -42,7 +42,7 @@ def client():
 
 @pytest.fixture()
 def auth_headers():
-    """控制面 API Bearer 鉴权头（与 tests/conftest.py 的 IPXE_CP_TOKEN 一致）。"""
+    """控制面 API Bearer 鉴权头（与 tests/conftest.py 的 KURRENT_CP_TOKEN 一致）。"""
     return {"Authorization": f"Bearer {TEST_TOKEN}"}
 
 

@@ -134,14 +134,14 @@ def build_iqn(base_iqn: str, worker_id: str, suffix: str) -> str:
 
 def build_nqn(base_nqn: str, worker_id: str, suffix: str) -> str:
     """由节点 NQN 命名空间生成盘 NQN（盘标识权威，NVMe-oF 首选协议）：
-    nqn.2026-07.com.controller:worker-01.ubuntu。
+    nqn.2026-07.com.kurrent:worker-01.ubuntu。
     IQN 不参与生成——NQN 不能用 IQN 定义，IQN 由盘 NQN 派生（nqn_to_iqn）。"""
     return f"{base_nqn.rstrip(':')}:{worker_id}.{suffix}".lower()
 
 
 def nqn_to_iqn(nqn: str) -> str:
     """NVMe NQN → iSCSI IQN（同后缀前缀变换，派生方向：NQN 权威，IQN 自动生成）：
-    nqn.2026-07.com.controller:worker-01.ubuntu → iqn.2026-07.com.controller:worker-01.ubuntu。
+    nqn.2026-07.com.kurrent:worker-01.ubuntu → iqn.2026-07.com.kurrent:worker-01.ubuntu。
     iSCSI 数据面（stgt/lio target、iPXE base-iqn 变量）消费 IQN 形态。"""
     nqn = nqn.strip().lower()
     if nqn.startswith("iqn."):

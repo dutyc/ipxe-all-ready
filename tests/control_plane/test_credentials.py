@@ -206,7 +206,8 @@ def test_boot_vars_credential_audit(client, auth_headers, register_claimed_devic
 
 # ============================ C4：控制面推送驱动（Agent 转调宿主服务） ============================
 
-HOST_NQN_FALLBACK = "nqn.2014-08.org.ipxe:ipxe"
+# Host NQN = worker 维度派生（发起端身份，与绑定设备无关；nqn.2026-07.com.kurrent:host.<worker_id>）
+HOST_NQN = "nqn.2026-07.com.kurrent:host.worker-01"
 # 盘标识权威 = NQN（控制面 build_nqn 生成盘 NQN，IQN 由 NQN 派生；推送 sub_nqns 用 NQN）
 DISK_NQN = "nqn.2026-07.com.test:worker-01.ubuntu"
 DISK_IQN = "iqn." + DISK_NQN[4:]
@@ -237,7 +238,7 @@ def test_push_on_credential_set(client, auth_headers, register_claimed_device, m
 
     res = client.put("/workers/worker-01/credential", json={"secret": secret}, headers=auth_headers)
     assert res.status_code == 200
-    assert pushes == [( "worker-01", secret, [DISK_NQN], [HOST_NQN_FALLBACK] )]
+    assert pushes == [( "worker-01", secret, [DISK_NQN], [HOST_NQN] )]
     ops = settings.operations_file.read_text(encoding="utf-8")
     assert '"credential.push"' in ops
     assert secret not in ops
@@ -253,11 +254,11 @@ def test_push_on_credential_revoke(client, auth_headers, register_claimed_device
 
     res = client.delete("/workers/worker-01/credential", headers=auth_headers)
     assert res.status_code == 200
-    assert pushes == [("worker-01", None, [DISK_NQN], [HOST_NQN_FALLBACK])]
+    assert pushes == [("worker-01", None, [DISK_NQN], [HOST_NQN])]
 
 
-def test_push_host_nqn_derives_from_device_uuid(client, auth_headers, mock_agent_client):
-    """绑定设备带 UUID：Host NQN 按 UUID 派生（nqn.2014-08.org.ipxe:<uuid>）。"""
+def test_push_host_nqn_derives_from_worker_id(client, auth_headers, mock_agent_client):
+    """Host NQN 按 worker_id 派生（nqn.2026-07.com.kurrent:host.<worker_id>），与设备 UUID 无关。"""
     _setup_agent_and_disk(client, auth_headers)
     uuid = "550e8400-e29b-41d4-a716-446655440000"
     res = client.post("/devices", json={"mac": MAC_A, "uuid": uuid}, headers=auth_headers)
@@ -268,11 +269,11 @@ def test_push_host_nqn_derives_from_device_uuid(client, auth_headers, mock_agent
     mock_agent_client.set_credential = lambda w, s, subs, hosts: pushes.append((w, s, subs, hosts)) or {}
 
     client.put("/workers/worker-01/credential", json={"secret": make_secret()}, headers=auth_headers)
-    assert pushes[0][3] == [f"nqn.2014-08.org.ipxe:{uuid}"]
+    assert pushes[0][3] == [HOST_NQN]
 
 
 def test_push_on_bind_unbind(client, auth_headers, register_claimed_device, mock_agent_client):
-    """绑定/解绑触发推送：host_nqns 随绑定设备变化（空 ↔ 设备派生 NQN）。
+    """绑定/解绑触发推送：host_nqns 恒为 worker 派生（与绑定设备无关，盘随 worker）。
 
     注：create_worker 带 mac 走内部 _bind_device（不推送，建 worker 时无凭据可言）；
     显式 bind/unbind 端点才是推送触发点。
@@ -286,11 +287,11 @@ def test_push_on_bind_unbind(client, auth_headers, register_claimed_device, mock
 
     res = client.post(f"/devices/{MAC_A}/bind", params={"worker_id": "worker-01"}, headers=auth_headers)
     assert res.status_code == 200
-    assert pushes[-1][3] == [HOST_NQN_FALLBACK]  # 设备无 UUID → 回退共享 Host NQN
+    assert pushes[-1][3] == [HOST_NQN]  # Host NQN 恒为 worker 派生（设备无 UUID 也不回退）
 
     res = client.delete(f"/devices/{MAC_A}/bind", headers=auth_headers)
     assert res.status_code == 200
-    assert pushes[-1] == ("worker-01", secret, [DISK_NQN], [])  # 解绑后 host_nqns 清空，密钥不变
+    assert pushes[-1] == ("worker-01", secret, [DISK_NQN], [HOST_NQN])  # 解绑后 host_nqns 不变（worker 维度恒定）
 
 
 def test_push_on_disk_create(client, auth_headers, register_claimed_device, mock_agent_client):

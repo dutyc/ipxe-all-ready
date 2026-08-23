@@ -1,7 +1,7 @@
 """Agent（nvmet 后端）单测夹具：env 隔离 + 直接 import app.main。
 
 storager/agent/app 注入 sys.path（顶层 app 包名与 control_plane.app / nvmet_host_main
-均不冲突），IPXE_* 环境变量在 import 前全量设置（main.py 顶层 _require_env）。
+均不冲突），KURRENT_* 环境变量在 import 前全量设置（main.py 顶层 _require_env）。
 """
 
 import os
@@ -16,14 +16,14 @@ AGENT_DIR = PROJECT_ROOT / "storager" / "agent"
 sys.path.insert(0, str(AGENT_DIR))  # 注入 agent 目录：import app → agent/app 包
 
 _STATE = Path(tempfile.mkdtemp(prefix="storager-agent-test-"))
-os.environ["IPXE_DISK_DIR"] = str(_STATE / "disks")
-os.environ["IPXE_NQN_BASE"] = "nqn.2026-07.com.test"
-os.environ["IPXE_BACKEND"] = "nvmet"
-os.environ["IPXE_AGENT_TOKEN"] = "test-agent-token"
-os.environ["IPXE_LOG_FILE"] = str(_STATE / "ops.jsonl")
-os.environ["IPXE_NVMET_HOST_URL"] = "http://127.0.0.1:4841"
-os.environ["IPXE_NVMET_HOST_TOKEN"] = "test-host-token"
-os.environ["IPXE_NVMET_CACHE_FILE"] = str(_STATE / "nvmet-credentials.json")
+os.environ["KURRENT_DISK_DIR"] = str(_STATE / "disks")
+os.environ["KURRENT_NQN_BASE"] = "nqn.2026-07.com.test"
+os.environ["KURRENT_BACKEND"] = "nvmet"
+os.environ["KURRENT_AGENT_TOKEN"] = "test-agent-token"
+os.environ["KURRENT_LOG_FILE"] = str(_STATE / "ops.jsonl")
+os.environ["KURRENT_NVMET_HOST_URL"] = "http://127.0.0.1:4841"
+os.environ["KURRENT_NVMET_HOST_TOKEN"] = "test-host-token"
+os.environ["KURRENT_NVMET_CACHE_FILE"] = str(_STATE / "nvmet-credentials.json")
 
 import app.main as agent_main  # noqa: E402
 
