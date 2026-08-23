@@ -1,10 +1,10 @@
-# iPXE-All-Ready
+> **iSCSI-classic 分支** — Kurrent 演进路上的基石：仅 iSCSI 支持版本，需要稳定部署的用户可选用此分支。
 
-![Cloud Native](https://img.shields.io/badge/Cloud%20Native-True%20Cloud%20Native-18181b) [![Stars](https://img.shields.io/github/stars/dutyc/ipxe-all-ready)](https://github.com/dutyc/ipxe-all-ready/stargazers) [![Release](https://img.shields.io/github/v/release/dutyc/ipxe-all-ready)](https://github.com/dutyc/ipxe-all-ready/releases) [![License](https://img.shields.io/github/license/dutyc/ipxe-all-ready)](LICENSE) [![Docs](https://img.shields.io/badge/Docs-ipxe.lecreate.asia-2563eb)](https://ipxe.lecreate.asia)
+![Cloud Native](https://img.shields.io/badge/Cloud%20Native-True%20Cloud%20Native-18181b) [![Stars](https://img.shields.io/github/stars/dutyc/kurrent)](https://github.com/dutyc/kurrent/stargazers) [![Release](https://img.shields.io/github/v/release/dutyc/kurrent)](https://github.com/dutyc/kurrent/releases) [![License](https://img.shields.io/github/license/dutyc/kurrent)](LICENSE)
 
 [中文版](./README.zh-CN.md) | [English](./README.md)
 
-**iPXE-All-Ready** 是基于纯开源组件（iPXE + iSCSI + FastAPI + React）的云原生无状态计算平台，把无状态贯彻到算力层本身：计算节点自身不持有任何持久状态——身份、系统与数据均由网络和控制面外部授予，插上网线即活：上报指纹自动进入设备池，WebUI 绑定 Worker、克隆系统盘、设定默认系统后即自动进入目标系统。
+基于纯开源组件（iPXE + iSCSI + FastAPI + React）的云原生无状态计算平台，把无状态贯彻到算力层本身：计算节点自身不持有任何持久状态——身份、系统与数据均由网络和控制面外部授予，插上网线即活：上报指纹自动进入设备池，WebUI 绑定 Worker、克隆系统盘、设定默认系统后即自动进入目标系统。
 
 阅读我们的宣言：**[about/zh/Manifesto.md](./about/zh/Manifesto.md)** —《我们的云原生》（English: [about/en/Manifesto.md](./about/en/Manifesto.md)）。
 
@@ -17,8 +17,8 @@
 ## 快速上手
 
 ```bash
-git clone https://github.com/dutyc/ipxe-all-ready
-cd ipxe-all-ready
+git clone https://github.com/dutyc/kurrent
+cd kurrent
 
 cp control_plane/control_plane.env.example control_plane/control_plane.env
 cp dnsmasq/dnsmasq.conf.example dnsmasq/dnsmasq.conf
@@ -30,7 +30,7 @@ docker compose up -d
 * Web 界面：`http://<controller-ip>:4838`
 * 控制面 API：`http://<controller-ip>:4839`
 
-存储节点部署与 Worker 母盘克隆，见分步式[部署手册](https://ipxe.lecreate.asia/zh/guide/quick-deploy/environment-deploy)。
+存储节点部署与 Worker 母盘克隆，见分步式[部署手册](docs/zh/guide/quick-deploy/environment-deploy.md)。
 
 ## 核心特性
 
@@ -38,12 +38,12 @@ docker compose up -d
 
 ## 文档
 
-文档站：**[ipxe.lecreate.asia](https://ipxe.lecreate.asia/zh/)** | **[English](https://ipxe.lecreate.asia)**
+全部文档以 Markdown 形式保存在本仓库：
 
-- [快速部署手册](https://ipxe.lecreate.asia/zh/guide/quick-deploy/environment-deploy) — 环境搭建、Windows 与 Debian 母盘克隆
-- [API 参考](https://ipxe.lecreate.asia/zh/guide/api/control-plane-api) — 完整接口契约
-- [探索系列](https://ipxe.lecreate.asia/zh/guide/preface) — 架构深潜，第一~四章
-- [我们已经攻克的壁垒](./about/zh/Barriers.md) — 攻坚记录（仅 GitHub 展示）
+- [快速部署手册](docs/zh/guide/quick-deploy/environment-deploy.md) — 环境搭建、Windows 与 Debian 母盘克隆
+- [API 参考](docs/zh/guide/api/control-plane-api.md) — 完整接口契约
+- [探索系列](docs/zh/guide/exploration/architecture.md) — 架构深潜
+- [我们已经攻克的壁垒](./about/zh/Barriers.md) — 攻坚记录
 
 ## 固件仓库
 
@@ -63,10 +63,10 @@ docker compose up -d
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=dutyc%2Fipxe-all-ready&type=date&legend=top-left">
+<a href="https://www.star-history.com/?repos=dutyc%2Fkurrent&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=dutyc/ipxe-all-ready&type=date&theme=dark&legend=top-left&sealed_token=zkQGmbPm0yH3EjnLTKc1DTe9hOaLnAeUdZlSlo92lycj2vyTy9VkyIW-uvH3P09ByCS5CiBI8QnhVbVNFyM211tGwSJ1yp7qE6ZsukdPCxJWkopIpVQepMXjrDwOAVENpL87Tr8qmmIYxQy6DawB8PaqrlfuVmGZPdnh9fPfJ8GtvnCIwkENEeVPSVp7" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=dutyc/ipxe-all-ready&type=date&legend=top-left&sealed_token=zkQGmbPm0yH3EjnLTKc1DTe9hOaLnAeUdZlSlo92lycj2vyTy9VkyIW-uvH3P09ByCS5CiBI8QnhVbVNFyM211tGwSJ1yp7qE6ZsukdPCxJWkopIpVQepMXjrDwOAVENpL87Tr8qmmIYxQy6DawB8PaqrlfuVmGZPdnh9fPfJ8GtvnCIwkENEeVPSVp7" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=dutyc/ipxe-all-ready&type=date&legend=top-left&sealed_token=zkQGmbPm0yH3EjnLTKc1DTe9hOaLnAeUdZlSlo92lycj2vyTy9VkyIW-uvH3P09ByCS5CiBI8QnhVbVNFyM211tGwSJ1yp7qE6ZsukdPCxJWkopIpVQepMXjrDwOAVENpL87Tr8qmmIYxQy6DawB8PaqrlfuVmGZPdnh9fPfJ8GtvnCIwkENEeVPSVp7" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=dutyc/kurrent&type=date&theme=dark&legend=top-left&sealed_token=zkQGmbPm0yH3EjnLTKc1DTe9hOaLnAeUdZlSlo92lycj2vyTy9VkyIW-uvH3P09ByCS5CiBI8QnhVbVNFyM211tGwSJ1yp7qE6ZsukdPCxJWkopIpVQepMXjrDwOAVENpL87Tr8qmmIYxQy6DawB8PaqrlfuVmGZPdnh9fPfJ8GtvnCIwkENEeVPSVp7" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=dutyc/kurrent&type=date&legend=top-left&sealed_token=zkQGmbPm0yH3EjnLTKc1DTe9hOaLnAeUdZlSlo92lycj2vyTy9VkyIW-uvH3P09ByCS5CiBI8QnhVbVNFyM211tGwSJ1yp7qE6ZsukdPCxJWkopIpVQepMXjrDwOAVENpL87Tr8qmmIYxQy6DawB8PaqrlfuVmGZPdnh9fPfJ8GtvnCIwkENEeVPSVp7" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=dutyc/kurrent&type=date&legend=top-left&sealed_token=zkQGmbPm0yH3EjnLTKc1DTe9hOaLnAeUdZlSlo92lycj2vyTy9VkyIW-uvH3P09ByCS5CiBI8QnhVbVNFyM211tGwSJ1yp7qE6ZsukdPCxJWkopIpVQepMXjrDwOAVENpL87Tr8qmmIYxQy6DawB8PaqrlfuVmGZPdnh9fPfJ8GtvnCIwkENEeVPSVp7" />
  </picture>
 </a>
