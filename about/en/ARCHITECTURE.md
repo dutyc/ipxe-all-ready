@@ -62,12 +62,16 @@ No database. Every control-plane state file is plain text, diff-able and manuall
 
 Every capability is exposed as REST; the Web UI is just one client, and the CLI is another.
 
+Performance boundary: the file-based state store is acceptable at IPv4 network scale; when the project adds IPv6 support, a high-performance database will be introduced.
+
 ## Security Boundary
 
 - **API token** guards all management endpoints; boot-facing endpoints are exempt by design
 - **Binding = authentication**: `/boot-vars` validates that the requesting MAC belongs to the matched Worker's bound device, preventing another device from stealing a Worker's boot identity
 - Fingerprint reporting is unauthenticated but only feeds the pool — it grants no privilege
 - `key_hash` on device records reserves the slot for the planned mutual-authentication phase
+
+The architecture is evolving rapidly, and the authentication system (mutual device↔control-plane authentication, boot-chain integrity) is expected to be completed incrementally.
 
 ## Protocol Evolution
 

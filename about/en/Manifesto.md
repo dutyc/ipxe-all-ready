@@ -4,7 +4,7 @@
 
 When people see my project, they always say the same thing: "Oh, that diskless-boot thing."
 
-I don't blame them. Diskless booting is the skin. But today I want to write down, in my own words, what cloud native means to me — and to set one thing straight: **iPXE-All-Ready was never a diskless-boot project.**
+I don't blame them. Diskless booting is the skin. But today I want to write down, in my own words, what cloud native means to me — and to set one thing straight: **Kurrent was never a diskless-boot project.**
 
 ## 1. The Last Decade of Cloud Native Was Only Half the Story
 

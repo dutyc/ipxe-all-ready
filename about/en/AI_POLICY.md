@@ -2,9 +2,9 @@
 
 **By LECREATE**
 
-During the development of iPXE-All-Ready, we have made extensive use of AI assistants (including Qwen, Codex, DeepSeek, and others). This project has never been averse to AI; on the contrary, we believe that AI is the most powerful productivity tool of our era.
+During the development of Kurrent, we have made extensive use of AI assistants (including Qwen, Codex, DeepSeek, and others). This project has never been averse to AI; on the contrary, we believe that AI is the most powerful productivity tool of our era.
 
-But as the barrier to AI-generated code drops to zero, the open-source world is being flooded with "automated noise" devoid of context. To preserve the architectural purity and engineering coherence of this project, we must make one thing explicitly clear here: **In iPXE-All-Ready, where exactly is the boundary between human and AI.**
+But as the barrier to AI-generated code drops to zero, the open-source world is being flooded with "automated noise" devoid of context. To preserve the architectural purity and engineering coherence of this project, we must make one thing explicitly clear here: **In Kurrent, where exactly is the boundary between human and AI.**
 
 ## I. Chief Architect and Construction Crew
 
@@ -50,7 +50,7 @@ A poorly written function or a flawed interface is a flesh wound. Tear down that
 
 A wrong decision about "where identity should reside," a confusion between the control plane and data plane, a complex dependency introduced for temporary convenience—these do not stay confined to a single file. They propagate along the load-bearing structure, causing every future feature to inherit this distortion.
 
-**As long as the architecture stands, the project stands.** You could rewrite the entire codebase in another language, and as long as those decisions (iBFT identity injection, decoupling disk from machine, cloud-native layers) remain, it is still iPXE-All-Ready. Conversely, if the architecture is compromised to cater to some "best practice," even if not a single line of code changes, the project is already dead.
+**As long as the architecture stands, the project stands.** You could rewrite the entire codebase in another language, and as long as those decisions (iBFT identity injection, decoupling disk from machine, cloud-native layers) remain, it is still Kurrent. Conversely, if the architecture is compromised to cater to some "best practice," even if not a single line of code changes, the project is already dead.
 
 Thus, we adopt pragmatism towards implementation-level flaws, but maintain zero tolerance for architectural compromises.
 
@@ -87,7 +87,7 @@ In those three seconds, what I saw was not the code; I saw the entire constructi
 - `/boot-vars` is consumed by iPXE at boot time, before any operating system is running. The boot firmware has no keystore and nowhere to carry credentials. Adding authentication would silently 401 the boot chain of every Worker—directly killing zero-touch registration and dynamic boot variable injection, the two core features.
 - The boot chain runs over plaintext HTTP. Even if you stuff a token into the iPXE menu script, anyone who can reach that endpoint can intercept it on the wire. Authentication here does not raise the bar; it only adds a credential worth stealing.
 - This is a controlled internal network project. The endpoint returns the iSCSI server address, base IQN, and default menu—precisely the information that must be sent to booting clients, and which is already observable at the network layer (DHCP, ARP, iSCSI login). It does not constitute "sensitive information disclosure."
-- The true abuse vector (malicious bulk registration of Workers via MAC) cannot be prevented by adding a token, because the token itself is observable. The real mitigation lies at the network layer (LAN isolation, switch ACL), and auto-registration can be completely disabled via `IPXE_CP_AUTO_REGISTER=false`.
+- The true abuse vector (malicious bulk registration of Workers via MAC) cannot be prevented by adding a token, because the token itself is observable. The real mitigation lies at the network layer (LAN isolation, switch ACL), and auto-registration can be completely disabled via `KURRENT_CP_AUTO_REGISTER=false`.
 
 **This was a construction worker standing in front of a load-bearing wall, saying: "There is no door here; that’s a risk. Let me open one." They knew how to install a door (syntax), but they did not understand the building (architecture).**
 
