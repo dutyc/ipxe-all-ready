@@ -1,6 +1,6 @@
 # 更新记录 (CHANGELOG)
 
-本文件记录 ipxe-all-ready 项目的功能变更、接口调整与缺陷修复。
+本文件记录 Kurrent（周流）项目的功能变更、接口调整与缺陷修复。
 
 ## 记录规范
 
@@ -11,6 +11,12 @@
 - 涉及多个模块的改动，按模块分条列出；接口变更同时需同步 `docs/zh/guide/api/control-plane-api.md`（控制面 API 参考，文档站唯一权威）
 
 ---
+
+## 2026-08-23
+
+### 变更
+
+- **Kurrent 全量品牌化（GitHub 仓库改名 dutyc/kurrent 后同步）**——环境变量前缀全量 `IPXE_*` → `KURRENT_*`（控制面 `KURRENT_CP_*`、存储节点 `KURRENT_BACKEND`/`KURRENT_NQN_BASE`/`KURRENT_AGENT_TOKEN`/`KURRENT_DISK_DIR`/`KURRENT_LOG_FILE`/`KURRENT_NVMET_*`/`KURRENT_ISCSI_CONTAINER`、HTTPS 入口端口 `KURRENT_HTTPS_PORT`；`.env.example`、compose 插值、webui 构建注释、tests conftest 同步）；容器名 `ipxe-*` → `kurrent-*`（根编排 dnsmasq/control-plane/webui 三服务，存储节点 `kurrent-nvmet-host`，自签证书 CN `kurrent-controller`）；NQN 命名空间统一 `nqn.2026-07.com.kurrent`（盘 NQN base 示例由 `.controller` 域更新；Host NQN 落地 C3 点 1 裁定：按 worker_id 派生 `nqn.2026-07.com.kurrent:host.<worker_id>`，废弃设备 UUID 派生与 `:ipxe` 共享回退，解绑后 host_nqns 恒定不变）；about/ 宣言与 AI 政策、CHANGELOG 抬头、README Star History URL 收尾；测试保留 `nqn.2026-07.com.test` 隔离域（产品示例与测试域分离）；vitepress 文档站为 iPXE-All-Ready 时代产物暂不动（架构升级后整体重写）；全量 189 测试通过
 
 ## 2026-08-22
 
