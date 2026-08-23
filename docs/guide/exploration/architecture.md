@@ -95,7 +95,7 @@ After taking over the NIC, the iPXE firmware captures the variables delivered by
 ```ipxe
 # boot.ipxe.cfg — static fallback values (placeholders)
 set base-iqn iqn.2026-07.com.controller
-set iscsi-server 192.168.1.5
+set storager-ip 192.168.1.5
 set iscsi-sep :::1:
 
 # Assemble the Initiator IQN
@@ -128,7 +128,7 @@ set target-iqn ${base-iqn}:${hostname}.Ubuntu
 
 # Assemble the iSCSI URI
 # Format: iscsi:<server>${iscsi-sep}<base-iqn>:<hostname>.<os>
-set root-path iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.Ubuntu
+set root-path iscsi:${storager-ip}${iscsi-sep}${base-iqn}:${hostname}.Ubuntu
 ```
 
 **Resulting variable values**:

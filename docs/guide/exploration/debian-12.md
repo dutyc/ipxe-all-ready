@@ -54,7 +54,7 @@ The following is the core code snippet for the Debian installation entry in `men
 ```ipxe
 :debian-install
 echo Starting Debian 12 installer for ${initiator-iqn}
-set root-path iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.Debian
+set root-path iscsi:${storager-ip}${iscsi-sep}${base-iqn}:${hostname}.Debian
 cpuid --ext 29 && set arch amd64 || set arch x86
 set base-url http://${controller_ip}:88/Install/Debian/12
 kernel ${base-url}/netboot/vmlinuz \

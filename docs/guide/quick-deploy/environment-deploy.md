@@ -237,7 +237,7 @@ Either of the two ways below:
 
 1. Enter the Agent ID (unique, e.g. `storage-lio-01`), the API URL (`base_url`: `http://host.docker.internal:4840` when co-located with the Controller, otherwise `http://<storage-node-IP>:4840`), and the Token (same as `IPXE_AGENT_TOKEN`; `${ENV}` environment-variable placeholders are supported).
 2. Click "Probe" to auto-fetch the backend type / roles / tags / data-plane address and other parameters.
-3. Confirm the "iSCSI data-plane" address is reachable by Workers (the probe derives it from the base_url hostname by default; change it to this node's LAN IP for remote deployments) → click "Add" to finish registration (written to `agents.yml`; takes part in scheduling immediately).
+3. Confirm the "Storage Server" address is reachable by Workers (the probe derives it from the base_url hostname by default; change it to this node's LAN IP for remote deployments) → click "Add" to finish registration (written to `agents.yml`; takes part in scheduling immediately).
 
 **Option 2: Edit `agents.yml` directly** — in the Controller’s `control_plane/config/agents.yml`, register this node (one entry per node):
 
@@ -245,7 +245,7 @@ Either of the two ways below:
 agents:
   storage-lio-01:                  # Agent ID (unique)
     base_url: http://host.docker.internal:4840   # Co-located with Controller; for remote deployment use http://<storage-node-IP>:4840
-    iscsi_server: 192.168.80.3     # The address Workers will actually use to connect to iSCSI (this node’s IP)
+    storager_ip: 192.168.80.3     # The address Workers will actually use to connect to storage (this node's IP; shared by NVMe-oF boot and the iSCSI installers)
     token: <same as IPXE_AGENT_TOKEN>
     role:
       disk: true                   # Disk capability (LIO does not support ISO optical drive; cd must be false)

@@ -228,9 +228,9 @@ class TestBootVarsWithDisk:
         sig = ec_keypair["sign"](MAC_A, hostname, nonce)
         res = _boot_vars(client, mac=MAC_A, hostname=hostname, nonce=nonce, sig=sig)
         assert res.status_code == 200
-        assert "set nqn nqn.2026-07.com.test:worker-01.ubuntu" in res.text  # 盘 NQN 权威下发（NVMe-oF 引导消费）
+        assert "set base-nqn nqn.2026-07.com.test" in res.text  # base-nqn 投影（C3 拼接前缀，盘 NQN 权威值的前缀）
         assert "set base-iqn iqn.2026-07.com.test" in res.text  # base-iqn 为前缀，worker 后缀由 iPXE 拼装
-        assert "set iscsi-server ag-01" in res.text  # iscsi_server 缺省回退 base_url 主机名
+        assert "set storager-ip ag-01" in res.text  # storager_ip 缺省回退 base_url 主机名
         assert "set iscsi-sep :::1:" in res.text  # stgt 后端差异连接符
         assert "set menu-default reboot" in res.text  # 单盘建盘不自动设 default_os → reboot
 

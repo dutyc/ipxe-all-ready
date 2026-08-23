@@ -770,8 +770,8 @@ export default function Workers() {
                       {assignedCount(a.id)} {t('workers.batch.assigned')}
                     </span>
                   </div>
-                  {a.iscsi_server && (
-                    <div className="storage-tag-addr">{a.iscsi_server}</div>
+                  {a.storager_ip && (
+                    <div className="storage-tag-addr">{a.storager_ip}</div>
                   )}
                   <div className="storage-tag-actions">
                     <label className="storage-tag-spread">

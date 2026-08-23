@@ -203,23 +203,26 @@ def _worker_boot_payload(match: tuple[str, dict[str, Any]]) -> dict[str, Any]:
         "menu_timeout": int(menu_timeout),
     }
     if agent_id:
-        # 盘 NQN 权威下发（NVMe-oF 引导消费：sanboot nvme://<ip>:<port>/<nqn>，C3 拼装后置）；
-        # 盘记录缺 nqn（存量盘）→ 不下发该键，固件侧不拼 NVMe-oF 路径（不兼容遗留，不派生）
-        payload["nqn"] = disk.get("nqn")
-        # base-iqn 投影保持 iSCSI 形态（iPXE iSCSI 引导消费）：来源 = 盘 IQN（由盘 NQN 派生）前缀
+        # base-nqn 投影（C3 拼接起步）：来源 = 盘 NQN 前缀（盘 NQN 由 Agent 按统一模板
+        # base:worker_id.os 生成，无存量盘、无历史命名，固件按模板重拼 = 盘记录权威值）；
+        # 盘记录缺 nqn → 不下发该键，固件不拼 NVMe-oF 路径（不兼容遗留，不派生）
+        nqn = disk.get("nqn")
+        base_nqn = _base_nqn_from_target(nqn)
+        # base-iqn 投影保持 iSCSI 形态（安装器 iSCSI 引导消费）：来源 = 盘 IQN（由盘 NQN 派生）前缀
         base_iqn = _base_iqn_from_target(disk.get("iqn"))
         try:
-            iscsi_server = agents.iscsi_server_for(agent_id)
+            storager_ip = agents.storager_ip_for(agent_id)
         except Exception:
             return {}
         backend = _backend_for(agent_id)
         # 只投影 iSCSI root 连接符（差异点），root-path 拼装由 iPXE 侧完成：
         # stgt 需 `:::1:`（lun 占位 1），LIO 需 `::::`（空占位）
+        payload["base_nqn"] = base_nqn
         payload["base_iqn"] = base_iqn
-        payload["iscsi_server"] = iscsi_server
+        payload["storager_ip"] = storager_ip
         payload["iscsi_sep"] = ":::1:" if backend == "stgt" else "::::"
     # NVMe-oF 认证密钥注入（C2，按 Worker 跟盘裁定）：绑定 worker 在密钥库有条目时注入。
-    # 固件侧消费：sanboot nvme://...?secret=${nbft-secret}（C3 引导链分支后置，此处只投影变量）；
+    # 固件侧消费：menu 拼 nvme://...?secret=${nbft-secret}（C3 已启用，secret 条件化拼装）；
     # 无条目 → 不注入，固件走明文连接（兼容未启用认证的 target）。
     secret = _credential_secret_for(worker_id)
     if secret:
@@ -263,12 +266,12 @@ def _boot_vars_ipxe(payload: dict[str, Any]) -> str:
         return "\n".join(lines) + "\n"
     # reboot 循环 payload(池中未绑定)无 worker_id,统一用 unbound 标识
     lines.append(f"# boot vars for {payload.get('worker_id', 'unbound')}")
-    if payload.get("nqn"):
-        lines.append(f"set nqn {payload['nqn']}")
+    if payload.get("base_nqn"):
+        lines.append(f"set base-nqn {payload['base_nqn']}")
     if payload.get("base_iqn"):
         lines.append(f"set base-iqn {payload['base_iqn']}")
-    if payload.get("iscsi_server"):
-        lines.append(f"set iscsi-server {payload['iscsi_server']}")
+    if payload.get("storager_ip"):
+        lines.append(f"set storager-ip {payload['storager_ip']}")
     if payload.get("iscsi_sep"):
         lines.append(f"set iscsi-sep {payload['iscsi_sep']}")
     if payload.get("nbft_secret"):
@@ -289,12 +292,12 @@ def _boot_vars_json(payload: dict[str, Any]) -> dict[str, Any]:
         "menu_default": payload["menu_default"],
         "menu_timeout": payload["menu_timeout"],
     }
-    if payload.get("nqn"):
-        result["nqn"] = payload["nqn"]
+    if payload.get("base_nqn"):
+        result["base_nqn"] = payload["base_nqn"]
     if payload.get("base_iqn"):
         result["base_iqn"] = payload["base_iqn"]
-    if payload.get("iscsi_server"):
-        result["iscsi_server"] = payload["iscsi_server"]
+    if payload.get("storager_ip"):
+        result["storager_ip"] = payload["storager_ip"]
     if payload.get("iscsi_sep"):
         result["iscsi_sep"] = payload["iscsi_sep"]
     if payload.get("nbft_secret"):
@@ -306,6 +309,15 @@ def _base_iqn_from_target(iqn: str | None) -> str:
     if iqn and ":" in iqn:
         return iqn.rsplit(":", 1)[0]
     return "iqn.2026-07.com.controller"
+
+
+def _base_nqn_from_target(nqn: str | None) -> str | None:
+    """盘 NQN 的命名空间前缀（C3 拼接）：`nqn.2026-07.com.kurrent:worker-01.ubuntu` → 前缀。
+    盘 NQN 由 Agent 按统一模板 `base:worker_id.os` 生成（无存量盘），前缀重拼 = 盘记录权威值；
+    盘记录缺 nqn → 返回 None（不投影该键，固件不拼 NVMe-oF 路径）。"""
+    if nqn and ":" in nqn:
+        return nqn.rsplit(":", 1)[0]
+    return None
 
 
 def _credential_secret_for(worker_id: str) -> str | None:

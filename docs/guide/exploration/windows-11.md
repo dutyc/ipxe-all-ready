@@ -115,9 +115,9 @@ echo Booting Windows PE ${arch} installer for ${initiator-iqn}
 echo (for installing Windows)
 
 # 1. Network and variable configuration
-set netX/gateway ${iscsi-server}
-set root-path iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.Windows
-set data-path iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.Windows.iso
+set netX/gateway ${storager-ip}
+set root-path iscsi:${storager-ip}${iscsi-sep}${base-iqn}:${hostname}.Windows
+set data-path iscsi:${storager-ip}${iscsi-sep}${base-iqn}:${hostname}.Windows.iso
 set keep-san 1
 
 # 2. Attach iSCSI storage

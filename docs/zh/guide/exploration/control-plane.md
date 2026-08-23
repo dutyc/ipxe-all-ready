@@ -32,11 +32,11 @@
 
 ### per-worker 启动变量动态注入
 
-在保留 iPXE 静态菜单交互的前提下，`/boot-vars` 端点按 MAC/hostname 查询 inventory，动态返回 `base-iqn`、`iscsi-server`、`iscsi-sep`、`menu-default`、`menu-timeout` 等变量；其中 `iscsi-sep` 是 iSCSI root 的**连接符**（`${iscsi-server}` 与 `${base-iqn}` 之间的分隔字段），按系统盘所在 Agent 的后端类型生成（stgt `:::1:` / LIO `::::`），root-path 拼装（`iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.<os>`）由 `menu.ipxe` 静态完成，仅差异连接符由后端投影；未配置默认启动时返回 `reboot` 短超时循环。`boot.ipxe.cfg` 只在末尾拉取变量，并用 `isset` 守卫重算 `iscsi-sep` 兜底值（不覆盖已下发的 LIO 格式）。
+在保留 iPXE 静态菜单交互的前提下，`/boot-vars` 端点按 MAC/hostname 查询 inventory，动态返回 `base-nqn`、`storager-ip`、`iscsi-sep`、`menu-default`、`menu-timeout` 等变量；其中 `iscsi-sep` 是 iSCSI root 的**连接符**（`${storager-ip}` 与 `${base-iqn}` 之间的分隔字段），按系统盘所在 Agent 的后端类型生成（stgt `:::1:` / LIO `::::`），安装项 root-path 拼装（`iscsi:${storager-ip}${iscsi-sep}${base-iqn}:${hostname}.<os>`）由 `menu.ipxe` 静态完成，仅差异连接符由后端投影；未配置默认启动时返回 `reboot` 短超时循环。`boot.ipxe.cfg` 只在末尾拉取变量，并用 `isset` 守卫重算 `iscsi-sep` 兜底值（不覆盖已下发的 LIO 格式）。
 
 ### Agent 直管与在线编辑
 
-- **注册 / 探测 / 编辑**：`POST /agents/probe` 两步探测（调 `/healthz` + `/capabilities` 自动推导 `role` / `tags` / `iscsi_server`，预览不写文件），`POST /agents` 注册（重复 id 返回 409），`PUT /agents/{agent_id}` 在线编辑（id 不可改、token 留空保持原值）；`enabled=false` 停用后不再参与建盘 / 挂载调度与存活探测。
+- **注册 / 探测 / 编辑**：`POST /agents/probe` 两步探测（调 `/healthz` + `/capabilities` 自动推导 `role` / `tags` / `storager_ip`，预览不写文件），`POST /agents` 注册（重复 id 返回 409），`PUT /agents/{agent_id}` 在线编辑（id 不可改、token 留空保持原值）；`enabled=false` 停用后不再参与建盘 / 挂载调度与存活探测。
 - **LUN 直管**：`GET/POST/DELETE /agents/{id}/luns`、`POST /agents/{id}/luns/scan` 直接管理 iSCSI 存储节点上的 target（列 LUN / 创建磁盘 / 创建 CD / 删除 / 扫描镜像目录重建），不依赖 Worker 台账；配合 `role.disk / role.cd` 角色模型，后端能力不足的操作在 API 与 WebUI 两侧同时被拒绝 / 置灰（如 LIO 不支持 ISO 光驱）。
 - **母盘清单**：`GET /masters` 聚合全部启用磁盘角色 Agent 的母盘清单（Agent 侧后台线程每 30 秒扫描镜像目录、识别 `_tpl_` 标记并缓存；单台失败不阻塞整体），WebUI 克隆时以下拉选择母盘，无需手工输入文件名。
 

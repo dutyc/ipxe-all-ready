@@ -19,7 +19,7 @@ class AgentConfig:
     token: str
     role_disk: bool
     role_cd: bool
-    iscsi_server: str | None = None
+    storager_ip: str | None = None
     enabled: bool = True
     tags: tuple[str, ...] = ()
 
@@ -27,7 +27,7 @@ class AgentConfig:
         return {
             "id": self.id,
             "base_url": self.base_url,
-            "iscsi_server": self.iscsi_server,
+            "storager_ip": self.storager_ip,
             "role": {"disk": self.role_disk, "cd": self.role_cd},
             "enabled": self.enabled,
             "tags": list(self.tags),

@@ -87,7 +87,7 @@ class CreateAgentRequest(BaseModel):
     id: str
     base_url: str
     token: str = ""
-    iscsi_server: str | None = None
+    storager_ip: str | None = None
     role: AgentRoleRequest = Field(default_factory=AgentRoleRequest)
     tags: list[str] = Field(default_factory=list)
     enabled: bool = True
@@ -98,7 +98,7 @@ class UpdateAgentRequest(BaseModel):
     token 传空字符串 = 保持原值（API 不回显 token，前端无法回填）。"""
     base_url: str
     token: str = ""
-    iscsi_server: str | None = None
+    storager_ip: str | None = None
     role: AgentRoleRequest = Field(default_factory=AgentRoleRequest)
     tags: list[str] = Field(default_factory=list)
     enabled: bool = True

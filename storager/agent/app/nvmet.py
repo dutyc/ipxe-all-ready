@@ -9,7 +9,7 @@
 
 数据流（控制面推送驱动）：
 控制面（凭据设置/设备换绑/盘变更）→ Agent POST /credential → apply() 更新缓存并转调宿主服务
-→ 宿主服务直写 configfs（hosts/<hostnqn>/dhchap_key + allowed_hosts）。
+→ 宿主服务直写 configfs（hosts/<hostnqn>/nvme-auth-dhchap-secret + control 置位启用认证）。
 reconcile() 幂等重放：Agent 启动（scan 后）+ 周期后台线程，覆盖宿主服务不可达窗口。
 契约：blueprint/nvmeof-credential-design.md 第 6 节。
 """

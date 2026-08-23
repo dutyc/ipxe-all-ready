@@ -9,7 +9,7 @@
 | 层 | 组件 | 职责 |
 |---|---|---|
 | 内核 | 宿主 `nvmet` / `nvmet-tcp` 模块 | 数据面 target（NVMe/TCP，默认 4420） |
-| 容器 | 本组件（`kurrent-nvmet-host` 容器） | configfs 操作：subsystem/namespace/port/hosts(dhchap_key) |
+| 容器 | 本组件（`kurrent-nvmet-host` 容器） | configfs 操作：subsystem/namespace/port/hosts(nvme-auth-dhchap-secret) |
 | 存储节点 | Agent（4840） | 盘文件管理（克隆/扫描）、后端调度、凭据推送转调本服务 |
 | 控制面 | control-plane（4839） | 凭据库（按 Worker）、/boot-vars 注入、绑定关系权威 |
 
@@ -58,14 +58,16 @@ curl http://127.0.0.1:4841/healthz
 | `GET` | `/subsystems` | 子系统清单（含 namespaces/hosts） |
 | `POST` | `/subsystems` | `{nqn, backing}` 创建子系统 + namespace/1（严格模式 allow_any_host=0）+ 挂端口 |
 | `DELETE` | `/subsystems/{nqn}` | 删除（自动摘端口挂载） |
-| `PUT` | `/subsystems/{nqn}/hosts` | `{hostnqn, secret}` 登记/更新 host 认证（DHHC-1 → dhchap_key + allowed_hosts） |
+| `PUT` | `/subsystems/{nqn}/hosts` | `{hostnqn, secret}` 登记/更新 host 认证（DHHC-1 → nvme-auth-dhchap-secret + control 置位启用） |
 | `DELETE` | `/subsystems/{nqn}/hosts/{hostnqn}` | 移除 host 认证 |
 
 ## 认证模型（按 Worker 跟盘，2026-08-22 裁定）
 
 - 子系统 = 盘（NQN = 盘 IQN 同后缀派生：`iqn.2026-07.com.kurrent:worker-01.ubuntu` → `nqn.2026-07.com.kurrent:worker-01.ubuntu`，格式 `<base_nqn>:worker-XX.os`），`attr_allow_any_host=0`（严格）
-- 连接认证 = DH-HMAC-CHAP：客户端 Host NQN（worker 维度派生 `nqn.2026-07.com.kurrent:host.<worker_id>`）
-  须在 `hosts/` 有对应条目，且 dhchap_key = 该 worker 的 DHHC-1 密钥
+- 连接认证 = DH-HMAC-CHAP（target 认证 host）：客户端 Host NQN（worker 维度派生 `nqn.2026-07.com.kurrent:host.<worker_id>`）
+  须在 `hosts/<hostnqn>/` 有对应条目：`nvme-auth-dhchap-secret` = 该 worker 的 DHHC-1 密钥
+  （`DHHC-1:01:<base64>` 明文，无换行），`nvme-auth-dhchap-control` = 1 启用认证（不置位则不校验）
+- `allowed_hosts/` 为内核在 `attr_allow_any_host=1` 时自动维护的连接记录目录，严格模式下用户侧不操作
 - hosts 矩阵随绑定关系同步：控制面在凭据设置/设备换绑时推送 Agent，Agent 转调本服务
 - 无 UUID 回退：Host NQN 恒为 worker 派生（`nqn.2026-07.com.kurrent:host.<worker_id>`），每 worker 单条目
 

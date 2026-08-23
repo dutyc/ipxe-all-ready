@@ -179,11 +179,11 @@ Control Plane 按以下顺序识别设备并投影启动变量：
 
 | 返回字段 | 来源 |
 |---|---|
-| `nqn` | 默认启动盘（同选盘规则）的盘 NQN（NVMe-oF 子系统标识，**权威字段**）——固件侧 `sanboot nvme://<ip>:<port>/${nqn}` 拼装消费（C3 引导链分支后置，当前只投影变量）；盘记录缺 `nqn`（存量盘）时不返回（不兼容遗留、不派生）；Worker 无系统盘时不返回 |
+| `base_nqn` | 默认启动盘（同选盘规则）的盘 NQN 前缀（C3 拼接：盘 NQN 由 Agent 按统一模板 `base:worker_id.os` 生成，固件侧 `sanboot nvme://<ip>:4420/${base-nqn}:<worker>.<os>` 拼装消费 = 盘记录权威值）；盘记录缺 `nqn`（存量盘）时不返回（不兼容遗留、不派生）；Worker 无系统盘时不返回 |
 | `base_iqn` | `workers.yml` 中该 Worker 默认启动盘（`default_os` 对应的盘，未设时取第一块）的 `iqn` 去掉最后一个 `:` 后的前缀——盘标识权威 = NQN，IQN 由盘 NQN 派生；Worker 无系统盘时**不返回**（iPXE 沿用 `boot.ipxe.cfg` 静态默认值） |
-| `iscsi_server` | 默认启动盘（同上选盘规则）的 `agent` -> `agents.yml` 中该 Agent 的 `iscsi_server`；无系统盘时不返回 |
-| `iscsi_sep` | iSCSI root **连接符**（`${iscsi-server}` 与 `${base-iqn}` 之间的分隔字段），root-path 拼装由 iPXE 侧完成。**按 Agent 后端类型生成**：stgt 后端为 `:::1:`（lun 占位 1），LIO 后端为 `::::`（空占位）；后端类型优先读 `agents.yml` 该 Agent 的 `tags`（含 `lio` / `stgt` 标记），未标记时查询 Agent `/capabilities` 的 `backend` 字段，查询失败默认 stgt 格式；无系统盘时不返回 |
-| `nbft_secret` | 该 Worker 的 NVMe-oF 认证密钥（DHHC-1，`state/credentials.yml` 按 worker_id 索引，见 7.7）；**已绑定 Worker 且密钥库有条目时注入**，无密钥 / 未绑定 / 请求被拒时不返回。固件侧消费：`sanboot nvme://...?secret=${nbft-secret}`（C3 引导链分支后置，当前只投影变量，iSCSI 路径不受影响） |
+| `storager_ip` | 默认启动盘（同上选盘规则）的 `agent` -> `agents.yml` 中该 Agent 的 `storager_ip`（数据面地址，NVMe-oF 引导与 iSCSI 安装器共用）；无系统盘时不返回 |
+| `iscsi_sep` | iSCSI root **连接符**（`${storager-ip}` 与 `${base-iqn}` 之间的分隔字段，安装器 iSCSI 拼装消费），root-path 拼装由 iPXE 侧完成。**按 Agent 后端类型生成**：stgt 后端为 `:::1:`（lun 占位 1），LIO 后端为 `::::`（空占位）；后端类型优先读 `agents.yml` 该 Agent 的 `tags`（含 `lio` / `stgt` 标记），未标记时查询 Agent `/capabilities` 的 `backend` 字段，查询失败默认 stgt 格式；无系统盘时不返回 |
+| `nbft_secret` | 该 Worker 的 NVMe-oF 认证密钥（DHHC-1，`state/credentials.yml` 按 worker_id 索引，见 7.7）；**已绑定 Worker 且密钥库有条目时注入**，无密钥 / 未绑定 / 请求被拒时不返回。固件侧消费：menu 拼 `nvme://...?secret=${nbft-secret}`（C3 已启用：secret 条件化拼装，无密钥走明文连接） |
 | `menu_default` | 推导链：`workers.yml` 的 `default_os`（建盘后单独设置）> `boot.menu_default`（显式配置）> `reboot`（未配置时循环重启等待） |
 | `menu_timeout` | 已配置默认启动时：`boot.menu_timeout` > `IPXE_CP_BOOT_MENU_TIMEOUT`（默认 5000）；处于 `reboot` 循环时：固定用 `IPXE_CP_AUTO_BOOT_TIMEOUT`（默认 1）。单位均为毫秒 |
 
@@ -240,7 +240,7 @@ os=windows -> menu_default=windows
 
 ### 防冒领（绑定即认证）
 
-请求带 `mac` 时，Control Plane 会校验该设备**绑定到了 hostname 命中的 Worker**（`bound_worker_id`）；不符合（绑定其他 Worker / 未绑定 / 未知设备）→ **拒绝下发**：返回空脚本，不泄露启动变量。不带 `mac`（仅 hostname）的请求无法校验身份，保持兼容放行。这使设备↔Worker 绑定成为开机时的认证边界：只有绑定的设备才能拿到该 Worker 的启动配置（如 `base_iqn` / `iscsi-server`）。
+请求带 `mac` 时，Control Plane 会校验该设备**绑定到了 hostname 命中的 Worker**（`bound_worker_id`）；不符合（绑定其他 Worker / 未绑定 / 未知设备）→ **拒绝下发**：返回空脚本，不泄露启动变量。不带 `mac`（仅 hostname）的请求无法校验身份，保持兼容放行。这使设备↔Worker 绑定成为开机时的认证边界：只有绑定的设备才能拿到该 Worker 的启动配置（如 `base_nqn` / `storager_ip`）。
 
 ### Query 参数
 
@@ -271,9 +271,9 @@ curl -s "$BASE_URL/boot-vars?mac=000c29b98b2d&hostname=worker-01"
 ```ipxe
 #!ipxe
 # boot vars for worker-01
-set nqn nqn.2026-07.com.controller:worker-01.ubuntu
+set base-nqn nqn.2026-07.com.controller
 set base-iqn iqn.2026-07.com.controller
-set iscsi-server 192.168.80.3
+set storager-ip 192.168.80.3
 set iscsi-sep :::1:
 set menu-default ubuntu
 set menu-timeout 5000
@@ -306,9 +306,9 @@ curl -s "$BASE_URL/boot-vars?mac=000c29b98b2d&hostname=worker-01&format=json"
 
 ```json
 {
-  "nqn": "nqn.2026-07.com.controller:worker-01.ubuntu",
+  "base_nqn": "nqn.2026-07.com.controller",
   "base_iqn": "iqn.2026-07.com.controller",
-  "iscsi_server": "192.168.80.3",
+  "storager_ip": "192.168.80.3",
   "iscsi_sep": ":::1:",
   "menu_default": "ubuntu",
   "menu_timeout": 5000,
@@ -355,22 +355,22 @@ isset ${iscsi-sep} || set iscsi-sep :::1:
 isset ${hostname} && set initiator-iqn ${base-iqn}:${hostname} || set initiator-iqn ${base-iqn}:${mac}
 ```
 
-成功后返回的 `base-iqn` / `iscsi-server` 可能覆盖静态默认值，派生变量在 `:vars-done` 重建；`isset` 守卫保留 `/boot-vars` 按后端下发的连接符（stgt `:::1:` / LIO `::::`）。
+成功后返回的 `base-nqn` / `storager-ip` 可能覆盖静态默认值，派生变量在 `:vars-done` 重建；`isset` 守卫保留 `/boot-vars` 按后端下发的连接符（stgt `:::1:` / LIO `::::`）。
 
-`menu.ipxe` 各系统项与安装项用 `${iscsi-sep}` 插入 root-path（如 `set root-path iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.windows`），`iscsi:` 协议头与拼装结构保持静态，仅连接符由后端投影。
+`menu.ipxe` 主引导项用 NVMe-oF 拼装：`set root-path nvme://${storager-ip}:4420/${base-nqn}:${hostname}.<os>`，已注入 `nbft-secret` 时附加 `?secret=`（`isset` 条件化）；安装项保持 iSCSI 拼装（`set root-path iscsi:${storager-ip}${iscsi-sep}${base-iqn}:${hostname}.<os>`），`iscsi:` 协议头与拼装结构保持静态，仅连接符由后端投影。
 
 ### Agent 数据面地址
 
-`/boot-vars` 返回的是 Worker 连接 iSCSI 的 **数据面地址**，不是 Agent HTTP API 地址。建议在 `config/agents.yml` 里显式配置：
+`/boot-vars` 返回的是 Worker 连接存储的 **数据面地址**（NVMe-oF 引导 / iSCSI 安装器共用），不是 Agent HTTP API 地址。建议在 `config/agents.yml` 里显式配置：
 
 ```yaml
 agents:
   storage-lio-01:
     base_url: http://host.docker.internal:4840
-    iscsi_server: 192.168.80.3
+    storager_ip: 192.168.80.3
 ```
 
-如果没有配置 `iscsi_server`，Control Plane 会退回使用 `base_url` 的 host 部分；但当 `base_url` 是 `host.docker.internal` 时，这个值不适合给物理 Worker 使用。
+如果没有配置 `storager_ip`，Control Plane 会退回使用 `base_url` 的 host 部分；但当 `base_url` 是 `host.docker.internal` 时，这个值不适合给物理 Worker 使用。
 
 ### 5.1 注册窗口与验签强制（/settings/registration-window、/settings/enforcement）
 
@@ -545,7 +545,7 @@ curl -s "$BASE_URL/agents?live=false" \
 | `id` | 是 | Agent 编号。自动转小写，规则同 worker id（字母、数字、点、下划线、短横线） |
 | `base_url` | 是 | Agent 控制面 API 地址，须以 `http://` 或 `https://` 开头，末尾 `/` 自动去除 |
 | `token` | 否 | Agent 鉴权 Token，支持 `${ENV}` 环境变量占位（Control Plane 读取时展开）；无鉴权 Agent 可留空 |
-| `iscsi_server` | 否 | iSCSI 数据面地址（业务网段 IP）。缺省时回退为 `base_url` 的主机名 |
+| `storager_ip` | 否 | 数据面地址（业务网段 IP，协议中立）。缺省时回退为 `base_url` 的主机名 |
 | `role` | 否 | 角色：`disk`=可建系统盘（存储节点），`cd`=可挂载 ISO（光驱节点）；默认 `{disk: false, cd: false}` |
 | `tags` | 否 | 自由标签数组（如 `storage`/`lio`/`stgt`），展示用；`lio`/`stgt` 标记同时参与 `/boot-vars` 连接符推导 |
 | `enabled` | 否 | 是否启用；默认 `true` |
@@ -560,7 +560,7 @@ curl -s -X POST "$BASE_URL/agents" \
     "id": "storage-stgt-02",
     "base_url": "http://host.docker.internal:4840",
     "token": "${STORAGE_STGT_02_TOKEN}",
-    "iscsi_server": "192.168.1.6",
+    "storager_ip": "192.168.1.6",
     "role": {"disk": true, "cd": false},
     "tags": ["storage", "stgt"],
     "enabled": true
@@ -573,7 +573,7 @@ curl -s -X POST "$BASE_URL/agents" \
 {
   "id": "storage-stgt-02",
   "base_url": "http://host.docker.internal:4840",
-  "iscsi_server": "192.168.1.6",
+  "storager_ip": "192.168.1.6",
   "role": {"disk": true, "cd": false},
   "enabled": true,
   "tags": ["storage", "stgt"]
@@ -597,10 +597,10 @@ curl -s -X POST "$BASE_URL/agents" \
 
 | 参数 | 推导规则 |
 |---|---|
-| `role.disk` | 恒为 `true`（Agent 即 iSCSI 存储节点） |
+| `role.disk` | 恒为 `true`（Agent 即存储节点） |
 | `role.cd` | 取 `capabilities.cd` |
 | `tags` | `["storage", backend]`（`backend` 为 lio / stgt，同时供 `/boot-vars` 连接符推导） |
-| `iscsi_server` | 缺省回退 `base_url` 主机名 |
+| `storager_ip` | 缺省回退 `base_url` 主机名 |
 
 ### 请求体字段
 
@@ -626,7 +626,7 @@ curl -s -X POST "$BASE_URL/agents/probe" \
   "base_url": "http://host.docker.internal:4840",
   "role": {"disk": true, "cd": false},
   "tags": ["storage", "stgt"],
-  "iscsi_server": "host.docker.internal",
+  "storager_ip": "host.docker.internal",
   "enabled": true,
   "backend": "stgt",
   "fs_type": "btrfs",
@@ -652,7 +652,7 @@ curl -s -X POST "$BASE_URL/agents/probe" \
 
 更新已有 Agent：覆盖 `config/agents.yml` 中对应条目，保存后立即生效（建盘/挂载调度即用新配置）。`id` 不可改（走路径参数）；`token` 传空字符串 = **保持原值**（API 不回显 token，前端无法回填）。
 
-适用场景：iSCSI Server 配置变动——数据面地址迁移、API 地址变更、Token 轮换、停用 / 启用节点。
+适用场景：存储节点配置变动——数据面地址迁移、API 地址变更、Token 轮换、停用 / 启用节点。
 
 ### 请求体字段
 
@@ -660,7 +660,7 @@ curl -s -X POST "$BASE_URL/agents/probe" \
 |---|---:|---|
 | `base_url` | 是 | Agent 控制面 API 地址，须以 `http://` 或 `https://` 开头，末尾 `/` 自动去除 |
 | `token` | 否 | 传空字符串 = 保持原值（不覆盖）；传新值 = 轮换。支持 `${ENV}` 占位 |
-| `iscsi_server` | 否 | iSCSI 数据面地址。缺省时回退为 `base_url` 的主机名 |
+| `storager_ip` | 否 | 数据面地址。缺省时回退为 `base_url` 的主机名 |
 | `role` | 否 | 角色：`disk`=可建系统盘，`cd`=可挂载 ISO；默认 `{disk: false, cd: false}` |
 | `tags` | 否 | 自由标签数组 |
 | `enabled` | 否 | 是否启用；`false` 停用（不再参与建盘/挂载调度与存活探测）；默认 `true` |
@@ -674,7 +674,7 @@ curl -s -X PUT "$BASE_URL/agents/storage-stgt-02" \
   -d '{
     "base_url": "http://host.docker.internal:4840",
     "token": "",
-    "iscsi_server": "192.168.1.8",
+    "storager_ip": "192.168.1.8",
     "role": {"disk": true, "cd": false},
     "tags": ["storage", "stgt"],
     "enabled": true
@@ -687,7 +687,7 @@ curl -s -X PUT "$BASE_URL/agents/storage-stgt-02" \
 {
   "id": "storage-stgt-02",
   "base_url": "http://host.docker.internal:4840",
-  "iscsi_server": "192.168.1.8",
+  "storager_ip": "192.168.1.8",
   "role": {"disk": true, "cd": false},
   "enabled": true,
   "tags": ["storage", "stgt"]
@@ -1054,7 +1054,7 @@ curl -s -X POST "$BASE_URL/workers/worker-win-build/luns/disk" \
 
 ### 说明
 
-**「默认启动系统」是干什么的**：一台 Worker 可以挂多块系统盘（同一系统至多一块，如 `ubuntu` + `windows`）。每次开机，iPXE 菜单在超时后会自动选中某一项启动——本端点配置的默认启动系统决定自动选中哪一项，同时决定 `/boot-vars` 投影哪块盘的连接信息（`base_iqn` / `iscsi_server` 取默认启动盘，见 5 节）。不设置时菜单自动选 `reboot`，配合 1 毫秒超时循环重启，等待管理员完成配置，避免静默进错系统。
+**「默认启动系统」是干什么的**：一台 Worker 可以挂多块系统盘（同一系统至多一块，如 `ubuntu` + `windows`）。每次开机，iPXE 菜单在超时后会自动选中某一项启动——本端点配置的默认启动系统决定自动选中哪一项，同时决定 `/boot-vars` 投影哪块盘的连接信息（`base_nqn` / `storager_ip` 取默认启动盘，见 5 节）。不设置时菜单自动选 `reboot`，配合 1 毫秒超时循环重启，等待管理员完成配置，避免静默进错系统。
 
 **注意**：`os` 不是系统盘的任意名称，而是 menu.ipxe 操作系统菜单项的 ID（与建盘 7.1 的 `os` 同枚举），与已挂系统盘一一对应。
 
@@ -2012,7 +2012,7 @@ curl -s "$BASE_URL/masters" \
   "agents": [
     {
       "agent": "storage-lio-01",
-      "iscsi_server": "192.168.80.3",
+      "storager_ip": "192.168.80.3",
       "masters": [
         {"name": "_tpl_ubuntu_2204.img", "size": 10737418240, "mtime": 1785643200},
         {"name": "_tpl_debian_12.img", "size": 8589934592, "mtime": 1785729600}
@@ -2026,7 +2026,7 @@ curl -s "$BASE_URL/masters" \
 |---|---|
 | `agents` | 数组，每项对应一个启用磁盘角色的 Agent |
 | `agents[].agent` | Agent 编号（`config/agents.yml` 的 key） |
-| `agents[].iscsi_server` | 数据面 iSCSI 地址（与 `/boot-vars` 相同的回退规则） |
+| `agents[].storager_ip` | 数据面地址（与 `/boot-vars` 相同的回退规则） |
 | `agents[].masters` | 母盘数组，每项 `{name, size, mtime}`：文件名 / 字节大小 / 修改时间戳 |
 | `agents[].error` | 该节点查询失败时的错误详情（成功节点无此字段） |
 

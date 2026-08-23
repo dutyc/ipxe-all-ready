@@ -149,7 +149,7 @@ WebUI 是 Control Plane 的纯前端界面，通过 Control Plane HTTP API 实�
   - Agent ID + 健康状态 Badge
   - 后端类型（stgt / lio）
   - API 地址（base_url）
-  - iSCSI 数据面地址（iscsi_server）——从 agents.yml 读取
+  - 数据面地址（storager_ip）——从 agents.yml 读取
   - 光驱支持 / 磁盘角色（是/否）
   - 克隆方式 / 新建磁盘方式（中文翻译映射）
   - 标签（tags）

@@ -34,7 +34,7 @@ class AgentRegistry:
                     token=_expand_env(str(raw.get("token", ""))),
                     role_disk=bool(role.get("disk", False)),
                     role_cd=bool(role.get("cd", False)),
-                    iscsi_server=raw.get("iscsi_server") or raw.get("iscsi_host"),
+                    storager_ip=raw.get("storager_ip") or None,
                     enabled=bool(raw.get("enabled", True)),
                     tags=tuple(raw.get("tags") or ()),
                 )
@@ -55,7 +55,7 @@ class AgentRegistry:
         *,
         role_disk: bool = False,
         role_cd: bool = False,
-        iscsi_server: str | None = None,
+        storager_ip: str | None = None,
         enabled: bool = True,
         tags: tuple[str, ...] = (),
     ) -> None:
@@ -74,7 +74,7 @@ class AgentRegistry:
             "base_url": base_url,
             "token": token,
             "role": {"disk": role_disk, "cd": role_cd},
-            "iscsi_server": iscsi_server or "",
+            "storager_ip": storager_ip or "",
             "tags": list(tags),
             "enabled": enabled,
         }
@@ -89,7 +89,7 @@ class AgentRegistry:
         *,
         role_disk: bool = False,
         role_cd: bool = False,
-        iscsi_server: str | None = None,
+        storager_ip: str | None = None,
         enabled: bool = True,
         tags: tuple[str, ...] = (),
     ) -> None:
@@ -105,7 +105,7 @@ class AgentRegistry:
             "base_url": base_url,
             "token": token or entry.get("token", ""),
             "role": {"disk": role_disk, "cd": role_cd},
-            "iscsi_server": iscsi_server or "",
+            "storager_ip": storager_ip or "",
             "tags": list(tags),
             "enabled": enabled,
         }
@@ -163,10 +163,11 @@ class AgentRegistry:
             result.append(item)
         return result
 
-    def iscsi_server_for(self, agent_id: str) -> str:
+    def storager_ip_for(self, agent_id: str) -> str:
+        """数据面地址：显式配置优先，缺省回退 base_url 主机名（boot-vars 投影时兜底）。"""
         agent = self.get(agent_id)
-        if agent.iscsi_server:
-            return agent.iscsi_server
+        if agent.storager_ip:
+            return agent.storager_ip
         parsed = urlparse(agent.base_url)
         return parsed.hostname or agent.base_url.removeprefix("http://").removeprefix("https://").split(":", 1)[0]
 

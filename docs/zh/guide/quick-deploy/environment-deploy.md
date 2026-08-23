@@ -237,7 +237,7 @@ TZ=Asia/Shanghai
 
 1. 填写 Agent ID（唯一，如 `storage-lio-01`）、API 地址（`base_url`：与 Controller 同机填 `http://host.docker.internal:4840`，异地填 `http://<存储节点IP>:4840`）、Token（与 `IPXE_AGENT_TOKEN` 相同，支持 `${ENV}` 环境变量占位）。
 2. 点「探测」自动获取后端类型 / 角色 / 标签 / 数据面地址等参数。
-3. 确认「iSCSI 数据面」为 Worker 实际可达的地址（探测默认按 base_url 的主机名推导，异地部署时改为本节点局域网 IP）→ 点「添加」完成注册（写入 `agents.yml`，立即参与调度）。
+3. 确认「存储服务地址」为 Worker 实际可达的地址（探测默认按 base_url 的主机名推导，异地部署时改为本节点局域网 IP）→ 点「添加」完成注册（写入 `agents.yml`，立即参与调度）。
 
 **方式二：直接编辑 `agents.yml`**——在 Controller 的 `control_plane/config/agents.yml` 登记本节点（一个节点一条）：
 
@@ -245,7 +245,7 @@ TZ=Asia/Shanghai
 agents:
   storage-lio-01:                  # Agent ID（唯一）
     base_url: http://host.docker.internal:4840   # 与 Controller 同机；异地部署填 http://<存储节点IP>:4840
-    iscsi_server: 192.168.80.3     # Worker 实际连接 iSCSI 的地址（本节点 IP）
+    storager_ip: 192.168.80.3     # Worker 实际连接存储的地址（本节点 IP，NVMe-oF 引导 / iSCSI 安装器共用）
     token: <与 IPXE_AGENT_TOKEN 相同>
     role:
       disk: true                   # 磁盘能力（LIO 不支持 ISO 光驱，cd 必须 false）

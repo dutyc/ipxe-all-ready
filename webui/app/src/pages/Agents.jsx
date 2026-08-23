@@ -56,8 +56,8 @@ function AgentCard({ agent, t, onEdit }) {
           <span className="ap-label">{t('agents.baseNqn')}</span>
           <span className="ap-value ap-mono">
             {agent.capabilities?.base_nqn
-              ? `${agent.capabilities.base_nqn}${agent.iscsi_server ? ` (${agent.iscsi_server})` : ''}`
-              : (agent.iscsi_server || t('agents.unknown'))}
+              ? `${agent.capabilities.base_nqn}${agent.storager_ip ? ` (${agent.storager_ip})` : ''}`
+              : (agent.storager_ip || t('agents.unknown'))}
           </span>
         </div>
         <div className="agent-prop">
@@ -100,15 +100,15 @@ function AgentForm({ mode, agentId, initial, onClose, onSaved }) {
     id: initial?.id || '',
     base_url: initial?.base_url || '',
     token: '',
-    iscsi_server: initial?.iscsi_server || '',
+    storager_ip: initial?.storager_ip || '',
     role_disk: initial?.role?.disk ?? true,
     role_cd: initial?.role?.cd ?? false,
     tags: (initial?.tags || []).join(', '),
     enabled: initial?.enabled ?? true,
   }))
   const [probe, setProbe] = useState(null)
-  // iscsi_server 折叠框：默认折叠（编辑模式已有值时展开），探测成功后自动展开供确认/修改
-  const [iscsiOpen, setIscsiOpen] = useState(() => Boolean(initial?.iscsi_server))
+  // storager_ip 折叠框：默认折叠（编辑模式已有值时展开），探测成功后自动展开供确认/修改
+  const [iscsiOpen, setIscsiOpen] = useState(() => Boolean(initial?.storager_ip))
   const [probing, setProbing] = useState(false)
   const [probeError, setProbeError] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -138,7 +138,7 @@ function AgentForm({ mode, agentId, initial, onClose, onSaved }) {
         role_disk: result.role.disk,
         role_cd: result.role.cd,
         // 探测前已手填的数据面地址优先保留，未被探测推导值覆盖
-        iscsi_server: prev.iscsi_server || result.iscsi_server,
+        storager_ip: prev.storager_ip || result.storager_ip,
         tags: result.tags.join(', '),
       }))
     } catch (err) {
@@ -160,7 +160,7 @@ function AgentForm({ mode, agentId, initial, onClose, onSaved }) {
       role: { disk: form.role_disk, cd: form.role_cd },
       enabled: isEdit ? form.enabled : true,
     }
-    if (form.iscsi_server.trim()) body.iscsi_server = form.iscsi_server.trim()
+    if (form.storager_ip.trim()) body.storager_ip = form.storager_ip.trim()
     const tags = form.tags.split(',').map((s) => s.trim()).filter(Boolean)
     if (tags.length) body.tags = tags
     try {
@@ -224,9 +224,9 @@ function AgentForm({ mode, agentId, initial, onClose, onSaved }) {
           <div className="iscsi-collapse-body">
             <Input
               label={t('agents.iscsiServer')}
-              name="iscsi_server"
-              value={form.iscsi_server}
-              onChange={setField('iscsi_server')}
+              name="storager_ip"
+              value={form.storager_ip}
+              onChange={setField('storager_ip')}
               placeholder={t('agents.iscsiServerPlaceholder')}
             />
           </div>

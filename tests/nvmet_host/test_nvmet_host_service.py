@@ -1,7 +1,7 @@
 """nvmet-host 宿主服务单测：mock configfs（NVMET_CONFIGFS 重定向）+ TestClient。
 
 覆盖：鉴权、healthz、子系统 CRUD（严格模式/namespace/port 挂载）、host 认证
-（dhchap_key 明文写入 + allowed_hosts symlink）、删除顺序（先摘 port 再删）。
+（nvme-auth-dhchap-secret 明文写入 + nvme-auth-dhchap-control 置位）、删除顺序（先摘 port 再删）。
 真实内核 nvmet 验证留部署环境（本机无内核 nvmet）。
 """
 
@@ -88,18 +88,18 @@ def test_list_subsystems(client, auth_headers, configfs):
     assert subs[NQN]["hosts"] == []
 
 
-def test_set_host_dhchap_key(client, auth_headers, configfs, symlinks):
-    """host 认证：dhchap_key 写 DHHC-1 明文（无换行）+ allowed_hosts symlink。"""
+def test_set_host_auth(client, auth_headers, configfs):
+    """host 认证：nvme-auth-dhchap-secret 写 DHHC-1 明文（无换行）+ control 置 1 启用认证；
+    严格模式不创建 allowed_hosts 挂载（内核在 allow_any_host=1 时才自动维护）。"""
     client.post("/subsystems", json={"nqn": NQN, "backing": BACKING}, headers=auth_headers)
     res = client.put(f"/subsystems/{NQN}/hosts",
                      json={"hostnqn": HOST_NQN, "secret": SECRET}, headers=auth_headers)
     assert res.status_code == 200
     sub = configfs / "subsystems" / NQN
-    key_file = sub / "hosts" / HOST_NQN / "dhchap_key"
+    key_file = sub / "hosts" / HOST_NQN / "nvme-auth-dhchap-secret"
     assert key_file.read_text() == SECRET  # newline=False：内容与密钥完全一致
-    allowed = sub / "allowed_hosts" / HOST_NQN
-    assert os.path.islink(allowed)
-    assert symlinks[str(allowed)] == "../../hosts/{h}".format(h=HOST_NQN)
+    assert (sub / "hosts" / HOST_NQN / "nvme-auth-dhchap-control").read_text().strip() == "1"
+    assert not (sub / "allowed_hosts" / HOST_NQN).exists()
 
 
 def test_set_host_idempotent(client, auth_headers, configfs):

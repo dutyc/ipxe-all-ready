@@ -1,13 +1,15 @@
 """nvmet 宿主管理服务（NVMe-oF 存储接入 C4，2026-08-22 裁定：宿主原生 nvmet + Agent HTTP 调用）。
 
 运行形态：存储节点宿主 root 运行（systemd unit），绑定 localhost + Bearer token；
-直接操作内核 configfs（/sys/kernel/config/nvmet）——subsystem/namespace/port/hosts(dhchap_key)。
+直接操作内核 configfs（/sys/kernel/config/nvmet）——subsystem/namespace/port/hosts(nvme-auth-dhchap-secret)。
 Agent 是唯一调用方；盘文件管理仍归 Agent（本服务不挂载盘目录）。
 契约：blueprint/nvmeof-credential-design.md 第 6 节。
 
 configfs 语义要点：
-- attr_allow_any_host=0（严格）：host 须同时登记 hosts/<HOSTNQN>/dhchap_key 与 allowed_hosts 挂载才可连接
-- DH-HMAC-CHAP 密钥：hosts/<HOSTNQN>/dhchap_key 写 DHHC-1 明文（固件契约格式）
+- attr_allow_any_host=0（严格）：host 准入 = hosts/<HOSTNQN> 目录登记，无需（也不应）手动挂载 allowed_hosts
+- DH-HMAC-CHAP 认证（target 认证 host）：hosts/<HOSTNQN>/nvme-auth-dhchap-secret 写 DHHC-1 明文
+  （固件契约格式）；nvme-auth-dhchap-control=1 启用认证——只写 secret 不置位则不校验密钥
+- allowed_hosts/ 是内核在 attr_allow_any_host=1 时自动维护的连接记录目录，用户侧不操作
 - 删除子系统前须先摘除 port 挂载（symlink），否则 EBUSY
 """
 
@@ -85,8 +87,7 @@ class NvmetManager:
                 if os.path.exists(enable):
                     self._write(ns, "enable", "0")
                 shutil.rmtree(ns, ignore_errors=True)
-        for d in ("hosts", "allowed_hosts"):
-            shutil.rmtree(os.path.join(sub, d), ignore_errors=True)
+        shutil.rmtree(os.path.join(sub, "hosts"), ignore_errors=True)
         shutil.rmtree(sub, ignore_errors=True)
 
     def list_subsystems(self) -> list[dict[str, Any]]:
@@ -114,23 +115,19 @@ class NvmetManager:
         return result
 
     def set_host(self, nqn: str, hostnqn: str, secret: str) -> None:
-        """登记/更新 host 认证：hosts/<hostnqn>/dhchap_key = DHHC-1 密钥 + allowed_hosts 挂载。"""
+        """登记/更新 host 认证：hosts/<hostnqn>/nvme-auth-dhchap-secret 写 DHHC-1 密钥
+        + nvme-auth-dhchap-control=1 启用认证（严格模式准入靠 hosts 登记）。"""
         sub = self._sub_path(nqn)
         if not os.path.isdir(sub):
             raise ValueError(f"subsystem not found: {nqn}")
         host_dir = os.path.join(sub, "hosts", hostnqn)
         os.makedirs(host_dir, exist_ok=True)
-        self._write(host_dir, "dhchap_key", secret, newline=False)
-        allowed = os.path.join(sub, "allowed_hosts", hostnqn)
-        if not os.path.islink(allowed):
-            os.symlink(f"../../hosts/{hostnqn}", allowed)
+        self._write(host_dir, "nvme-auth-dhchap-secret", secret, newline=False)
+        self._write(host_dir, "nvme-auth-dhchap-control", "1")
 
     def delete_host(self, nqn: str, hostnqn: str) -> None:
-        """移除 host 认证：摘 allowed_hosts 挂载 + 删 hosts 条目。"""
+        """移除 host 认证：删 hosts/<hostnqn> 条目（认证随之失效）。"""
         sub = self._sub_path(nqn)
-        allowed = os.path.join(sub, "allowed_hosts", hostnqn)
-        if os.path.islink(allowed):
-            os.unlink(allowed)
         host_dir = os.path.join(sub, "hosts", hostnqn)
         if os.path.isdir(host_dir):
             shutil.rmtree(host_dir)

@@ -26,7 +26,7 @@ class TestAgentCrud:
         body = res.json()
         assert body["id"] == "ag-01"
         assert body["role"] == {"disk": True, "cd": True}
-        assert body["iscsi_server"] is None  # 未显式配置 → 缺省空；回退 base_url 主机名仅在 boot-vars 投影时
+        assert body["storager_ip"] is None  # 未显式配置 → 缺省空；回退 base_url 主机名仅在 boot-vars 投影时
         assert "token" not in body  # 不回显 token
         # 列表（live=false：不做健康探测，返回纯台账）
         listing = client.get("/agents", params={"live": "false"}, headers=auth_headers).json()
@@ -62,7 +62,7 @@ class TestAgentCrud:
         assert body["role"] == {"disk": True, "cd": False}
         assert body["tags"] == ["storage", "lio"]
         assert body["enabled"] is False
-        assert body["iscsi_server"] is None
+        assert body["storager_ip"] is None
 
     def test_update_missing_404(self, client, auth_headers):
         res = client.put("/agents/ag-01", json={
@@ -90,7 +90,7 @@ class TestAgentProbe:
         body = res.json()
         assert body["role"] == {"disk": True, "cd": True}
         assert body["tags"] == ["storage", "lio"]
-        assert body["iscsi_server"] == "ag-probe"
+        assert body["storager_ip"] == "ag-probe"
         assert body["backend"] == "lio"
         assert body["base_nqn"] == "nqn.2026-07.com.test"
         # 不落盘：agents 列表仍为空

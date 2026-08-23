@@ -23,14 +23,14 @@ def list_agents(live: bool = True):
 def create_agent(req: CreateAgentRequest, request: Request):
     """注册新 Agent：写入 agents.yml（重复 id 返回 409）。
     base_url 须 http(s):// 开头；token 支持 ${ENV} 占位（读取时展开）；
-    role 决定磁盘/光驱角色；iscsi_server 为数据面地址（缺省用 base_url 主机名）。"""
+    role 决定磁盘/光驱角色；storager_ip 为数据面地址（缺省用 base_url 主机名）。"""
     agent_id = req.id.strip().lower()
     if not WORKER_ID_RE.match(agent_id):  # Agent id 与 worker id 同一命名规则
         raise HTTPException(400, f"invalid agent id: {req.id}")
     base_url = req.base_url.strip().rstrip("/")
     if not base_url.startswith(("http://", "https://")):
         raise HTTPException(400, "base_url must start with http:// or https://")
-    iscsi_server = req.iscsi_server.strip() if req.iscsi_server else None
+    storager_ip = req.storager_ip.strip() if req.storager_ip else None
     try:
         agents.get(agent_id)
         raise HTTPException(409, f"agent already exists: {agent_id}")
@@ -44,7 +44,7 @@ def create_agent(req: CreateAgentRequest, request: Request):
             req.token.strip(),
             role_disk=req.role.disk,
             role_cd=req.role.cd,
-            iscsi_server=iscsi_server,
+            storager_ip=storager_ip,
             enabled=req.enabled,
             tags=tuple(t.strip() for t in req.tags if t.strip()),
         )
@@ -60,7 +60,7 @@ def update_agent(agent_id: str, req: UpdateAgentRequest, request: Request):
     base_url = req.base_url.strip().rstrip("/")
     if not base_url.startswith(("http://", "https://")):
         raise HTTPException(400, "base_url must start with http:// or https://")
-    iscsi_server = req.iscsi_server.strip() if req.iscsi_server else None
+    storager_ip = req.storager_ip.strip() if req.storager_ip else None
     try:
         agents.get(agent_id)
     except KeyError:
@@ -73,7 +73,7 @@ def update_agent(agent_id: str, req: UpdateAgentRequest, request: Request):
             req.token.strip() or None,
             role_disk=req.role.disk,
             role_cd=req.role.cd,
-            iscsi_server=iscsi_server,
+            storager_ip=storager_ip,
             enabled=req.enabled,
             tags=tuple(t.strip() for t in req.tags if t.strip()),
         )
@@ -86,7 +86,7 @@ def probe_agent(req: ProbeAgentRequest, request: Request):
     """探测 Agent：调 /healthz + /capabilities，自动推导注册参数预览（不写任何文件）。
     推导规则：role.disk 恒真（Agent 即存储节点）、role.cd 取 capabilities.cd；
     tags = [storage, backend]（lio/stgt，供 /boot-vars 连接符推导）；
-    iscsi_server 缺省回退 base_url 主机名。"""
+    storager_ip 缺省回退 base_url 主机名。"""
     base_url = req.base_url.strip().rstrip("/")
     if not base_url.startswith(("http://", "https://")):
         raise HTTPException(400, "base_url must start with http:// or https://")
@@ -125,7 +125,7 @@ def probe_agent(req: ProbeAgentRequest, request: Request):
         "base_url": base_url,
         "role": {"disk": True, "cd": bool(caps.get("cd", False))},
         "tags": ["storage", backend],
-        "iscsi_server": urlparse(base_url).hostname or base_url,
+        "storager_ip": urlparse(base_url).hostname or base_url,
         "enabled": True,
         "backend": backend,
         "fs_type": caps.get("fs_type", ""),
@@ -235,7 +235,7 @@ def list_masters(request: Request):
         total += 1
         entry: dict[str, Any] = {
             "agent": agent.id,
-            "iscsi_server": agents.iscsi_server_for(agent.id),
+            "storager_ip": agents.storager_ip_for(agent.id),
         }
         try:
             payload = agents.client(agent).list_masters()

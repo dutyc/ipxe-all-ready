@@ -138,7 +138,7 @@ export function scanAgentLuns(agentId) {
 
 // ===== Masters =====
 export function getMasters() {
-  // 聚合列出全部启用磁盘角色 Agent 上的母盘: { agents: [{ agent, iscsi_server, masters: [{name,size,mtime}] }] }
+  // 聚合列出全部启用磁盘角色 Agent 上的母盘: { agents: [{ agent, storager_ip, masters: [{name,size,mtime}] }] }
   return request('/masters');
 }
 

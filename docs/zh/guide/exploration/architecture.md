@@ -95,7 +95,7 @@ iPXE 固件接管网卡后，捕获 DHCP 下发的变量，并在 `boot.ipxe` �
 ```ipxe
 # boot.ipxe.cfg — 静态兜底值（占位符）
 set base-iqn iqn.2026-07.com.controller
-set iscsi-server 192.168.1.5
+set storager-ip 192.168.1.5
 set iscsi-sep :::1:
 
 # 拼接 Initiator IQN
@@ -128,7 +128,7 @@ set target-iqn ${base-iqn}:${hostname}.Ubuntu
 
 # 组装 iSCSI URI
 # 格式: iscsi:<server>${iscsi-sep}<base-iqn>:<hostname>.<os>
-set root-path iscsi:${iscsi-server}${iscsi-sep}${base-iqn}:${hostname}.Ubuntu
+set root-path iscsi:${storager-ip}${iscsi-sep}${base-iqn}:${hostname}.Ubuntu
 ```
 
 **实际生成的变量值**：

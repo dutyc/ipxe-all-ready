@@ -89,9 +89,11 @@ export default function WorkerDetail() {
   const buildBootVarsCode = (bv, worker) => {
     if (bv && Object.keys(bv).length > 0) {
       const lines = ['#!ipxe', `# boot vars for ${(worker && worker.hostname) || id}`]
+      if (bv.base_nqn) lines.push(`set base-nqn ${bv.base_nqn}`)
       if (bv.base_iqn) lines.push(`set base-iqn ${bv.base_iqn}`)
-      if (bv.iscsi_server) lines.push(`set iscsi-server ${bv.iscsi_server}`)
+      if (bv.storager_ip) lines.push(`set storager-ip ${bv.storager_ip}`)
       if (bv.iscsi_sep) lines.push(`set iscsi-sep ${bv.iscsi_sep}`)
+      if (bv.nbft_secret) lines.push(`set nbft-secret ${bv.nbft_secret}`)
       if (bv.menu_default) lines.push(`set menu-default ${bv.menu_default}`)
       if (bv.menu_timeout !== undefined) lines.push(`set menu-timeout ${bv.menu_timeout}`)
       return lines.join('\n')
@@ -406,7 +408,7 @@ export default function WorkerDetail() {
               }}
               options={agentsList.map((a) => ({
                 value: a.id,
-                label: `${a.id}${a.iscsi_server ? ` (${a.iscsi_server})` : ''}`,
+                label: `${a.id}${a.storager_ip ? ` (${a.storager_ip})` : ''}`,
               }))}
             />
           )}
