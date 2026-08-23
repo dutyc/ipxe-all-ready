@@ -46,6 +46,7 @@ iscsi-server/.env
 control_plane/config/agents.yml
 control_plane/control_plane.env
 control_plane/state/settings.json
+storager/
 
 # 内部架构规划（不入版本库）
 blueprint/
