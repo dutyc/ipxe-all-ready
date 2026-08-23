@@ -9,7 +9,7 @@
 | 层 | 组件 | 职责 |
 |---|---|---|
 | 内核 | 宿主 `nvmet` / `nvmet-tcp` 模块 | 数据面 target（NVMe/TCP，默认 4420） |
-| 容器 | 本组件（`ipxe-nvmet-host` 容器） | configfs 操作：subsystem/namespace/port/hosts(dhchap_key) |
+| 容器 | 本组件（`kurrent-nvmet-host` 容器） | configfs 操作：subsystem/namespace/port/hosts(dhchap_key) |
 | 存储节点 | Agent（4840） | 盘文件管理（克隆/扫描）、后端调度、凭据推送转调本服务 |
 | 控制面 | control-plane（4839） | 凭据库（按 Worker）、/boot-vars 注入、绑定关系权威 |
 
@@ -22,9 +22,9 @@ modprobe nvmet-tcp
 mount -t configfs configfs /sys/kernel/config
 
 # 2. 配置 storager/.env（从 .env.example 复制后修改）
-#    IPXE_BACKEND=nvmet
-#    IPXE_NVMET_HOST_URL=http://nvmet-host:4841   # compose 内部网络，Agent 专用
-#    IPXE_NVMET_HOST_TOKEN=<随机长串>              # compose 插值注入容器 NVMET_HOST_TOKEN
+#    KURRENT_BACKEND=nvmet
+#    KURRENT_NVMET_HOST_URL=http://nvmet-host:4841   # compose 内部网络，Agent 专用
+#    KURRENT_NVMET_HOST_TOKEN=<随机长串>              # compose 插值注入容器 NVMET_HOST_TOKEN
 
 # 3. 构建并启动（Agent 服务内嵌本编排）
 cd storager/nvmeof
@@ -42,7 +42,7 @@ curl http://127.0.0.1:4841/healthz
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `NVMET_HOST_TOKEN` | 必填 | Bearer token（compose 从 `.env` 的 `IPXE_NVMET_HOST_TOKEN` 插值注入；Agent 侧同值） |
+| `NVMET_HOST_TOKEN` | 必填 | Bearer token（compose 从 `.env` 的 `KURRENT_NVMET_HOST_TOKEN` 插值注入；Agent 侧同值） |
 | `NVMET_HOST_ADDR` | `127.0.0.1` | 监听地址；compose 已注入 `0.0.0.0`（容器内），对外仅 loopback 映射 |
 | `NVMET_HOST_PORT` | `4841` | 监听端口 |
 | `NVMET_CONFIGFS` | `/sys/kernel/config/nvmet` | configfs 根（测试可注入） |
@@ -63,11 +63,11 @@ curl http://127.0.0.1:4841/healthz
 
 ## 认证模型（按 Worker 跟盘，2026-08-22 裁定）
 
-- 子系统 = 盘（NQN = 盘 IQN 同后缀派生：`iqn.2026-07.com.test:worker-01.ubuntu` → `nqn.2026-07.com.test:worker-01.ubuntu`，格式 `<base_nqn>:worker-XX.os`），`attr_allow_any_host=0`（严格）
-- 连接认证 = DH-HMAC-CHAP：客户端 Host NQN（设备 UUID 派生 `nqn.2014-08.org.ipxe:<uuid>`）
+- 子系统 = 盘（NQN = 盘 IQN 同后缀派生：`iqn.2026-07.com.kurrent:worker-01.ubuntu` → `nqn.2026-07.com.kurrent:worker-01.ubuntu`，格式 `<base_nqn>:worker-XX.os`），`attr_allow_any_host=0`（严格）
+- 连接认证 = DH-HMAC-CHAP：客户端 Host NQN（worker 维度派生 `nqn.2026-07.com.kurrent:host.<worker_id>`）
   须在 `hosts/` 有对应条目，且 dhchap_key = 该 worker 的 DHHC-1 密钥
 - hosts 矩阵随绑定关系同步：控制面在凭据设置/设备换绑时推送 Agent，Agent 转调本服务
-- 无 UUID 设备（共享 Host NQN `nqn.2014-08.org.ipxe:ipxe`）：per-subsystem 条目独立，自洽
+- 无 UUID 回退：Host NQN 恒为 worker 派生（`nqn.2026-07.com.kurrent:host.<worker_id>`），每 worker 单条目
 
 ## 安全边界
 

@@ -866,12 +866,12 @@ def _persist_failed_worker(
 
 # ============================ NVMe-oF 凭据（DHHC-1，按 Worker 跟盘） ============================
 
-HOST_NQN_PREFIX = "nqn.2014-08.org.ipxe"
+HOST_NQN_PREFIX = "nqn.2026-07.com.kurrent"
 
 
-def _host_nqn_for(uuid: str | None) -> str:
-    """Host NQN 派生（按设备 UUID；无 UUID 共享回退 NQN）——契约见 blueprint 4.2。"""
-    return f"{HOST_NQN_PREFIX}:{uuid}" if uuid else f"{HOST_NQN_PREFIX}:ipxe"
+def _host_nqn_for(worker_id: str) -> str:
+    """Host NQN 派生（按 worker_id，发起端身份；与盘 NQN 同域并立，host. 前缀区分角色）。"""
+    return f"{HOST_NQN_PREFIX}:host.{worker_id}"
 
 
 _UNSET = object()
@@ -888,9 +888,7 @@ def _push_credentials(worker_id: str, secret: object = _UNSET) -> None:
         with credentials.locked():
             entry = credentials.load()["credentials"].get(worker_id)
         secret = entry.get("secret") if entry else None
-    with devices.locked():
-        host_nqns = [_host_nqn_for(dev.get("uuid")) for dev in devices.load()["devices"].values()
-                     if dev.get("bound_worker_id") == worker_id]
+    host_nqns = [_host_nqn_for(worker_id)]
     groups: dict[str, list[str]] = {}
     for disk in worker_disks(record_):
         # NVMe-oF 子系统标识 = NQN（盘记录权威字段）；缺 nqn（存量盘）→ 跳过该盘，

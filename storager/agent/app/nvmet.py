@@ -1,7 +1,7 @@
 """NVMe-oF 后端（C4，2026-08-22 裁定：宿主原生 nvmet + Agent HTTP 调用）。
 
 组件（按依赖顺序）：
-- NvmetHostClient：urllib 标准库 HTTP 客户端（不加依赖），token = IPXE_NVMET_HOST_TOKEN
+- NvmetHostClient：urllib 标准库 HTTP 客户端（不加依赖），token = KURRENT_NVMET_HOST_TOKEN
 - NvmetCredentialCache：按 Worker 跟盘的凭据缓存（JSON 落盘 0600）+ hosts 矩阵同步与幂等重放
 - NvmetBackend：Backend 接口的第三实现（不继承基类——基类 __init__ 初始化 docker 客户端，
   本后端无 docker 依赖，且直接继承会与 main 循环 import；接口契约与 StgtBackend/LioBackend 一致：
@@ -215,7 +215,7 @@ class NvmetBackend:
 
     不继承 Backend 基类（其 __init__ 初始化 docker 客户端，本后端无 docker 依赖；
     直接继承会与 main 循环 import）——接口契约与 StgtBackend/LioBackend 一致，
-    由 main._make_backend 按 IPXE_BACKEND=nvmet 分支实例化。
+    由 main._make_backend 按 KURRENT_BACKEND=nvmet 分支实例化。
     子系统标识使用 NQN（盘标识权威）：入参 iqn 为控制面盘标识的派生形态（由盘 NQN 同后缀
     变换而来），内部经 to_nqn 还原为 NQN 写入 configfs（nvmet 不接受 iqn. 前缀的子系统 NQN）。"""
 
@@ -261,7 +261,7 @@ class NvmetBackend:
             caps = self.host.capabilities()
         except NvmetHostError as exc:
             raise HTTPException(503, f"nvmet host error: {exc.detail}") from exc
-        # 宿主服务不知道 IPXE_NQN_BASE：本地补 base_nqn（控制面建盘生成盘 NQN 依赖此键）
+        # 宿主服务不知道 KURRENT_NQN_BASE：本地补 base_nqn（控制面建盘生成盘 NQN 依赖此键）
         caps["base_nqn"] = self.nqn_base
         return caps
 

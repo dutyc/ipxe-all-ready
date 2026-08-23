@@ -2,7 +2,7 @@
 
 证书生命周期归控制面（2026-08-22 裁定：自动生成，gen-cert.sh 废止）：
 - 首次启动生成 RSA-2048 自签叶证书（CA=False），已存在即跳过（轮换 = 删 state/certs/ 后重启控制面）
-- SAN 来自 IPXE_CP_CERT_SAN（逗号分隔 IP:/DNS: 条目）；TOFU pin 叶证书指纹，SAN 不参与设备侧校验
+- SAN 来自 KURRENT_CP_CERT_SAN（逗号分隔 IP:/DNS: 条目）；TOFU pin 叶证书指纹，SAN 不参与设备侧校验
 - 指纹输出 state/certs/fingerprint.txt：DER SHA-256 hex（与 openssl x509 -outform DER | sha256sum 一致）
 """
 
@@ -24,11 +24,11 @@ log = logging.getLogger("control-plane")
 CERT_FILENAME = "server.crt"
 KEY_FILENAME = "server.key"
 FINGERPRINT_FILENAME = "fingerprint.txt"
-DEFAULT_CN = "ipxe-controller"
+DEFAULT_CN = "kurrent-controller"
 
 
 def parse_san(san_spec: str) -> list[x509.GeneralName]:
-    """解析 IPXE_CP_CERT_SAN：逗号分隔的 IP:/DNS: 条目，非法条目忽略并告警。"""
+    """解析 KURRENT_CP_CERT_SAN：逗号分隔的 IP:/DNS: 条目，非法条目忽略并告警。"""
     names: list[x509.GeneralName] = []
     for raw in (part.strip() for part in san_spec.split(",")):
         if not raw:

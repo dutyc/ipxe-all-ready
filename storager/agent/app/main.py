@@ -32,8 +32,8 @@ def _require_env(name: str) -> str:
 
 def nqn_to_iqn(nqn: str) -> str:
     """NVMe NQN → iSCSI IQN（同后缀前缀变换，派生方向：NQN 权威，IQN 自动生成）：
-    nqn.2026-07.com.test:worker-01.ubuntu → iqn.2026-07.com.test:worker-01.ubuntu。
-    节点只配置 NQN 命名空间（IPXE_NQN_BASE），iSCSI 数据面消费的 IQN 由此派生。"""
+    nqn.2026-07.com.kurrent:worker-01.ubuntu → iqn.2026-07.com.kurrent:worker-01.ubuntu。
+    节点只配置 NQN 命名空间（KURRENT_NQN_BASE），iSCSI 数据面消费的 IQN 由此派生。"""
     nqn = nqn.strip().lower()
     if nqn.startswith("iqn."):
         return nqn
@@ -42,12 +42,12 @@ def nqn_to_iqn(nqn: str) -> str:
     return "iqn." + nqn
 
 
-DISK_DIR = _require_env("IPXE_DISK_DIR")
-NQN_BASE = _require_env("IPXE_NQN_BASE")        # 权威：盘标识命名空间（NVMe-oF 首选协议）
+DISK_DIR = _require_env("KURRENT_DISK_DIR")
+NQN_BASE = _require_env("KURRENT_NQN_BASE")        # 权威：盘标识命名空间（NVMe-oF 首选协议）
 IQN_BASE = nqn_to_iqn(NQN_BASE)                 # 派生：iSCSI 数据面（同后缀前缀变换）
-BACKEND = _require_env("IPXE_BACKEND")
-TOKEN = _require_env("IPXE_AGENT_TOKEN")          # 必填，无默认值
-LOG_FILE = _require_env("IPXE_LOG_FILE")
+BACKEND = _require_env("KURRENT_BACKEND")
+TOKEN = _require_env("KURRENT_AGENT_TOKEN")          # 必填，无默认值
+LOG_FILE = _require_env("KURRENT_LOG_FILE")
 
 
 # ============================ 框架层：文件操作 ============================
@@ -292,7 +292,7 @@ def logged(op: str, req_dict: dict, client: str):
 class Backend(abc.ABC):
     def __init__(self):
         self.client = docker.from_env()
-        self.container = _require_env("IPXE_ISCSI_CONTAINER")
+        self.container = _require_env("KURRENT_ISCSI_CONTAINER")
 
     def _exec(self, cmd: str) -> str:
         try:
@@ -529,13 +529,13 @@ def _make_backend() -> Backend:
     if BACKEND == "nvmet":
         # 宿主原生 nvmet（C4）：经 nvmet-host 服务调 configfs；env 按需读取，不影响其他后端
         from .nvmet import NvmetBackend, NvmetCredentialCache, NvmetHostClient
-        host = NvmetHostClient(_require_env("IPXE_NVMET_HOST_URL"),
-                               _require_env("IPXE_NVMET_HOST_TOKEN"))
-        cache_path = os.environ.get("IPXE_NVMET_CACHE_FILE") or \
+        host = NvmetHostClient(_require_env("KURRENT_NVMET_HOST_URL"),
+                               _require_env("KURRENT_NVMET_HOST_TOKEN"))
+        cache_path = os.environ.get("KURRENT_NVMET_CACHE_FILE") or \
             os.path.join(os.path.dirname(LOG_FILE), "nvmet-credentials.json")
         cache = NvmetCredentialCache(host, cache_path)
         return NvmetBackend(host, cache, DISK_DIR, NQN_BASE)
-    raise RuntimeError(f"unknown IPXE_BACKEND: {BACKEND} (expect stgt|lio|nvmet)")
+    raise RuntimeError(f"unknown KURRENT_BACKEND: {BACKEND} (expect stgt|lio|nvmet)")
 
 
 backend = _make_backend()
@@ -613,7 +613,7 @@ def push_credential(req: CredentialPushReq, request: Request):
     secret=null 吊销该 worker 全部绑定设备认证；审计不记密钥本体。"""
     from .nvmet import NvmetBackend, NvmetHostError
     if not isinstance(backend, NvmetBackend):
-        raise HTTPException(400, "credential push requires IPXE_BACKEND=nvmet")
+        raise HTTPException(400, "credential push requires KURRENT_BACKEND=nvmet")
     req_dict = {"worker_id": req.worker_id, "secret": bool(req.secret),
                 "sub_nqns": req.sub_nqns, "host_nqns": req.host_nqns}
     with logged("credential", req_dict, request.client.host):

@@ -1,4 +1,4 @@
-# NVMe-oF 后端独立编排：内核 nvmet target 在宿主，管理服务容器 ipxe-nvmet-host；与 iscsi/ 互斥。
+# NVMe-oF 后端独立编排：内核 nvmet target 在宿主，管理服务容器 kurrent-nvmet-host；与 iscsi/ 互斥。
 # 部署：cd storager/nvmeof && docker compose --env-file ../.env up -d
 # 前置（宿主）：modprobe nvmet nvmet-tcp + mount configfs（见 nvmet-host/README.md）
 # 本文件为完整编排：含共享 Agent 服务（代码在 storager/agent/，配置来自 storager/.env）。
@@ -23,7 +23,7 @@ services:
       - /pool1/iscsi_img:/home/iscsi_img            # 请修改为实际存储 img 硬盘的路径
       - ../agent/logs:/var/log/ipxe-agent
 
-  # ── NVMe-oF 宿主管理服务（IPXE_BACKEND=nvmet 时启用）──
+  # ── NVMe-oF 宿主管理服务（KURRENT_BACKEND=nvmet 时启用）──
   # 内核 nvmet target 在宿主（modprobe nvmet nvmet-tcp + 挂载 configfs，见 nvmet-host README）；
   # 本容器只承载配置面管理进程：bind mount configfs 后普通 root 即可写入，无需 privileged。
   # 端口映射仅绑宿主 loopback（可本机 curl 验证），Agent 经内部网络 http://nvmet-host:4841 访问，局域网不可达。
@@ -31,8 +31,8 @@ services:
     build:
       context: ./nvmet-host
       dockerfile: Dockerfile
-    image: ipxe-nvmet-host
-    container_name: ipxe-nvmet-host
+    image: kurrent-nvmet-host
+    container_name: kurrent-nvmet-host
     restart: unless-stopped
     ports:
       - "127.0.0.1:4841:4841"
@@ -40,6 +40,6 @@ services:
       - /sys/kernel/config:/sys/kernel/config
       - /etc/localtime:/etc/localtime:ro
     environment:
-      NVMET_HOST_TOKEN: ${IPXE_NVMET_HOST_TOKEN:-}
+      NVMET_HOST_TOKEN: ${KURRENT_NVMET_HOST_TOKEN:-}
       NVMET_HOST_ADDR: 0.0.0.0
       NVMET_HOST_PORT: "4841"

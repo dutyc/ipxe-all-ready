@@ -10,7 +10,7 @@ import os
 # Windows 路径段不允许冒号（WinError 267）：mock configfs 的 NQN 用点分隔（真实 NQN 冒号语义不受影响）
 NQN = "nqn.2026-07.com.test.worker-01.ubuntu"
 BACKING = "/srv/iscsi/worker-01.ubuntu.img"
-HOST_NQN = "nqn.2014-08.org.ipxe.550e8400-e29b-41d4-a716-446655440000"
+HOST_NQN = "nqn.2026-07.com.kurrent.host.worker-01"
 SECRET = "DHHC-1:01:YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXo="
 
 

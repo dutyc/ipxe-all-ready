@@ -2,9 +2,9 @@ services:
 
   # ── DHCP / TFTP / 引导文件服务 ──
   # 全链路 host 网络直通：DHCP 应答、iPXE 脚本（tftp/ 挂载）、TFTP 引导文件
-  ipxe-dnsmasq:
+  kurrent-dnsmasq:
     image: jpillora/dnsmasq@sha256:98b69ad825942089fb7c4b9153e3c5af0205eda3a103c691e30b1a13fd912830
-    container_name: ipxe-dnsmasq
+    container_name: kurrent-dnsmasq
     network_mode: host          
     cap_add:
       - NET_ADMIN              
@@ -23,12 +23,12 @@ services:
   # ── 控制面（Control Plane）──
   # Worker 生命周期编排 / Agent 调度 / 台账 / dnsmasq 绑定 / 启动变量投影
   # 配置来源：control_plane/control_plane.env（从 .env.example 复制后修改）
-  ipxe-control-plane:
+  kurrent-control-plane:
     build:
       context: ./control_plane
       dockerfile: Dockerfile
-    image: ipxe-control-plane
-    container_name: ipxe-control-plane
+    image: kurrent-control-plane
+    container_name: kurrent-control-plane
     restart: unless-stopped
     ports:
       - "4839:8080"
@@ -45,15 +45,15 @@ services:
 
   # ── Web 管理界面 + 文件浏览（nginx）──
   # 静态资源由 webui/app 构建产物挂载；public/ 为 iPXE 公开文件（ISO/kernel/initrd）
-  ipxe-nginx:
+  kurrent-nginx:
     build:
       context: ./webui/deploy
       dockerfile: Dockerfile
-    container_name: ipxe-cp-webui
+    container_name: kurrent-webui
     ports:
       - "4838:80"
       # 宿主 HTTPS 入口端口可配（默认 443）：改这里时需同步 tftp/boot.ipxe.cfg 的 set https-port
-      - "${IPXE_HTTPS_PORT:-443}:443"
+      - "${KURRENT_HTTPS_PORT:-443}:443"
     volumes:
       - /etc/localtime:/etc/localtime:ro
       # ── Web UI 静态文件 (cd app && npm run build) ──

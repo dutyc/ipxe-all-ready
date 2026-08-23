@@ -2,7 +2,7 @@
 # 每个节点一段，字段说明：
 #   base_url    该节点 Agent 的 HTTP 地址（从控制面容器可达，容器内用 host.docker.internal）
 #   iscsi_server  数据面地址：Worker 挂盘时写入 /boot-vars 的 root-path，须为 Worker 可达的 IP
-#   token       该节点 .env 的 IPXE_AGENT_TOKEN；支持 ${ENV} 占位，如 ${STORAGE_LIO_01_TOKEN}
+#   token       该节点 .env 的 KURRENT_AGENT_TOKEN；支持 ${ENV} 占位，如 ${STORAGE_LIO_01_TOKEN}
 #   role.disk   是否可挂系统盘；role.cd 是否可挂 ISO（安装镜像）
 #   tags        自定义标签（存储类型/后端等），Web 界面可按标签筛选
 #   enabled     启用后才参与调度
