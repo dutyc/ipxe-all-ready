@@ -17,7 +17,6 @@ Kurrent makes compute cloud-native.
 
 Read our manifesto: **[about/en/Manifesto.md](./about/en/Manifesto.md)** — *Our Definition of Cloud Native* (Chinese original: [about/zh/Manifesto.md](./about/zh/Manifesto.md)).
 
-----
 
 ## Architecture
 
@@ -39,11 +38,9 @@ docker compose up -d
 * Web UI: `http://<controller-ip>:4838`
 * Control Plane API: `http://<controller-ip>:4839`
 
-Storage-node deployment and worker master-image clones are covered by the step-by-step [deployment runbooks](https://ipxe.lecreate.asia/guide/quick-deploy/environment-deploy).
-
 ## Key Features: Compute That Flows, Plug-and-Play
 
-New machines report their fingerprints and join the device pool on first boot; a few clicks in the Web UI bind them to a Worker and assign a system disk and a default OS. One worker can carry multiple system disks — Windows, Ubuntu, Debian, CentOS, ESXi — and switch between them online, with Debian 11/12/13, Ubuntu 22.04/24.04/26.04 and Windows 11 23H2/24H2/25H2 validated end-to-end over iPXE + iSCSI. There is no database: every control-plane state file is diff-able and manually repairable, and every capability is exposed as REST — the Web UI is just one client.
+A stateless bare-metal delivery flow: machines join the device pool on first boot, then a few clicks in the Web UI bind them to a Worker with a system disk and a default OS. One Worker can carry multiple system disks — Windows, Ubuntu, Debian, CentOS, ESXi — and switch between them online.
 
 ## Documentation
 
@@ -51,7 +48,9 @@ Under construction...
 
 ## Firmware Repo
 
-The iPXE firmware at the bottom of the boot chain is built by our companion repo **[iPXE-Stateless](https://github.com/dutyc/ipxe-stateless)** — two sides of the same philosophy: this repo makes compute stateless, the firmware repo makes boot firmware stateless.
+*The firmware engine for Kurrent. Make bare metal flow at the boot layer.*
+
+The firmware at the bottom of the boot chain is built by our companion repo **[Kurrent Firmware](https://github.com/dutyc/kurrent-firmware)** — two sides of the same philosophy: this repo makes compute stateless, the firmware repo makes boot firmware stateless.
 
 ## Roadmap
 

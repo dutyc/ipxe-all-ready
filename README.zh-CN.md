@@ -14,7 +14,7 @@ K8s 花了十年，让应用成为云。
 
 **Kurrent** 是一套云原生无状态裸金属交付范式。它将“无状态”贯彻到物理算力层本身：计算节点（Device）自身不持有任何持久状态，身份（Worker）、系统与数据均由网络和控制面外部授予。插上网线即活，算力脱离硬件束缚，如电流般在裸金属节点间自由周流。
 
-----
+
 
 ## 架构
 
@@ -36,18 +36,20 @@ docker compose up -d
 * Web 界面：`http://<controller-ip>:4838`
 * 控制面 API：`http://<controller-ip>:4839`
 
-存储节点部署与 Worker 母盘克隆，见分步式[部署手册](https://ipxe.lecreate.asia/zh/guide/quick-deploy/environment-deploy)。
 
 ## 核心特性: 算力周流，即插即用
 
-新机器首启自动入设备池，WebUI 点几下即可绑定 Worker、分配系统盘与默认系统；一台 Worker 可挂载多块系统盘（Windows / Ubuntu / Debian / CentOS / ESXi）随时在线切换，Debian 11/12/13、Ubuntu 22.04/24.04/26.04、Windows 11 23H2/24H2/25H2 经 iPXE + iSCSI 全链路验证。不引入数据库，控制面状态全部为可 diff、可手工修复的文件；全部能力经 REST 开放，Web 界面只是其中一个客户端。
+一条无状态裸金属交付流：新机器首启自动入设备池，WebUI 点几下即可绑定 Worker、分配系统盘与默认系统。一台 Worker 可挂载多块系统盘（Windows / Ubuntu / Debian / CentOS / ESXi）随时在线切换。
 
 ## 文档
 施工中...
 
 ## 固件仓库
 
-引导链底层的 iPXE 固件由配套仓库 **[iPXE-Stateless](https://github.com/dutyc/ipxe-stateless)** 构建——与 Kurrent 同一理念的一体两面：Kurrent 让算力无状态，固件仓库让引导固件无状态。
+*The firmware engine for Kurrent. Make bare metal flow at the boot layer.*
+*Kurrent 的固件引擎：在引导层让裸金属流动。*
+
+引导链底层的固件由配套仓库 **[Kurrent Firmware](https://github.com/dutyc/kurrent-firmware)** 构建——与 Kurrent 同一理念的一体两面：Kurrent 让算力无状态，固件仓库让引导固件无状态。
 
 ## 路线图
 

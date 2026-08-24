@@ -77,7 +77,7 @@ The architecture is evolving rapidly, and the authentication system (mutual devi
 
 The data plane is iSCSI today, but the semantics — stateless compute, disk-machine decoupling, one identity chain from MAC to boot — do not depend on it. Storager backends are already abstracted behind the Agent, so swapping the transport does not touch the architecture.
 
-The NVMe-oF (NVMe over TCP) track is under active research and already validated at the firmware layer (ipxe-stateless `research/nvme-of` branch):
+The NVMe-oF (NVMe over TCP) track is under active research and already validated at the firmware layer (kurrent-firmware `research/nvme-of` branch):
 
 - an iPXE-native **nvmetcp driver** performs `sanboot nvme://` directly, mirroring the existing iSCSI pattern;
 - **DH-HMAC-CHAP authentication** (connection control) is implemented and verified — credentials are injected per boot through the control plane (`/boot-vars` → `nbft-secret`), never baked into firmware or menus;
