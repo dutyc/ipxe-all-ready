@@ -7,6 +7,7 @@ app/node_modules
 
 # Python 虚拟环境
 .venv/
+.venv*/
 venv/
 __pycache__/
 *.py[cod]
@@ -15,10 +16,15 @@ __pycache__/
 # 第三方参考源码（如 open-iscsi）
 thirdparty/
 
-docs/.vitepress/dist/
-docs/.vitepress/cache/
+# docs/ 文档站整体排除（旧文档，冻结待重写，2026-08-24 裁定；重写时重新引入）
+docs/
 webui/app/node_modules
 
+# WebUI 构建产物（vite build 生成，不入库）
+webui/app/dist/
+
+# 固件仓库对接测试指南（归属 kurrent-firmware 仓库侧，待搬迁后删除）
+firmware-connectivity-test-guide.zh.md
 
 .DS_Store
 Thumbs.db
@@ -55,6 +61,8 @@ blueprint/
 control_plane/state/operations.jsonl
 control_plane/state/workers.yml
 control_plane/state/devices.yml
+# NVMe-oF 认证凭据库（DHHC-1 密钥，按 Worker 跟盘，运行时生成）
+control_plane/state/credentials.yml
 # TOFU 自签证书（控制面启动时自动生成，含私钥，不入库）
 control_plane/state/certs/
 # 根级误落盘防再犯：未设 env 重定向的本地运行以仓库根为 cwd 时，control_plane 默认相对路径会在此落盘（测试产物）
