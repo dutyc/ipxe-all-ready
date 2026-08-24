@@ -53,7 +53,7 @@ docker compose up -d
 
 ## 路线图
 
-跨平台、跨架构的云原生元协议：一套无状态语义，在裸机与虚拟化层自相似地嵌套。完整规划见 **[ROADMAP.md](./about/en/ROADMAP.md)**。
+跨平台、跨架构的云原生元协议：一套无状态语义，在裸机与虚拟化层自相似地嵌套。完整规划见 **[about/zh/ROADMAP.md](./about/zh/ROADMAP.md)**（English: [about/en/ROADMAP.md](./about/en/ROADMAP.md)）。
 
 ## 社区与贡献
 

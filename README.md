@@ -54,7 +54,7 @@ The firmware at the bottom of the boot chain is built by our companion repo **[K
 
 ## Roadmap
 
-A cross-platform, cross-architecture cloud-native meta-protocol: one stateless semantics, self-similarly nested across bare metal and hypervisors. See **[ROADMAP.md](./about/en/ROADMAP.md)**.
+A cross-platform, cross-architecture cloud-native meta-protocol: one stateless semantics, self-similarly nested across bare metal and hypervisors. See **[about/en/ROADMAP.md](./about/en/ROADMAP.md)** (中文: [about/zh/ROADMAP.md](./about/zh/ROADMAP.md)).
 
 ## Community & Contributing
 
