@@ -150,6 +150,8 @@ choose selected && goto ${selected} || goto start
 choose --timeout ${submenu-timeout} --default ${submenu-default} selected && goto ${selected} || goto start
 
 :winpe-install
+# 后端无 iSCSI target（nvmet：未下发 iscsi-sep）时不可用，回菜单
+isset ${iscsi-sep} || goto start
 echo Booting Windows PE ${arch} installer for ${initiator-iqn}
 echo (for installing Windows)
 set netX/gateway ${storager-ip}
@@ -169,6 +171,7 @@ boot || goto failed
 goto start
 
 :ubuntu-install
+isset ${iscsi-sep} || goto start
 echo Starting Ubuntu installer for ${initiator-iqn}
 set root-path iscsi:${storager-ip}${iscsi-sep}${base-iqn}:${hostname}.ubuntu
 cpuid --ext 29 && set arch amd64 || set arch x86
@@ -189,6 +192,7 @@ boot || goto failed
 goto start
 
 :debian-install
+isset ${iscsi-sep} || goto start
 echo Starting Debian 12 installer for ${initiator-iqn}
 set root-path iscsi:${storager-ip}${iscsi-sep}${base-iqn}:${hostname}.debian
 cpuid --ext 29 && set arch amd64 || set arch x86
@@ -209,6 +213,7 @@ boot || goto failed
 goto start
 
 :centos-install
+isset ${iscsi-sep} || goto start
 echo Starting CentOS 7 ${archl} installer for ${initiator-iqn}
 set root-path iscsi:${storager-ip}${iscsi-sep}${base-iqn}:${hostname}.centOS
 set base-url ${chain-url}/install/centos
@@ -220,6 +225,7 @@ boot || goto failed
 goto start
 
 :esxi-install
+isset ${iscsi-sep} || goto start
 echo Starting ESXi 7 installer for ${initiator-iqn}
 set root-path iscsi:${storager-ip}${iscsi-sep}${base-iqn}:${hostname}.esxi
 set base-url ${chain-url}/install/esxi

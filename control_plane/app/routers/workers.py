@@ -866,7 +866,8 @@ def _persist_failed_worker(
 
 # ============================ NVMe-oF 凭据（DHHC-1，按 Worker 跟盘） ============================
 
-HOST_NQN_PREFIX = "nqn.2026-07.com.kurrent"
+# Host NQN 前缀与盘 NQN 同域（KURRENT_CP_NQN_BASE，见 config.py；agent 侧同一 base）
+HOST_NQN_PREFIX = settings.nqn_base
 
 
 def _host_nqn_for(worker_id: str) -> str:
@@ -965,6 +966,9 @@ def set_worker_credential(worker_id: str, req: CredentialRequest, request: Reque
         entry = creds["credentials"].get(worker_id)
         if entry and entry.get("secret") == secret:
             record("credential.set", "ok", worker_id=worker_id, changed=False, client=client_ip)
+            # 幂等重放也触发推送：上次推送失败（agent 不在线/中途失败）时，
+            # 重放同值密钥可补推；agent 侧 set_host 幂等，重复推送无害。
+            _push_credentials(worker_id, secret=secret)
             return _credential_meta(entry)
         entry = {
             "worker_id": worker_id,

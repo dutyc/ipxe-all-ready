@@ -94,6 +94,7 @@ export default function WorkerDetail() {
       if (bv.storager_ip) lines.push(`set storager-ip ${bv.storager_ip}`)
       if (bv.iscsi_sep) lines.push(`set iscsi-sep ${bv.iscsi_sep}`)
       if (bv.nbft_secret) lines.push(`set nbft-secret ${bv.nbft_secret}`)
+      if (bv.hostnqn) lines.push(`set hostnqn ${bv.hostnqn}`)
       if (bv.menu_default) lines.push(`set menu-default ${bv.menu_default}`)
       if (bv.menu_timeout !== undefined) lines.push(`set menu-timeout ${bv.menu_timeout}`)
       return lines.join('\n')

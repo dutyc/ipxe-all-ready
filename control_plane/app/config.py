@@ -38,6 +38,9 @@ class Settings:
     cert_days: int = int(os.getenv("KURRENT_CP_CERT_DAYS", "3650"))
     # NVMe-oF 认证凭据库（DHHC-1 密钥按 worker_id 索引，按 Worker 跟盘裁定 2026-08-22）
     credentials_file: Path = Path(os.getenv("KURRENT_CP_CREDENTIALS_FILE", "state/credentials.yml"))
+    # NQN 命名空间 base（与 agent/storager 的 KURRENT_NQN_BASE 同源；盘 NQN 与
+    # host NQN 都由它派生，变更须两侧同步）
+    nqn_base: str = os.getenv("KURRENT_CP_NQN_BASE", "nqn.2026-07.com.kurrent")
 
 
 settings = Settings()

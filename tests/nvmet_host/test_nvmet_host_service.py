@@ -1,7 +1,8 @@
 """nvmet-host 宿主服务单测：mock configfs（NVMET_CONFIGFS 重定向）+ TestClient。
 
 覆盖：鉴权、healthz、子系统 CRUD（严格模式/namespace/port 挂载）、host 认证
-（nvme-auth-dhchap-secret 明文写入 + nvme-auth-dhchap-control 置位）、删除顺序（先摘 port 再删）。
+（全局 hosts/<hostnqn>/dhchap_key 写密钥即启用 + allowed_hosts symlink 准入）、
+删除顺序（先摘 port / allowed_hosts 再删）。
 真实内核 nvmet 验证留部署环境（本机无内核 nvmet）。
 """
 
@@ -54,7 +55,7 @@ def test_ensure_port(client, auth_headers, configfs):
     assert (port / "addr_trtype").read_text().strip() == "tcp"
     assert (port / "addr_traddr").read_text().strip() == "0.0.0.0"
     assert (port / "addr_trsvcid").read_text().strip() == "4420"
-    assert (port / "addr_tsas").read_text().strip() == "none"
+    assert not (port / "addr_tsas").exists()  # 不写即无 TLS（内核属性仅接受 tls1.3）
 
 
 def test_create_subsystem_strict(client, auth_headers, configfs, symlinks):
@@ -68,7 +69,8 @@ def test_create_subsystem_strict(client, auth_headers, configfs, symlinks):
     assert (ns / "enable").read_text().strip() == "1"
     link = configfs / "ports" / "1" / "subsystems" / NQN
     assert os.path.islink(link)
-    assert symlinks[str(link)] == "../../subsystems/{NQN}".format(NQN=NQN)
+    # configfs symlink 目标按进程 cwd 解析，实现必须用绝对路径
+    assert symlinks[str(link)] == str(configfs / "subsystems" / NQN)
 
 
 def test_create_duplicate_409(client, auth_headers, configfs):
@@ -88,18 +90,19 @@ def test_list_subsystems(client, auth_headers, configfs):
     assert subs[NQN]["hosts"] == []
 
 
-def test_set_host_auth(client, auth_headers, configfs):
-    """host 认证：nvme-auth-dhchap-secret 写 DHHC-1 明文（无换行）+ control 置 1 启用认证；
-    严格模式不创建 allowed_hosts 挂载（内核在 allow_any_host=1 时才自动维护）。"""
+def test_set_host_auth(client, auth_headers, configfs, symlinks):
+    """host 认证：全局 hosts/<hostnqn>/dhchap_key 写 DHHC-1 明文（无换行，写 key 即启用），
+    再 symlink 挂到子系统 allowed_hosts/ 完成严格模式准入。"""
     client.post("/subsystems", json={"nqn": NQN, "backing": BACKING}, headers=auth_headers)
     res = client.put(f"/subsystems/{NQN}/hosts",
                      json={"hostnqn": HOST_NQN, "secret": SECRET}, headers=auth_headers)
     assert res.status_code == 200
-    sub = configfs / "subsystems" / NQN
-    key_file = sub / "hosts" / HOST_NQN / "nvme-auth-dhchap-secret"
-    assert key_file.read_text() == SECRET  # newline=False：内容与密钥完全一致
-    assert (sub / "hosts" / HOST_NQN / "nvme-auth-dhchap-control").read_text().strip() == "1"
-    assert not (sub / "allowed_hosts" / HOST_NQN).exists()
+    host_dir = configfs / "hosts" / HOST_NQN
+    assert (host_dir / "dhchap_key").read_text() == SECRET  # newline=False：内容与密钥完全一致
+    link = configfs / "subsystems" / NQN / "allowed_hosts" / HOST_NQN
+    assert os.path.islink(link)
+    # symlink 目标按进程 cwd 解析，实现必须用绝对路径
+    assert symlinks[str(link)] == str(host_dir)
 
 
 def test_set_host_idempotent(client, auth_headers, configfs):
@@ -122,9 +125,9 @@ def test_delete_host(client, auth_headers, configfs):
                json={"hostnqn": HOST_NQN, "secret": SECRET}, headers=auth_headers)
     res = client.delete(f"/subsystems/{NQN}/hosts/{HOST_NQN}", headers=auth_headers)
     assert res.status_code == 200
-    sub = configfs / "subsystems" / NQN
-    assert not (sub / "hosts" / HOST_NQN).exists()
-    assert not (sub / "allowed_hosts" / HOST_NQN).exists()
+    # 先摘 allowed_hosts 挂载，再删全局 hosts/<hostnqn>
+    assert not (configfs / "subsystems" / NQN / "allowed_hosts" / HOST_NQN).exists()
+    assert not (configfs / "hosts" / HOST_NQN).exists()
 
 
 def test_delete_subsystem_detaches_port(client, auth_headers, configfs):

@@ -8,7 +8,11 @@ FROM python:3.11-slim
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# pip 走阿里云镜像加速（与 storager/agent、control_plane 保持一致，国内网络环境安装依赖更快）
+RUN pip install --no-cache-dir \
+        -i https://mirrors.aliyun.com/pypi/simple/ \
+        --trusted-host mirrors.aliyun.com \
+        -r requirements.txt
 
 COPY app ./app
 

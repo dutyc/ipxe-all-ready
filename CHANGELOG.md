@@ -8,14 +8,32 @@
 - **新增**：新功能、新端点、新配置项
 - **变更**：行为调整、接口变更、数据模型调整
 - **修复**：缺陷修复
-- 涉及多个模块的改动，按模块分条列出；接口变更同时需同步 `docs/zh/guide/api/control-plane-api.md`（控制面 API 参考，文档站唯一权威）
+- 涉及多个模块的改动，按模块分条列出；接口变更同时需同步 `api/control-plane-api.zh-CN.md` 与 `api/control-plane-api.en.md`（控制面 API 参考唯一权威；docs/ 文档站冻结待重写，不再修改）
 
 ---
+
+## 2026-08-24
+
+### 修复
+
+- **nvmet-host configfs 语义纠正（真实内核验证；2026-08-23「DH-HMAC-CHAP 认证三缺陷」条目方向作废，以本条为准）**——固件仓库联调实测 Linux v7.x nvmet 语义：host 条目是**全局**的（顶层 `hosts/<HOSTNQN>/dhchap_key` 写 DHHC-1 明文即启用认证，**无独立 control 属性**）；严格模式（`attr_allow_any_host=0`）host 准入 = `subsystems/<NQN>/allowed_hosts/` 下 **symlink 挂载全局 host 条目**（target 须 `nvmet_host_type`，否则 EINVAL），symlink 目标由内核按进程 cwd 解析须**绝对路径**（08-23 的「subsystems hosts/ 目录登记即准入 + nvme-auth-dhchap-control=1 置位 + 删除 allowed_hosts symlink」与真实语义不符）；端口在首个子系统挂载时才启用监听，`addr_*` 启用后不可写（-EACCES），删除 `addr_tsas` 写入（不写即无 TLS）；删除子系统须先摘 port / allowed_hosts 挂载再 rmdir（否则 EBUSY）；同步 storager/agent nvmet.py docstring、nvmet-host main.py 全量 configfs 操作、测试断言（allowed_hosts 列表 / dhchap_key / 删除顺序），nvmet-host 14 用例通过
+- **/boot-vars 签名兼容还原（联调 verify_failed 修复）**——iPXE 拼 URL 不做百分号编码：base64(DER) 的 `+` 原样进入 query，Starlette 按 form-urlencoded 规则解码为空格 → 验签必败；验签前 `sig = sig.replace(" ", "+")`（base64 字符集不含空格，同时兼容 %2B 显式编码与未编码两种传递）
+- **/devices/report 返回空脚本体（联调 EOF 修复）**——4 处空 `Response(status_code=200)` 改为 `Response("#!ipxe\n", media_type="text/plain")`：空 body 部分 iPXE 报 EOF，统一返回合法空脚本供 chain 直接消费（无脚本副作用）
+- **凭据幂等重放补推**——`set_worker_credential` 同值幂等分支（changed=False）也调 `_push_credentials`：上次推送失败（agent 离线 / 中途失败）时重放同值密钥可补推，agent 侧 set_host 幂等、重复推送无害
+
+### 变更
+
+- **Host NQN 注入（C2 凭据链路配套，固件 0011 补丁消费）**——`/boot-vars` 新增 `hostnqn` 字段（iPXE / JSON 双格式）：iPXE nvmetcp 默认 hostnqn 为 `nqn.2014-08.org.ipxe:<uuid>`（无 UUID 回退 `:ipxe`），与 nvmet-host 登记的 `host.<worker_id>` 不匹配则严格模式认证必败，须按 worker 投影同一身份覆盖；`HOST_NQN_PREFIX` 硬编码改读 `settings.nqn_base`，新增 `KURRENT_CP_NQN_BASE` 配置（默认 `nqn.2026-07.com.kurrent`，与 agent/storager 的 `KURRENT_NQN_BASE` 同源，变更须两侧同步）；WebUI Worker 详情 boot-vars 预览补 hostnqn 行；api/ 两份 API 文档字段表 + iPXE/JSON 示例同步（示例域 .controller → .kurrent）；全量 189 测试通过（.venv-linux，Python 3.14，含 hostnqn 断言）
+- **iscsi_sep 条件化（仅 stgt / lio 后端下发）**——`_worker_boot_payload` 仅 `backend in {"stgt", "lio"}` 时下发 `iscsi_sep`（nvmet 无 iSCSI target 不下发）；`_backend_for` 支持 nvmet（tags / capabilities 优先序 nvmet → lio → stgt）；`menu.ipxe` 5 个 iSCSI 安装器项加 `isset ${iscsi-sep} || goto start` 守卫（nvmet 后端跳过安装器项）；api/ 文档字段表同步
+- **nvmet-host 容器化部署形态调整（联调部署）**——`network_mode: host`（nvmet 监听 socket 由写 configfs 的进程创建、绑定其网络命名空间；host 模式即宿主 netns，客户端可直达 4420，容器重建不丢监听；原 `127.0.0.1:4841` 端口映射与 compose 内部网络访问方式作废，Agent 改经 `host.docker.internal:host-gateway` + `http://127.0.0.1:4841` 访问）；`security_opt: apparmor:unconfined`（Ubuntu docker-default AppArmor profile 拒 configfs 写入）；新增 `NVMET_HOST_DISK_DIR`（configfs device_path 由写入进程所在挂载命名空间解析，按 basename 重拼到容器可见目录，不配置则原样写入）；compose 磁盘挂载与 agent 的 `KURRENT_DISK_DIR` 内容一致、路径可不同
+- **构建源阿里云化（国内网络加速）**——control_plane / storager-agent 两个 Dockerfile 的 apt 源改阿里云镜像（deb822 `debian.sources` 与老式 `sources.list` 双格式 sed 覆盖，只替换域名）；nvmet-host Dockerfile 的 pip 走阿里云 PyPI 镜像（与其余服务一致）
 
 ## 2026-08-23
 
 ### 变更
 
+- **API 文档独立于文档站（docs/ 冻结待重写）**——控制面 API 参考移出 docs/ 站体系：新建根目录 `api/`（`api/control-plane-api.zh-CN.md` / `api/control-plane-api.en.md`，内容自包含无站内链接），此后接口变更仅维护该两份；docs/ 目录整体冻结不再修改（vitepress 文档站为 iPXE-All-Ready 时代产物，架构升级后整体重写，docs/ 内旧副本保留待重写时处理）；CHANGELOG 记录规范中 API 文档权威位置引用同步更新
+- **固件仓库更名 Kurrent Firmware（dutyc/kurrent-firmware）+ ABOUT 标语定稿**——配套固件仓库 `ipxe-stateless` 更名 `kurrent-firmware`，ABOUT 标语定为 *The firmware engine for Kurrent. Make bare metal flow at the boot layer.*；主仓库引用全量同步（中英 8 文件）：README 两版「固件仓库」小节（新名称/链接 + 标语引言）、《项目环境部署》1.3 节与固件升级警告（名称 + 仓库/Releases 链接）、《引导介质制作指南》本地加载引用、about ARCHITECTURE 协议演进章节固件分支引用；CHANGELOG 历史条目与蓝图契约文件名（ipxe-stateless-handoff）保留原名（历史记录，GitHub 仓库改名后旧链接 301 重定向）
 - **C3 引导链拼接实施（NVMe-oF 数据面激活）**——`/boot-vars` 退役单值 `nqn` 投影，改投 `base_nqn`（盘 NQN 前缀；盘 NQN 由 Agent 按统一模板 `base:worker_id.os` 生成，无存量盘下固件重拼 = 盘记录权威值；盘记录缺 nqn 不下发）；`iscsi_server` → `storager_ip` 全面更名（boot-vars 键 / iPXE 变量 `storager-ip` / `agents.yml` 配置键 / Agent API 字段 / WebUI 表单与 boot-vars 预览 / 中英 API 文档字段表）；`menu.ipxe` 主引导 5 OS 项（windows/ubuntu/debian/centos/esxi）改 NVMe-oF 拼装 `nvme://${storager-ip}:4420/${base-nqn}:${hostname}.<os>` + `nbft-secret` isset 条件化附加 `?secret=`，安装器 5 项保持 iSCSI（引用同步改名）；`boot.ipxe.cfg` 静态默认变量与 vars-done 注释同步；测试 153 通过
 - **修复：nvmet-host DH-HMAC-CHAP 认证三缺陷**——`hosts/<hostnqn>/dhchap_key` 非内核属性名（真实为 `nvme-auth-dhchap-secret`，真 configfs 上 open 即 FileNotFoundError，从未生效）改为正确属性写 DHHC-1 明文（无换行）；新增 `nvme-auth-dhchap-control=1` 置位（不置位认证不启用，密钥形同虚设）；删除 `allowed_hosts` 手动 symlink（内核在 allow_any_host=1 时自动维护的连接记录，严格模式准入靠 hosts 登记）；同步 delete_host/delete_subsystem、Agent docstring、nvmet-host README 认证模型章节、测试断言（14 用例通过）
 - **Kurrent 全量品牌化（GitHub 仓库改名 dutyc/kurrent 后同步）**——环境变量前缀全量 `IPXE_*` → `KURRENT_*`（控制面 `KURRENT_CP_*`、存储节点 `KURRENT_BACKEND`/`KURRENT_NQN_BASE`/`KURRENT_AGENT_TOKEN`/`KURRENT_DISK_DIR`/`KURRENT_LOG_FILE`/`KURRENT_NVMET_*`/`KURRENT_ISCSI_CONTAINER`、HTTPS 入口端口 `KURRENT_HTTPS_PORT`；`.env.example`、compose 插值、webui 构建注释、tests conftest 同步）；容器名 `ipxe-*` → `kurrent-*`（根编排 dnsmasq/control-plane/webui 三服务，存储节点 `kurrent-nvmet-host`，自签证书 CN `kurrent-controller`）；NQN 命名空间统一 `nqn.2026-07.com.kurrent`（盘 NQN base 示例由 `.controller` 域更新；Host NQN 落地 C3 点 1 裁定：按 worker_id 派生 `nqn.2026-07.com.kurrent:host.<worker_id>`，废弃设备 UUID 派生与 `:ipxe` 共享回退，解绑后 host_nqns 恒定不变）；about/ 宣言与 AI 政策、CHANGELOG 抬头、README Star History URL 收尾；测试保留 `nqn.2026-07.com.test` 隔离域（产品示例与测试域分离）；vitepress 文档站为 iPXE-All-Ready 时代产物暂不动（架构升级后整体重写）；全量 189 测试通过

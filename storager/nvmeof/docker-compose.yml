@@ -17,6 +17,8 @@ services:
     ports:
       - "4840:8080"                    # 控制面 HTTP，给 Controller
     env_file: ../.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # nvmet-host 为 host 网络模式，经宿主 loopback 访问其 4841
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock   # 用来 exec 进后端容器（nvmet 由 Agent 经 HTTP 驱动）
       - /etc/localtime:/etc/localtime:ro
@@ -26,7 +28,9 @@ services:
   # ── NVMe-oF 宿主管理服务（KURRENT_BACKEND=nvmet 时启用）──
   # 内核 nvmet target 在宿主（modprobe nvmet nvmet-tcp + 挂载 configfs，见 nvmet-host README）；
   # 本容器只承载配置面管理进程：bind mount configfs 后普通 root 即可写入，无需 privileged。
-  # 端口映射仅绑宿主 loopback（可本机 curl 验证），Agent 经内部网络 http://nvmet-host:4841 访问，局域网不可达。
+  # host 网络模式：nvmet 监听 socket 由写 configfs 的进程（本容器）创建，绑定到该进程所在
+  # 网络命名空间；host 模式下即宿主 netns，客户端（iPXE/QEMU）可直接访问 4420，容器重建不丢监听。
+  # Agent 经 http://127.0.0.1:4841 访问本服务（见 storager/.env 的 KURRENT_NVMET_HOST_URL）。
   nvmet-host:
     build:
       context: ./nvmet-host
@@ -34,12 +38,21 @@ services:
     image: kurrent-nvmet-host
     container_name: kurrent-nvmet-host
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:4841:4841"
+    network_mode: host
+    # Ubuntu docker-default AppArmor profile 会拒绝 configfs 写入（Permission denied），
+    # 本容器需写 /sys/kernel/config 管理 nvmet，故豁免 AppArmor；
+    # 生产环境建议改用自定义 profile 仅放行 configfs（见 nvmet-host/README.md）。
+    security_opt:
+      - apparmor:unconfined
     volumes:
       - /sys/kernel/config:/sys/kernel/config
+      # 磁盘镜像目录：configfs device_path 由写入进程（本容器）所在挂载命名空间解析，
+      # 须让本容器能看见盘文件（与 agent 的 KURRENT_DISK_DIR 内容一致，路径可不同）
+      - /pool1/iscsi_img:/srv/nvmet-disks
       - /etc/localtime:/etc/localtime:ro
     environment:
       NVMET_HOST_TOKEN: ${KURRENT_NVMET_HOST_TOKEN:-}
       NVMET_HOST_ADDR: 0.0.0.0
       NVMET_HOST_PORT: "4841"
+      # 容器内磁盘目录：device_path 重拼前缀（backing 的 basename 拼到此目录）
+      NVMET_HOST_DISK_DIR: /srv/nvmet-disks

@@ -170,10 +170,13 @@ def test_boot_vars_injects_nbft_secret(client, auth_headers, register_claimed_de
     res = client.get("/boot-vars", params={"mac": MAC_A, "hostname": "worker-01"})
     assert res.status_code == 200
     assert f"set nbft-secret {secret}" in res.text
+    # Host NQN 与盘 NQN 同域派生（_host_nqn_for），与 nvmet hosts/ 登记值一致
+    assert "set hostnqn nqn.2026-07.com.kurrent:host.worker-01" in res.text
 
-    # JSON 格式同样投影 nbft_secret
+    # JSON 格式同样投影 nbft_secret / hostnqn
     res = client.get("/boot-vars", params={"mac": MAC_A, "hostname": "worker-01", "format": "json"})
     assert res.json()["nbft_secret"] == secret
+    assert res.json()["hostnqn"] == "nqn.2026-07.com.kurrent:host.worker-01"
 
 
 def test_boot_vars_no_secret_without_credential(client, auth_headers, register_claimed_device):

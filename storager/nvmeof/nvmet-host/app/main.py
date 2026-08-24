@@ -1,15 +1,16 @@
 """nvmet 宿主管理服务（NVMe-oF 存储接入 C4，2026-08-22 裁定：宿主原生 nvmet + Agent HTTP 调用）。
 
 运行形态：存储节点宿主 root 运行（systemd unit），绑定 localhost + Bearer token；
-直接操作内核 configfs（/sys/kernel/config/nvmet）——subsystem/namespace/port/hosts(nvme-auth-dhchap-secret)。
+直接操作内核 configfs（/sys/kernel/config/nvmet）——subsystem/namespace/port/hosts(dhchap_key)。
 Agent 是唯一调用方；盘文件管理仍归 Agent（本服务不挂载盘目录）。
 契约：blueprint/nvmeof-credential-design.md 第 6 节。
 
-configfs 语义要点：
-- attr_allow_any_host=0（严格）：host 准入 = hosts/<HOSTNQN> 目录登记，无需（也不应）手动挂载 allowed_hosts
-- DH-HMAC-CHAP 认证（target 认证 host）：hosts/<HOSTNQN>/nvme-auth-dhchap-secret 写 DHHC-1 明文
-  （固件契约格式）；nvme-auth-dhchap-control=1 启用认证——只写 secret 不置位则不校验密钥
-- allowed_hosts/ 是内核在 attr_allow_any_host=1 时自动维护的连接记录目录，用户侧不操作
+configfs 语义要点（Linux v7.x nvmet）：
+- host 条目是全局的：mkdir 顶层 hosts/<HOSTNQN>（默认 SHA256）；DH-HMAC-CHAP 认证 =
+  hosts/<HOSTNQN>/dhchap_key 写 DHHC-1 明文（固件契约格式），写 key 即启用认证（无独立 control 属性）
+- attr_allow_any_host=0（严格）：host 准入 = 在 subsystems/<NQN>/allowed_hosts/ 下 symlink
+  挂载全局 hosts/<HOSTNQN>（target 必须是 nvmet_host_type，否则 EINVAL）；
+  symlink 目标由内核按进程 cwd 解析，须用绝对路径
 - 删除子系统前须先摘除 port 挂载（symlink），否则 EBUSY
 """
 
@@ -26,6 +27,11 @@ log = logging.getLogger("nvmet-host")
 
 CONFIGFS_NVMET = os.getenv("NVMET_CONFIGFS", "/sys/kernel/config/nvmet")
 PORT_ID = os.getenv("NVMET_PORT_ID", "1")
+# 容器内磁盘目录：configfs 的 device_path 由写入进程（本容器）所在挂载命名空间解析，
+# 必须指向本容器可见路径；Agent 传入的 backing 是其容器内路径（如 /home/iscsi_img/xxx.img），
+# 本服务按 basename 重拼到 NVMET_HOST_DISK_DIR。
+# 不配置则原样写入（agent 与本服务同路径部署场景）。
+HOST_DISK_DIR = os.getenv("NVMET_HOST_DISK_DIR", "")
 
 
 def _require_env(name: str) -> str:
@@ -65,7 +71,11 @@ class NvmetManager:
             self._write(sub, "attr_allow_any_host", "0")
             ns = os.path.join(sub, "namespaces", "1")
             os.makedirs(ns, exist_ok=True)
-            self._write(ns, "device_path", backing)
+            device_path = (
+                os.path.join(HOST_DISK_DIR, os.path.basename(backing))
+                if HOST_DISK_DIR else backing
+            )
+            self._write(ns, "device_path", device_path)
             self._write(ns, "enable", "1")
         except Exception:
             shutil.rmtree(sub, ignore_errors=True)
@@ -87,7 +97,13 @@ class NvmetManager:
                 if os.path.exists(enable):
                     self._write(ns, "enable", "0")
                 shutil.rmtree(ns, ignore_errors=True)
-        shutil.rmtree(os.path.join(sub, "hosts"), ignore_errors=True)
+        # 摘除 allowed_hosts/ 下的 host 准入挂载（default group 本身是内核目录，只 unlink 不 rmdir）
+        allowed = os.path.join(sub, "allowed_hosts")
+        if os.path.isdir(allowed):
+            for name in sorted(os.listdir(allowed)):
+                link = os.path.join(allowed, name)
+                if os.path.islink(link):
+                    os.unlink(link)
         shutil.rmtree(sub, ignore_errors=True)
 
     def list_subsystems(self) -> list[dict[str, Any]]:
@@ -108,49 +124,62 @@ class NvmetManager:
                         "device_path": self._read(os.path.join(ns_base, nsid, "device_path")),
                     })
             hosts = []
-            hosts_base = os.path.join(sub, "hosts")
-            if os.path.isdir(hosts_base):
-                hosts = sorted(os.listdir(hosts_base))
+            allowed_base = os.path.join(sub, "allowed_hosts")
+            if os.path.isdir(allowed_base):
+                hosts = sorted(os.listdir(allowed_base))
             result.append({"nqn": nqn, "namespaces": namespaces, "hosts": hosts})
         return result
 
     def set_host(self, nqn: str, hostnqn: str, secret: str) -> None:
-        """登记/更新 host 认证：hosts/<hostnqn>/nvme-auth-dhchap-secret 写 DHHC-1 密钥
-        + nvme-auth-dhchap-control=1 启用认证（严格模式准入靠 hosts 登记）。"""
+        """登记/更新 host 认证：全局 hosts/<hostnqn> 写 DHHC-1 密钥（dhchap_key），
+        再 symlink 挂到子系统 allowed_hosts/ 完成准入（严格模式）。"""
         sub = self._sub_path(nqn)
         if not os.path.isdir(sub):
             raise ValueError(f"subsystem not found: {nqn}")
-        host_dir = os.path.join(sub, "hosts", hostnqn)
+        host_dir = os.path.join(self.root, "hosts", hostnqn)
         os.makedirs(host_dir, exist_ok=True)
-        self._write(host_dir, "nvme-auth-dhchap-secret", secret, newline=False)
-        self._write(host_dir, "nvme-auth-dhchap-control", "1")
+        self._write(host_dir, "dhchap_key", secret, newline=False)
+        link = os.path.join(sub, "allowed_hosts", hostnqn)
+        os.makedirs(os.path.dirname(link), exist_ok=True)
+        if not os.path.islink(link):
+            os.symlink(host_dir, link)
 
     def delete_host(self, nqn: str, hostnqn: str) -> None:
-        """移除 host 认证：删 hosts/<hostnqn> 条目（认证随之失效）。"""
+        """移除 host 认证：先摘 allowed_hosts 挂载，再删全局 hosts/<hostnqn>。"""
         sub = self._sub_path(nqn)
-        host_dir = os.path.join(sub, "hosts", hostnqn)
-        if os.path.isdir(host_dir):
-            shutil.rmtree(host_dir)
+        link = os.path.join(sub, "allowed_hosts", hostnqn)
+        if os.path.islink(link):
+            os.unlink(link)
+        shutil.rmtree(os.path.join(self.root, "hosts", hostnqn), ignore_errors=True)
 
     def ensure_port(self, trtype: str = "tcp", adrfam: str = "ipv4", traddr: str = "0.0.0.0",
-                    trsvcid: str = "4420", tsas: str = "none") -> dict[str, str]:
-        """幂等创建/更新 NVMe/TCP 端口（默认 4420，无 TLS）。"""
+                    trsvcid: str = "4420") -> dict[str, str]:
+        """幂等创建/更新 NVMe/TCP 端口（默认 4420，无 TLS）。
+
+        写入顺序敏感：nvmet 在第一个子系统挂载（allow_link）时才启用端口并监听，
+        addr_* 属性只在端口未启用时可写（启用后 store 返回 -EACCES），故端口已配置
+        （addr_trtype 非空）时直接跳过写入。注意：addr_tsas 属性仅接受 tls1.3，不写即无 TLS。"""
         port = os.path.join(self.root, "ports", self.port_id)
         os.makedirs(port, exist_ok=True)
-        self._write(port, "addr_trtype", trtype)
-        self._write(port, "addr_adrfam", adrfam)
-        self._write(port, "addr_traddr", traddr)
+        if self._read(os.path.join(port, "addr_trtype")):
+            return {"port": self.port_id, "trtype": trtype, "traddr": traddr,
+                    "trsvcid": trsvcid, "already_configured": True}
         self._write(port, "addr_trsvcid", trsvcid)
-        self._write(port, "addr_tsas", tsas)
+        self._write(port, "addr_traddr", traddr)
+        self._write(port, "addr_adrfam", adrfam)
+        self._write(port, "addr_trtype", trtype)
         return {"port": self.port_id, "trtype": trtype, "traddr": traddr,
-                "trsvcid": trsvcid, "tsas": tsas}
+                "trsvcid": trsvcid}
 
     def attach_port(self, nqn: str) -> None:
-        """把子系统挂到端口（symlink），幂等；创建子系统后必须挂载才对外可见。"""
+        """把子系统挂到端口（symlink），幂等；创建子系统后必须挂载才对外可见。
+
+        configfs 的 symlink 目标由内核 kern_path 按进程 cwd 解析，必须用绝对路径
+        （相对路径会相对 uvicorn 的 cwd 解析而 ENOENT）。"""
         link = os.path.join(self.root, "ports", self.port_id, "subsystems", nqn)
         os.makedirs(os.path.dirname(link), exist_ok=True)
         if not os.path.islink(link):
-            os.symlink(f"../../subsystems/{nqn}", link)
+            os.symlink(os.path.join(self.root, "subsystems", nqn), link)
 
     def _sub_path(self, nqn: str) -> str:
         return os.path.join(self.root, "subsystems", nqn)
@@ -265,4 +294,6 @@ if __name__ == "__main__":
 
     host = os.getenv("NVMET_HOST_ADDR", "127.0.0.1")
     port = int(os.getenv("NVMET_HOST_PORT", "4841"))
+    # 启动即配置 NVMe/TCP 端口（幂等）：裸端口不允许挂子系统，须先写全 addr_* 属性
+    manager.ensure_port()
     uvicorn.run(app, host=host, port=port, log_level="info")

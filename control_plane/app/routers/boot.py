@@ -24,6 +24,7 @@ from ..utils import (
     now_iso,
     parse_uint,
 )
+from .workers import _host_nqn_for
 
 router = APIRouter()
 
@@ -43,6 +44,11 @@ def boot_vars(
 ):
     if output_format not in {"ipxe", "json"}:
         raise HTTPException(400, "format must be ipxe or json")
+    # iPXE 脚本拼 URL 时不做百分号编码：base64 签名（DER）中的 '+' 原样进入 query，
+    # Starlette 按 form-urlencoded 规则把 '+' 解码为空格导致验签失败（verify_failed）。
+    # base64 字符集不含空格，将空格还原为 '+' 即可同时兼容 %2B 显式编码与未编码两种传递。
+    if sig:
+        sig = sig.replace(" ", "+")
     payload = _boot_vars_payload(mac=mac, hostname=hostname, nonce=nonce, sig=sig)
     if output_format == "json":
         return JSONResponse(_boot_vars_json(payload))
@@ -71,7 +77,7 @@ def device_report(
     存量设备窗口期内带公钥上报 = 密钥认领（key_hash 填充）。返回空响应（chain 无脚本副作用）。"""
     normalized = normalize_boot_mac(mac)
     if not normalized:
-        return Response(status_code=200)  # 非法 MAC 忽略，不阻断引导
+        return Response("#!ipxe\n", media_type="text/plain", status_code=200)  # 非法 MAC 忽略，不阻断引导
     fingerprint = {k: v for k, v in {
         "manufacturer": clean_str(manufacturer),
         "product": clean_str(product),
@@ -94,7 +100,7 @@ def device_report(
         existing = devs.get(normalized)
         if existing:
             if existing.get("state") == "revoked":
-                return Response(status_code=200)  # 吊销设备不更新、不复活
+                return Response("#!ipxe\n", media_type="text/plain", status_code=200)  # 吊销设备不更新、不复活
             existing.setdefault("fingerprint", {}).update(fingerprint)
             clean_uuid = clean_str(uuid)
             if clean_uuid:
@@ -114,7 +120,7 @@ def device_report(
             updated = True
         else:
             if not (window_open_ and key_hex):
-                return Response(status_code=200)  # 注册只在窗口期且须带有效公钥
+                return Response("#!ipxe\n", media_type="text/plain", status_code=200)  # 注册只在窗口期且须带有效公钥
             devs[normalized] = {
                 "mac": normalized,
                 "uuid": clean_str(uuid),
@@ -135,7 +141,7 @@ def device_report(
             record("device.claim", "ok", mac=normalized)
     else:
         record("device.register", "ok", mac=normalized, source="ipxe", client=client_host(request))
-    return Response(status_code=200)
+    return Response("#!ipxe\n", media_type="text/plain", status_code=200)
 
 
 @router.get("/devices/challenge")
@@ -216,17 +222,24 @@ def _worker_boot_payload(match: tuple[str, dict[str, Any]]) -> dict[str, Any]:
             return {}
         backend = _backend_for(agent_id)
         # 只投影 iSCSI root 连接符（差异点），root-path 拼装由 iPXE 侧完成：
-        # stgt 需 `:::1:`（lun 占位 1），LIO 需 `::::`（空占位）
+        # stgt 需 `:::1:`（lun 占位 1），LIO 需 `::::`（空占位）；
+        # nvmet 后端无 iSCSI target，不下发该键，menu 的 iSCSI 安装器项 isset 守卫跳过。
         payload["base_nqn"] = base_nqn
         payload["base_iqn"] = base_iqn
         payload["storager_ip"] = storager_ip
-        payload["iscsi_sep"] = ":::1:" if backend == "stgt" else "::::"
+        if backend in {"stgt", "lio"}:
+            payload["iscsi_sep"] = ":::1:" if backend == "stgt" else "::::"
     # NVMe-oF 认证密钥注入（C2，按 Worker 跟盘裁定）：绑定 worker 在密钥库有条目时注入。
     # 固件侧消费：menu 拼 nvme://...?secret=${nbft-secret}（C3 已启用，secret 条件化拼装）；
     # 无条目 → 不注入，固件走明文连接（兼容未启用认证的 target）。
     secret = _credential_secret_for(worker_id)
     if secret:
         payload["nbft_secret"] = secret
+    # Host NQN 注入（C2 凭据链路配套）：iPXE nvmetcp 默认 hostnqn 为
+    # nqn.2014-08.org.ipxe:<uuid>（无 UUID 时 :ipxe），与 nvmet 登记的
+    # host.<worker_id> 不匹配则严格模式认证必败；固件 0011 补丁支持
+    # hostnqn 设置覆盖，这里按 worker 投影同一身份（nvmet-host 登记值）。
+    payload["hostnqn"] = _host_nqn_for(worker_id)
     return payload
 
 
@@ -236,7 +249,7 @@ def _reboot_boot_payload() -> dict[str, Any]:
 
 
 def _backend_for(agent_id: str) -> str:
-    """返回 Agent 的 iSCSI 后端类型（stgt | lio）。
+    """返回 Agent 的存储后端类型（stgt | lio | nvmet）。
 
     优先读配置 tags 标记（离线零成本），未标记时查询 /capabilities
     （Agent 自报），查询失败默认 stgt 以保持既有格式兼容。
@@ -246,13 +259,12 @@ def _backend_for(agent_id: str) -> str:
     except KeyError:
         return "stgt"
     tags = {str(t).strip().lower() for t in agent.tags}
-    if "lio" in tags:
-        return "lio"
-    if "stgt" in tags:
-        return "stgt"
+    for backend in ("nvmet", "lio", "stgt"):
+        if backend in tags:
+            return backend
     try:
         backend = str(agents.client(agent).capabilities().get("backend", "")).lower()
-        if backend in {"stgt", "lio"}:
+        if backend in {"stgt", "lio", "nvmet"}:
             return backend
     except Exception:
         pass
@@ -276,6 +288,8 @@ def _boot_vars_ipxe(payload: dict[str, Any]) -> str:
         lines.append(f"set iscsi-sep {payload['iscsi_sep']}")
     if payload.get("nbft_secret"):
         lines.append(f"set nbft-secret {payload['nbft_secret']}")
+    if payload.get("hostnqn"):
+        lines.append(f"set hostnqn {payload['hostnqn']}")
     lines.extend(
         [
             f"set menu-default {payload['menu_default']}",
@@ -302,6 +316,8 @@ def _boot_vars_json(payload: dict[str, Any]) -> dict[str, Any]:
         result["iscsi_sep"] = payload["iscsi_sep"]
     if payload.get("nbft_secret"):
         result["nbft_secret"] = payload["nbft_secret"]
+    if payload.get("hostnqn"):
+        result["hostnqn"] = payload["hostnqn"]
     return result
 
 
