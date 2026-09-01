@@ -1,7 +1,7 @@
 """NVMe-oF 后端（C4，2026-08-22 裁定：宿主原生 nvmet + Agent HTTP 调用）。
 
 组件（按依赖顺序）：
-- NvmetHostClient：urllib 标准库 HTTP 客户端（不加依赖），token = KURRENT_NVMET_HOST_TOKEN
+- NvmetHostClient：urllib 标准库 HTTPS 客户端（不加依赖），mTLS 用本组件 client cert 认证（K8S 同构）
 - NvmetCredentialCache：按 Worker 跟盘的凭据缓存（JSON 落盘 0600）+ hosts 矩阵同步与幂等重放
 - NvmetBackend：Backend 接口的第三实现（不继承基类——基类 __init__ 初始化 docker 客户端，
   本后端无 docker 依赖，且直接继承会与 main 循环 import；接口契约与 StgtBackend/LioBackend 一致：
@@ -18,11 +18,13 @@ reconcile() 幂等重放：Agent 启动（scan 后）+ 周期后台线程，覆�
 import json
 import logging
 import os
+import ssl
 import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
@@ -54,24 +56,28 @@ def _http_detail(exc: urllib.error.HTTPError) -> str:
 
 
 class NvmetHostClient:
-    """nvmet-host 宿主服务 HTTP 客户端（urllib 标准库，避免加依赖）。
+    """nvmet-host 宿主服务 HTTPS 客户端（urllib 标准库，避免加依赖）。
 
-    本组件是宿主服务的唯一调用方（绑定 localhost + Bearer token）。"""
+    本组件是宿主服务的唯一调用方：mTLS（K8S 同构，2026-08-31）——
+    用本组件的 client cert（pki_dir/client.{crt,key}）向 nvmet-host 认证，
+    服务端证书由内部 CA（pki_dir/ca.crt）校验链 + SAN 校验。"""
 
-    def __init__(self, base_url: str, token: str, timeout: float = 10.0):
+    def __init__(self, base_url: str, pki_dir: Path, timeout: float = 10.0):
         self.base_url = base_url.rstrip("/")
-        self.token = token
         self.timeout = timeout
+        ctx = ssl.create_default_context(cafile=str(pki_dir / "ca.crt"))
+        ctx.load_cert_chain(str(pki_dir / "client.crt"), str(pki_dir / "client.key"))
+        self.ctx = ctx
 
     def _request(self, method: str, path: str, body: dict | None = None) -> Any:
-        headers = {"Authorization": f"Bearer {self.token}"}
         data = None
+        headers = {}
         if body is not None:
             data = json.dumps(body).encode("utf-8")
             headers["Content-Type"] = "application/json"
         req = urllib.request.Request(f"{self.base_url}{path}", data=data, headers=headers, method=method)
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            with urllib.request.urlopen(req, context=self.ctx, timeout=self.timeout) as resp:
                 raw = resp.read()
                 return json.loads(raw) if raw else None
         except urllib.error.HTTPError as exc:
@@ -278,7 +284,10 @@ class NvmetBackend:
         raise RuntimeError("nvmet host not ready after retries")
 
     def scan(self) -> dict:
-        names = [n for n in os.listdir(self.disk_dir) if n.lower().endswith((".img", ".iso"))]
+        # 母盘（*_tpl_*）由 MasterScanner 单独管理（克隆建盘专用），
+        # 目录扫描跳过母盘文件，不为其创建普通子系统
+        names = [n for n in os.listdir(self.disk_dir)
+                 if n.lower().endswith((".img", ".iso")) and "_tpl_" not in n]
         created, skipped = [], []
         # 子系统标识是 NQN（list_targets 返回）：existing 集合统一 NQN 形态
         existing = {t.get("nqn") or t.get("iqn") for t in self.list_targets()}

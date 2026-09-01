@@ -23,36 +23,42 @@ mount -t configfs configfs /sys/kernel/config
 
 # 2. 配置 storager/.env（从 .env.example 复制后修改）
 #    KURRENT_BACKEND=nvmet
-#    KURRENT_NVMET_HOST_URL=http://nvmet-host:4841   # compose 内部网络，Agent 专用
-#    KURRENT_NVMET_HOST_TOKEN=<随机长串>              # compose 插值注入容器 NVMET_HOST_TOKEN
+#    KURRENT_NVMET_HOST_URL=https://host.docker.internal:4841  # Agent→本服务（mTLS）
+#    KURRENT_BOOTSTRAP_TOKEN_NVMET=<bootstrap token>           # 一次性引导（控制面签发的 token_id.secret）
 
 # 3. 构建并启动（Agent 服务内嵌本编排）
 cd storager/nvmeof
 docker compose --env-file ../.env up -d --build
 
-# 4. 验证（宿主 loopback 映射）
-curl http://127.0.0.1:4841/healthz
+# 4. 验证（宿主 loopback 映射；mTLS：须带本组件 client cert 访问）
+curl -sk --cert /path/to/pki/client.crt --key /path/to/pki/client.key https://127.0.0.1:4841/healthz
 # → {"status":"ok","configfs":true}
 ```
 
 > 容器无 privileged：configfs bind mount 后容器内 root 写操作是普通文件写 + symlink 创建，无需特权。
-> 端口映射仅绑 `127.0.0.1:4841`（本机可验证），局域网不可达；Agent 走内部网络 `http://nvmet-host:4841`。
+> 本服务 host 网络模式直监宿主 4841（局域网不可达不成立——请自行用防火墙限制 4420/4841 暴露面）；
+> Agent 经 `https://host.docker.internal:4841`（bridge 网络 extra_hosts host-gateway）访问，mTLS 客户端证书鉴权。
 
 ## 环境变量
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `NVMET_HOST_TOKEN` | 必填 | Bearer token（compose 从 `.env` 的 `KURRENT_NVMET_HOST_TOKEN` 插值注入；Agent 侧同值） |
-| `NVMET_HOST_ADDR` | `127.0.0.1` | 监听地址；compose 已注入 `0.0.0.0`（容器内），对外仅 loopback 映射 |
+| `KURRENT_AGENT_ID` | 必填 | 组件身份（与 control_plane 登记一致，CN=`nvmet-<agent_id>`） |
+| `KURRENT_COMPONENT` | 必填 | `nvmet-host`（CSR CN 前缀映射） |
+| `KURRENT_PKI_DIR` | 必填 | 组件证书目录（compose 挂载持久化，引导/轮换落盘） |
+| `KURRENT_CP_ENROLL_URL` | 必填 | 控制面 nginx 入口（host 网络下 `https://127.0.0.1`） |
+| `KURRENT_CP_CA` | 必填 | 控制面服务器证书（TOFU 信任根，挂载只读） |
+| `KURRENT_BOOTSTRAP_TOKEN` | 必填 | 一次性引导 token（compose 从 `.env` 的 `KURRENT_BOOTSTRAP_TOKEN_NVMET` 注入） |
+| `NVMET_HOST_ADDR` | `127.0.0.1` | 监听地址；compose 已注入 `0.0.0.0`（host 网络即宿主栈） |
 | `NVMET_HOST_PORT` | `4841` | 监听端口 |
 | `NVMET_CONFIGFS` | `/sys/kernel/config/nvmet` | configfs 根（测试可注入） |
 | `NVMET_PORT_ID` | `1` | NVMe/TCP 端口 ID |
 
-## API（全部 Bearer 鉴权，Agent 是唯一调用方）
+## API（全部 mTLS 鉴权，Agent 是唯一调用方）
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `GET` | `/healthz` | 探活（唯一不鉴权），`configfs` 字段报告就绪态 |
+| `GET` | `/healthz` | 探活（TLS 层要求客户端证书，链到内部 CA） |
 | `GET` | `/capabilities` | 后端能力（backend=nvmet、cd=false、端口 4420） |
 | `POST` | `/port?trsvcid=4420` | 幂等确保 NVMe/TCP 端口 |
 | `GET` | `/subsystems` | 子系统清单（含 namespaces/hosts） |
@@ -73,6 +79,7 @@ curl http://127.0.0.1:4841/healthz
 
 ## 安全边界
 
-- 端口映射仅绑宿主 loopback（127.0.0.1:4841）+ Bearer token（`hmac.compare_digest` 常量时间比对）
+- 本服务监听宿主网络栈 4841：mTLS（uvicorn `ssl_cert_reqs=2` + `ssl_ca_certs` 内部 CA）强制客户端证书且校验链；
+  身份边界 = 内部 CA 签发范围（签发受控于 bootstrap token 一次性引导 + CSR CN 校验 + 组件登记，K8S kubelet `--client-ca-file` 同构）
 - configfs 操作需要 root（容器以 root 运行，bind mount 直写宿主内核配置面）；盘文件不经本服务
 - 审计：Agent 侧 operations 记录凭据推送结果；本服务不落盘任何状态（configfs 即真相）

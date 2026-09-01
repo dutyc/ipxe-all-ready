@@ -214,7 +214,7 @@ class TestBootVarsWithDisk:
     def test_bound_worker_with_disk_projects_iscsi(self, client, auth_headers, ec_keypair, mock_agent_client):
         # 注册 agent（role.disk）+ mock client → 建盘 → 验签后投影 iqn/server/sep
         client.post("/agents", json={
-            "id": "ag-01", "base_url": "http://ag-01:8000", "token": "t",
+            "id": "ag-01", "base_url": "http://ag-01:8000",
             "role": {"disk": True, "cd": False}, "tags": ["storage", "stgt"],
         }, headers=auth_headers)
         hostname = _claim_and_bind(client, auth_headers, ec_keypair, mac=MAC_A, worker_id="worker-01")
@@ -232,28 +232,56 @@ class TestBootVarsWithDisk:
         assert "set base-iqn iqn.2026-07.com.test" in res.text  # base-iqn 为前缀，worker 后缀由 iPXE 拼装
         assert "set storager-ip ag-01" in res.text  # storager_ip 缺省回退 base_url 主机名
         assert "set iscsi-sep :::1:" in res.text  # stgt 后端差异连接符
-        assert "set menu-default reboot" in res.text  # 单盘建盘不自动设 default_os → reboot
+        assert "set os ubuntu" in res.text  # 盘 os 投影（默认盘 = 唯一盘）
+        assert "set menu-default reboot" in res.text  # 单盘建盘不自动设 default_disk → reboot
 
-    def test_default_os_projects_menu_default(self, client, auth_headers, ec_keypair, mock_agent_client):
+    def test_default_disk_projects_boot_vars(self, client, auth_headers, ec_keypair, mock_agent_client):
         client.post("/agents", json={
-            "id": "ag-01", "base_url": "http://ag-01:8000", "token": "t",
+            "id": "ag-01", "base_url": "http://ag-01:8000",
             "role": {"disk": True, "cd": False}, "tags": ["storage", "stgt"],
         }, headers=auth_headers)
         hostname = _claim_and_bind(client, auth_headers, ec_keypair, mac=MAC_A, worker_id="worker-01")
-        client.post("/workers/worker-01/luns/disk", json={
+        disk = client.post("/workers/worker-01/luns/disk", json={
             "type": "master", "os": "ubuntu", "name": "ubuntu-24.04-master",
-        }, headers=auth_headers)
-        res = client.put("/workers/worker-01/default-os", json={"os": "ubuntu"}, headers=auth_headers)
+        }, headers=auth_headers).json()["disks"][0]
+        os_tag = disk["os_tag"]
+        res = client.put("/workers/worker-01/default-disk", json={"disk": os_tag}, headers=auth_headers)
         assert res.status_code == 200, res.text
-        assert res.json()["default_os"] == "ubuntu"
+        assert res.json()["default_disk"] == os_tag
 
         nonce = _challenge(client)
         sig = ec_keypair["sign"](MAC_A, hostname, nonce)
         res = _boot_vars(client, mac=MAC_A, hostname=hostname, nonce=nonce, sig=sig)
-        assert "set menu-default ubuntu" in res.text
-        # default_os > boot.menu_default 推导链：显式 menu_default 不覆盖 default_os
-        client.put("/workers/worker-01/default-os", json={"menu_default": "windows"}, headers=auth_headers)
+        # 2026-08-30 MAIN MENU 动态化：default_disk 归一到通用项 boot-os，os/os-tag 投影默认盘身份
+        assert "set menu-default boot-os" in res.text
+        assert "set os ubuntu" in res.text
+        assert f"set os-tag {os_tag}" in res.text
+        assert "set os-version" not in res.text  # 无版本 → 不下发
+        # default_disk > boot.menu_default 推导链：显式 menu_default 不覆盖 default_disk
+        client.put("/workers/worker-01/default-disk", json={"menu_default": "windows"}, headers=auth_headers)
         nonce2 = _challenge(client)
         sig2 = ec_keypair["sign"](MAC_A, hostname, nonce2)
         res = _boot_vars(client, mac=MAC_A, hostname=hostname, nonce=nonce2, sig=sig2)
-        assert "set menu-default ubuntu" in res.text
+        assert "set menu-default boot-os" in res.text
+        assert "set os ubuntu" in res.text
+        assert f"set os-tag {os_tag}" in res.text
+
+    def test_default_disk_projects_os_version(self, client, auth_headers, ec_keypair, mock_agent_client):
+        """带版本的默认盘：boot-vars 投影 os-version（menu 侧 os-label 拼版本展示）。"""
+        client.post("/agents", json={
+            "id": "ag-01", "base_url": "http://ag-01:8000",
+            "role": {"disk": True, "cd": False}, "tags": ["storage", "stgt"],
+        }, headers=auth_headers)
+        hostname = _claim_and_bind(client, auth_headers, ec_keypair, mac=MAC_A, worker_id="worker-01")
+        disk = client.post("/workers/worker-01/luns/disk", json={
+            "type": "master", "os": "ubuntu", "os_version": "24.04", "name": "ubuntu-24.04-master",
+        }, headers=auth_headers).json()["disks"][0]
+        client.put("/workers/worker-01/default-disk", json={"disk": disk["os_tag"]}, headers=auth_headers)
+
+        nonce = _challenge(client)
+        sig = ec_keypair["sign"](MAC_A, hostname, nonce)
+        res = _boot_vars(client, mac=MAC_A, hostname=hostname, nonce=nonce, sig=sig)
+        assert "set menu-default boot-os" in res.text
+        assert "set os ubuntu" in res.text
+        assert "set os-version 24.04" in res.text
+        assert f"set os-tag {disk['os_tag']}" in res.text

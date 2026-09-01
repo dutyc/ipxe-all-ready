@@ -20,9 +20,20 @@ import Divider from '../components/Divider'
 import CodeBlock from '../components/CodeBlock'
 import ConfirmAction from '../components/ConfirmAction'
 import EmptyState from '../components/EmptyState'
+import Modal from '../components/Modal'
 import Input from '../components/Input'
 import Select from '../components/Select'
 import './WorkerDetail.css'
+
+// 母盘文件大小格式化（与 Agent 详情页 LUN 列表同款）
+function formatSize(bytes) {
+  if (bytes == null) return '—'
+  const gb = bytes / 1024 ** 3
+  if (gb >= 1) return `${gb.toFixed(1)} GB`
+  const mb = bytes / 1024 ** 2
+  if (mb >= 1) return `${mb.toFixed(0)} MB`
+  return `${bytes} B`
+}
 
 function InfoRow({ label, value, mono = false }) {
   if (value === undefined || value === null) return null
@@ -46,11 +57,11 @@ export default function WorkerDetail() {
   const [statusLoading, setStatusLoading] = useState(false)
   const [agentsList, setAgentsList] = useState([])
   const [mastersData, setMastersData] = useState(null)
-  const [diskForm, setDiskForm] = useState({ os: 'ubuntu', type: 'empty', name: '', size: '40G', disk_agent: '' })
+  const [diskForm, setDiskForm] = useState({ os: 'ubuntu', os_version: '', type: 'empty', name: '', size: '40G', disk_agent: '' })
   const [creatingDisk, setCreatingDisk] = useState(false)
   const [diskCreateError, setDiskCreateError] = useState(null)
   const [deletingDisk, setDeletingDisk] = useState(null)
-  const [bootForm, setBootForm] = useState({ os: '', menu_default: '', menu_timeout: '', clear_timeout: false })
+  const [bootForm, setBootForm] = useState({ disk: '', menu_default: '', menu_timeout: '', clear_timeout: false })
   const [savingBoot, setSavingBoot] = useState(false)
   const [bootSaveError, setBootSaveError] = useState(null)
   // MAC 绑定编辑（修改后审计记录旧/新 MAC）
@@ -58,33 +69,48 @@ export default function WorkerDetail() {
   const [macValue, setMacValue] = useState('')
   const [macSaving, setMacSaving] = useState(false)
   const [macError, setMacError] = useState(null)
+  // 分类页（与 Agent 详情页一致）：identity / disks / boot / cd / status
+  const [activeTab, setActiveTab] = useState('identity')
+  // 系统盘 Tab：建盘弹窗开关 + 展开中的盘（os_tag 唯一键）
+  const [diskModalOpen, setDiskModalOpen] = useState(false)
+  const [expandedDisk, setExpandedDisk] = useState(null)
 
-  // menu.ipxe 主菜单 item ID（与后端 MENU_ITEMS 一致）
-  const MENU_OPTIONS = [
-    'windows', 'ubuntu', 'debian', 'centos', 'esxi',
-    'menu-diag', 'menu-install', 'config', 'shell', 'reboot', 'exit',
-  ].map((v) => ({ value: v, label: v }))
+  // menu.ipxe 导航项（与后端 MENU_NAV_ITEMS 一致）：MAIN MENU 动态化后 OS 项已收敛为
+  // 唯一通用项 boot-os（由默认盘配置推导，不在此可选），这里仅保留非 OS 导航值
+  const MENU_OPTIONS = ['menu-diag', 'menu-install', 'config', 'shell', 'reboot', 'exit'].map((v) => ({ value: v, label: v }))
   const CLEAR_OPTION = { value: '__clear__', label: t('workerDetail.clear') }
-
-  const OS_OPTIONS = [
-    { value: 'ubuntu', label: 'Ubuntu' },
-    { value: 'debian', label: 'Debian' },
-    { value: 'centos', label: 'CentOS' },
-    { value: 'esxi', label: 'ESXi' },
-    { value: 'windows', label: 'Windows' },
-  ]
 
   const DISK_TYPE_OPTIONS = [
     { value: 'empty', label: t('workers.empty') },
     { value: 'master', label: t('workers.master') },
   ]
 
-  // 母盘清单按当前所选存储节点过滤（value 直接存母盘名，agent 已由 disk_agent 单独选择）
+  // 盘显示标签：os[ os_version]（版本为备注性质，'' 不显示）
+  const diskLabel = (d) => (d.os_version ? `${d.os} ${d.os_version}` : d.os)
+
+  // 母盘清单按当前所选存储节点过滤（value 直接存母盘名，agent 已由 disk_agent 单独选择）；
+  // 有登记标签的母盘 label 显示「name (os version)」，选中自动带出 os/os_version（备注性质）
   const masterOptions = (mastersData?.agents || [])
     .filter((entry) => !diskForm.disk_agent || entry.agent === diskForm.disk_agent)
     .flatMap((entry) =>
-      (entry.masters || []).map((m) => ({ value: m.name, label: m.name }))
+      (entry.masters || []).map((m) => ({
+        value: m.name,
+        label: m.os ? `${m.name} (${m.os}${m.os_version ? ' ' + m.os_version : ''})` : m.name,
+        os: m.os || '',
+        os_version: m.os_version || '',
+      }))
     )
+
+  // 母盘文件大小：按名称索引（卡片收起态显示克隆盘大小）
+  const masterSizeBy = (() => {
+    const map = {}
+    for (const entry of mastersData?.agents || []) {
+      for (const m of entry.masters || []) {
+        if (m.size != null) map[m.name] = m.size
+      }
+    }
+    return map
+  })()
 
   const buildBootVarsCode = (bv, worker) => {
     if (bv && Object.keys(bv).length > 0) {
@@ -95,6 +121,9 @@ export default function WorkerDetail() {
       if (bv.iscsi_sep) lines.push(`set iscsi-sep ${bv.iscsi_sep}`)
       if (bv.nbft_secret) lines.push(`set nbft-secret ${bv.nbft_secret}`)
       if (bv.hostnqn) lines.push(`set hostnqn ${bv.hostnqn}`)
+      if (bv.os) lines.push(`set os ${bv.os}`)
+      if (bv.os_version) lines.push(`set os-version ${bv.os_version}`)
+      if (bv.os_tag) lines.push(`set os-tag ${bv.os_tag}`)
       if (bv.menu_default) lines.push(`set menu-default ${bv.menu_default}`)
       if (bv.menu_timeout !== undefined) lines.push(`set menu-timeout ${bv.menu_timeout}`)
       return lines.join('\n')
@@ -115,7 +144,7 @@ export default function WorkerDetail() {
         setWorker(w)
         setStatus(s)
         setBootForm({
-          os: w.default_os || '',
+          disk: w.default_disk || '',
           menu_default: w.boot?.menu_default || w.boot?.['menu-default'] || '',
           menu_timeout: w.boot?.menu_timeout ?? w.boot?.['menu-timeout'] ?? '',
           clear_timeout: false,
@@ -178,13 +207,13 @@ export default function WorkerDetail() {
     }
   }
 
-  // 删除单个系统盘后刷新台账与默认启动表单（default_os / menu_default 可能被联动清除）
+  // 删除单个系统盘后刷新台账与默认启动表单（default_disk / menu_default 可能被联动清除）
   const reloadWorkerAndBoot = async () => {
     const w = await getWorker(id)
     const bv = await bootVars({ hostname: id, format: 'json' }).catch(() => null)
     setWorker(w)
     setBootForm({
-      os: w.default_os || '',
+      disk: w.default_disk || '',
       menu_default: w.boot?.menu_default || w.boot?.['menu-default'] || '',
       menu_timeout: w.boot?.menu_timeout ?? w.boot?.['menu-timeout'] ?? '',
       clear_timeout: false,
@@ -192,10 +221,10 @@ export default function WorkerDetail() {
     setBootVarsCode(buildBootVarsCode(bv, w))
   }
 
-  const handleDeleteDisk = async (os, extra) => {
-    setDeletingDisk(os)
+  const handleDeleteDisk = async (osTag, extra) => {
+    setDeletingDisk(osTag)
     try {
-      await deleteWorkerDisk(id, os, extra.delete_file, extra.ignore_missing)
+      await deleteWorkerDisk(id, osTag, extra.delete_file, extra.ignore_missing)
       await reloadWorkerAndBoot()
     } catch (e) {
       alert(e.message)
@@ -208,7 +237,7 @@ export default function WorkerDetail() {
     e.preventDefault()
     setCreatingDisk(true)
     setDiskCreateError(null)
-    const body = { type: diskForm.type, os: diskForm.os }
+    const body = { type: diskForm.type, os: diskForm.os, os_version: diskForm.os_version.trim() }
     if (diskForm.type === 'master') {
       body.name = diskForm.name.trim()
     } else {
@@ -221,7 +250,8 @@ export default function WorkerDetail() {
       await createWorkerDisk(id, body)
       const w = await getWorker(id)
       setWorker(w)
-      setBootForm((prev) => ({ ...prev, os: w.default_os || prev.os }))
+      setBootForm((prev) => ({ ...prev, disk: w.default_disk || prev.disk }))
+      setDiskModalOpen(false) // 创建成功关闭弹窗，表单不占用页面空间
     } catch (err) {
       setDiskCreateError(err.message)
     } finally {
@@ -234,8 +264,8 @@ export default function WorkerDetail() {
     setSavingBoot(true)
     setBootSaveError(null)
     const body = {}
-    if (bootForm.os === '__clear__') body.os = null
-    else if (bootForm.os) body.os = bootForm.os
+    if (bootForm.disk === '__clear__') body.disk = null
+    else if (bootForm.disk) body.disk = bootForm.disk
     if (bootForm.menu_default === '__clear__') body.menu_default = null
     else if (bootForm.menu_default) body.menu_default = bootForm.menu_default
     if (bootForm.clear_timeout) body.menu_timeout = null
@@ -253,7 +283,7 @@ export default function WorkerDetail() {
       const bv = await bootVars({ hostname: id, format: 'json' }).catch(() => null)
       setWorker(w)
       setBootForm({
-        os: w.default_os || '',
+        disk: w.default_disk || '',
         menu_default: w.boot?.menu_default || w.boot?.['menu-default'] || '',
         menu_timeout: w.boot?.menu_timeout ?? w.boot?.['menu-timeout'] ?? '',
         clear_timeout: false,
@@ -313,6 +343,44 @@ export default function WorkerDetail() {
         />
       </div>
 
+      {/* 分类 Tab：基本信息 / 系统盘 / 启动配置 / 光驱 / 实时状态 */}
+      <div className="agent-tabs">
+        <button
+          className={`agent-tab${activeTab === 'identity' ? ' active' : ''}`}
+          onClick={() => setActiveTab('identity')}
+        >
+          {t('workerDetail.tabIdentity')}
+        </button>
+        <button
+          className={`agent-tab${activeTab === 'disks' ? ' active' : ''}`}
+          onClick={() => setActiveTab('disks')}
+        >
+          {t('workerDetail.tabDisks')}
+        </button>
+        <button
+          className={`agent-tab${activeTab === 'boot' ? ' active' : ''}`}
+          onClick={() => setActiveTab('boot')}
+        >
+          {t('workerDetail.tabBoot')}
+        </button>
+        {cd && (
+          <button
+            className={`agent-tab${activeTab === 'cd' ? ' active' : ''}`}
+            onClick={() => setActiveTab('cd')}
+          >
+            {t('workerDetail.tabCd')}
+          </button>
+        )}
+        <button
+          className={`agent-tab${activeTab === 'status' ? ' active' : ''}`}
+          onClick={() => setActiveTab('status')}
+        >
+          {t('workerDetail.tabStatus')}
+        </button>
+      </div>
+
+      {activeTab === 'identity' && (
+        <>
       {/* Identity */}
       <Divider>{t('workerDetail.identity')}</Divider>
       <Card className="detail-card">
@@ -352,120 +420,199 @@ export default function WorkerDetail() {
         {macError && <p className="mac-edit-error">{macError}</p>}
         <InfoRow
           label={t('workerDetail.os')}
-          value={disks.map((d) => d.os).join(', ') || t('workerDetail.noDisk')}
+          value={disks.map(diskLabel).join(', ') || t('workerDetail.noDisk')}
         />
         <InfoRow label={t('workerDetail.arch')} value={worker.arch} />
         <InfoRow label={t('workerDetail.state')} value={worker.state} />
       </Card>
+        </>
+      )}
 
-      {/* Create System Disk (step 2) */}
-      <Divider>{t('workerDetail.createDisk')}</Divider>
-      <form className="create-form" onSubmit={handleCreateDisk}>
-        <div className="create-form-title">{t('workerDetail.createDiskTitle')}</div>
-        <p className="create-hint">{t('workerDetail.createDiskHint')}</p>
-        <div className="create-form-grid">
-          <Select
-            label={t('workers.os')}
-            name="os"
-            value={diskForm.os}
-            onChange={(e) => { setDiskForm((prev) => ({ ...prev, os: e.target.value })) }}
-            options={OS_OPTIONS}
-          />
-          <Select
-            label={t('workers.diskType')}
-            name="type"
-            value={diskForm.type}
-            onChange={(e) => { setDiskForm((prev) => ({ ...prev, type: e.target.value })) }}
-            options={DISK_TYPE_OPTIONS}
-          />
-          {diskForm.type === 'master' ? (
-            <Select
-              label={t('workers.masterName')}
-              name="disk_name"
-              value={diskForm.name}
-              onChange={(e) => { setDiskForm((prev) => ({ ...prev, name: e.target.value })) }}
-              options={masterOptions}
-              placeholder={masterOptions.length === 0 ? t('workers.noMasters') : t('workers.masterSelectPlaceholder')}
-              required
-            />
-          ) : (
-            <Input
-              label={t('workers.diskSize')}
-              name="disk_size"
-              value={diskForm.size}
-              onChange={(e) => { setDiskForm((prev) => ({ ...prev, size: e.target.value })) }}
-              placeholder={t('workers.diskSizePlaceholder')}
-              required
-            />
-          )}
-          {agentsList.length > 0 && (
-            <Select
-              label={t('workers.diskAgent')}
-              name="disk_agent"
-              value={diskForm.disk_agent}
-              onChange={(e) => {
-                // 切换节点后母盘清单随之过滤，已选母盘不再有效则清空
-                setDiskForm((prev) => ({ ...prev, disk_agent: e.target.value, name: '' }))
-              }}
-              options={agentsList.map((a) => ({
-                value: a.id,
-                label: `${a.id}${a.storager_ip ? ` (${a.storager_ip})` : ''}`,
-              }))}
-            />
-          )}
-        </div>
-        {diskCreateError && <p className="create-error">{diskCreateError}</p>}
-        <Button type="submit" disabled={creatingDisk}>
-          {creatingDisk ? t('workers.creating') : t('workers.createBtn')}
-        </Button>
-      </form>
-
-      {/* Disks */}
-      {disks.length > 0 && (
+      {activeTab === 'disks' && (
         <>
-          <Divider>{t('workerDetail.disks')}</Divider>
-          {disks.map((d, i) => (
-            <Card className="detail-card" key={d.iqn || `disk-${i}`}>
-              <InfoRow label={t('workerDetail.os')} value={d.os} />
-              <InfoRow label={t('workerDetail.agent')} value={d.agent} mono />
-              {d.nqn && <InfoRow label={t('workerDetail.nqn')} value={d.nqn} mono />}
-              <InfoRow label={t('workerDetail.iqn')} value={d.iqn} mono />
-              <InfoRow label={t('workerDetail.filename')} value={d.filename} mono />
-              <InfoRow label={t('workerDetail.backing')} value={d.backing} mono />
-              {d.source && (
-                <InfoRow
-                  label={t('workerDetail.source')}
-                  value={
-                    d.source.type === 'master'
-                      ? `master: ${d.source.name}`
-                      : `empty: ${d.source.size}`
-                  }
-                />
-              )}
-              <div className="disk-card-actions">
-                <ConfirmAction
-                  trigger={
-                    <Button variant="danger" disabled={deletingDisk !== null}>
-                      {deletingDisk === d.os ? t('workerDetail.deletingDisk') : t('workerDetail.deleteSystemDisk')}
-                    </Button>
-                  }
-                  message={t('workerDetail.deleteDiskConfirm', { id, os: d.os })}
-                  onConfirm={(extra) => handleDeleteDisk(d.os, extra)}
-                  extraFields={[
-                    { name: 'delete_file', label: t('workerDetail.deleteDisk') },
-                    { name: 'ignore_missing', label: t('workerDetail.ignoreMissing') },
-                  ]}
-                />
-              </div>
-            </Card>
-          ))}
+          {/* 工具栏：盘数量 + 创建按钮（建盘表单收进全局弹窗，不占页面空间） */}
+          <div className="disks-toolbar">
+            <span className="disks-meta">
+              {t('workerDetail.diskCount', { count: disks.length })}
+            </span>
+            <Button variant="secondary" onClick={() => setDiskModalOpen(true)}>
+              {t('workerDetail.createDisk')}
+            </Button>
+          </div>
+
+          {/* 系统盘卡片：默认收起核心属性（系统/来源/大小），点击展开全部参数 */}
+          {disks.length > 0 && (
+            <div className="disk-cards">
+              {disks.map((d, i) => {
+                const expanded = expandedDisk === d.os_tag
+                const masterSize =
+                  d.source?.type === 'master' ? masterSizeBy[d.source.name] : null
+                return (
+                  <div
+                    key={d.iqn || `disk-${i}`}
+                    className={`disk-card${expanded ? ' expanded' : ''}`}
+                  >
+                    <div
+                      className="disk-card-head"
+                      onClick={() => setExpandedDisk(expanded ? null : d.os_tag)}
+                    >
+                      <span className="dc-os">{diskLabel(d)}</span>
+                      <span className="dc-source">
+                        {d.source?.type === 'master'
+                          ? t('workerDetail.diskSourceMaster', { name: d.source.name })
+                          : t('workerDetail.diskSourceEmpty', { size: d.source?.size || '' })}
+                        {masterSize ? ` · ${formatSize(masterSize)}` : ''}
+                      </span>
+                      <span className="dc-arrow">{expanded ? '▾' : '▸'}</span>
+                    </div>
+                    {expanded && (
+                      <div className="disk-card-body">
+                        <InfoRow label={t('workerDetail.osTag')} value={d.os_tag} mono />
+                        {d.remark && (
+                          <InfoRow label={t('workerDetail.remark')} value={d.remark} />
+                        )}
+                        <InfoRow label={t('workerDetail.agent')} value={d.agent} mono />
+                        {d.nqn && <InfoRow label={t('workerDetail.nqn')} value={d.nqn} mono />}
+                        <InfoRow label={t('workerDetail.iqn')} value={d.iqn} mono />
+                        <InfoRow label={t('workerDetail.filename')} value={d.filename} mono />
+                        <InfoRow label={t('workerDetail.backing')} value={d.backing} mono />
+                        {d.source && (
+                          <InfoRow
+                            label={t('workerDetail.source')}
+                            value={
+                              d.source.type === 'master'
+                                ? `master: ${d.source.name}`
+                                : `empty: ${d.source.size}`
+                            }
+                          />
+                        )}
+                        <div className="disk-card-actions">
+                          <ConfirmAction
+                            trigger={
+                              <Button variant="danger" disabled={deletingDisk !== null}>
+                                {deletingDisk === d.os_tag ? t('workerDetail.deletingDisk') : t('workerDetail.deleteSystemDisk')}
+                              </Button>
+                            }
+                            message={t('workerDetail.deleteDiskConfirm', { id, os: diskLabel(d) })}
+                            onConfirm={(extra) => handleDeleteDisk(d.os_tag, extra)}
+                            extraFields={[
+                              { name: 'delete_file', label: t('workerDetail.deleteDisk') },
+                              { name: 'ignore_missing', label: t('workerDetail.ignoreMissing') },
+                            ]}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* 建盘全局弹窗：表单不占用页面空间 */}
+          {diskModalOpen && (
+            <Modal
+              title={t('workerDetail.createDisk')}
+              width="640px"
+              onClose={() => setDiskModalOpen(false)}
+              footer={
+                <>
+                  <Button type="submit" form="worker-disk-create" disabled={creatingDisk}>
+                    {creatingDisk ? t('workers.creating') : t('workers.createBtn')}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => setDiskModalOpen(false)}
+                    disabled={creatingDisk}
+                  >
+                    {t('workers.cancel')}
+                  </Button>
+                </>
+              }
+            >
+              <form id="worker-disk-create" onSubmit={handleCreateDisk}>
+                <p className="create-hint">{t('workerDetail.createDiskHint')}</p>
+                <div className="create-form-grid">
+                  <Input
+                    label={t('workers.os')}
+                    name="os"
+                    value={diskForm.os}
+                    onChange={(e) => { setDiskForm((prev) => ({ ...prev, os: e.target.value })) }}
+                    placeholder={t('workers.osPlaceholder')}
+                    required
+                  />
+                  <Input
+                    label={t('workers.osVersion')}
+                    name="os_version"
+                    value={diskForm.os_version}
+                    onChange={(e) => { setDiskForm((prev) => ({ ...prev, os_version: e.target.value })) }}
+                    placeholder={t('workers.osVersionPlaceholder')}
+                  />
+                  <Select
+                    label={t('workers.diskType')}
+                    name="type"
+                    value={diskForm.type}
+                    onChange={(e) => { setDiskForm((prev) => ({ ...prev, type: e.target.value })) }}
+                    options={DISK_TYPE_OPTIONS}
+                  />
+                  {diskForm.type === 'master' ? (
+                    <Select
+                      label={t('workers.masterName')}
+                      name="disk_name"
+                      value={diskForm.name}
+                      onChange={(e) => {
+                        // 选中已登记标签的母盘自动带出 os/os_version（标签为备注，可再改）
+                        const picked = masterOptions.find((m) => m.value === e.target.value)
+                        setDiskForm((prev) => ({
+                          ...prev,
+                          name: e.target.value,
+                          os: picked?.os || prev.os,
+                          os_version: picked?.os_version || '',
+                        }))
+                      }}
+                      options={masterOptions}
+                      placeholder={masterOptions.length === 0 ? t('workers.noMasters') : t('workers.masterSelectPlaceholder')}
+                      required
+                    />
+                  ) : (
+                    <Input
+                      label={t('workers.diskSize')}
+                      name="disk_size"
+                      value={diskForm.size}
+                      onChange={(e) => { setDiskForm((prev) => ({ ...prev, size: e.target.value })) }}
+                      placeholder={t('workers.diskSizePlaceholder')}
+                      required
+                    />
+                  )}
+                  {agentsList.length > 0 && (
+                    <Select
+                      label={t('workers.diskAgent')}
+                      name="disk_agent"
+                      value={diskForm.disk_agent}
+                      onChange={(e) => {
+                        // 切换节点后母盘清单随之过滤，已选母盘不再有效则清空
+                        setDiskForm((prev) => ({ ...prev, disk_agent: e.target.value, name: '' }))
+                      }}
+                      options={agentsList.map((a) => ({
+                        value: a.id,
+                        label: `${a.id}${a.storager_ip ? ` (${a.storager_ip})` : ''}`,
+                      }))}
+                    />
+                  )}
+                </div>
+                {diskCreateError && <p className="create-error">{diskCreateError}</p>}
+              </form>
+            </Modal>
+          )}
         </>
       )}
 
       {/* Default Boot */}
+      {activeTab === 'boot' && (
+        <>
       <Divider>{t('workerDetail.defaultBoot')}</Divider>
       <Card className="detail-card">
-        <InfoRow label={t('workerDetail.defaultOs')} value={worker.default_os || '—'} mono />
+        <InfoRow label={t('workerDetail.defaultDisk')} value={worker.default_disk || '—'} mono />
         <InfoRow
           label={t('workerDetail.menuDefault')}
           value={worker.boot?.menu_default || worker.boot?.['menu-default'] || '—'}
@@ -481,11 +628,11 @@ export default function WorkerDetail() {
         <p className="create-hint">{t('workerDetail.defaultBootHint')}</p>
         <div className="create-form-grid">
           <Select
-            label={t('workerDetail.defaultOs')}
-            name="boot_os"
-            value={bootForm.os}
-            onChange={(e) => { setBootForm((prev) => ({ ...prev, os: e.target.value })) }}
-            options={[CLEAR_OPTION, ...disks.map((d) => ({ value: d.os, label: d.os }))]}
+            label={t('workerDetail.defaultDisk')}
+            name="boot_disk"
+            value={bootForm.disk}
+            onChange={(e) => { setBootForm((prev) => ({ ...prev, disk: e.target.value })) }}
+            options={[CLEAR_OPTION, ...disks.map((d) => ({ value: d.os_tag, label: `${diskLabel(d)} (${d.os_tag})` }))]}
             disabled={disks.length === 0}
           />
           <Select
@@ -519,8 +666,14 @@ export default function WorkerDetail() {
         </Button>
       </form>
 
+      {/* Boot Vars */}
+      <Divider>{t('workerDetail.bootVars')}</Divider>
+      <CodeBlock code={bootVarsCode} language="ipxe" />
+        </>
+      )}
+
       {/* CD */}
-      {cd && (
+      {activeTab === 'cd' && cd && (
         <>
           <Divider>{t('workerDetail.cdrom')}</Divider>
           <Card className="detail-card">
@@ -533,6 +686,8 @@ export default function WorkerDetail() {
       )}
 
       {/* Live Status */}
+      {activeTab === 'status' && (
+        <>
       <Divider>{t('workerDetail.liveStatus')}</Divider>
       {status ? (
         <Card className="detail-card">
@@ -565,10 +720,8 @@ export default function WorkerDetail() {
           {statusLoading ? t('workerDetail.refreshing') : t('workerDetail.refresh')}
         </Button>
       </div>
-
-      {/* Boot Vars */}
-      <Divider>{t('workerDetail.bootVars')}</Divider>
-      <CodeBlock code={bootVarsCode} language="ipxe" />
+        </>
+      )}
     </div>
   )
 }

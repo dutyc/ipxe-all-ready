@@ -100,12 +100,16 @@ export function getAgents(live = true) {
   return request('/agents', { params: { live } });
 }
 
-export function createAgent(data) {
-  return request('/agents', { method: 'POST', body: data });
-}
-
 export function updateAgent(agentId, data) {
   return request(`/agents/${agentId}`, { method: 'PUT', body: data });
+}
+
+export function issueBootstrapToken(agentId, component) {
+  // 签发一次性 bootstrap token（kubeadm token create 同构）；已有未用 token 时 409
+  return request(`/agents/${agentId}/bootstrap-token`, {
+    method: 'POST',
+    params: { component },
+  });
 }
 
 export function probeAgent(data) {
@@ -138,8 +142,22 @@ export function scanAgentLuns(agentId) {
 
 // ===== Masters =====
 export function getMasters() {
-  // 聚合列出全部启用磁盘角色 Agent 上的母盘: { agents: [{ agent, storager_ip, masters: [{name,size,mtime}] }] }
+  // 聚合列出全部启用磁盘角色 Agent 上的母盘: { agents: [{ agent, storager_ip, masters: [{name,size,mtime,os?,os_version?}] }] }
   return request('/masters');
+}
+
+export function setMasterTag(agentId, masterName, os, osVersion = '', remark = '') {
+  // 登记母盘标签（控制面台账，备注性质）
+  return request(`/agents/${agentId}/masters/${encodeURIComponent(masterName)}/tag`, {
+    method: 'PUT',
+    body: { os, os_version: osVersion, remark },
+  });
+}
+
+export function clearMasterTag(agentId, masterName) {
+  return request(`/agents/${agentId}/masters/${encodeURIComponent(masterName)}/tag`, {
+    method: 'DELETE',
+  });
 }
 
 // ===== Workers =====
@@ -169,8 +187,8 @@ export function batchCreateWorkerDisks(data) {
   return request('/workers/luns/disk/batch', { method: 'POST', body: data });
 }
 
-export function deleteWorkerDisk(workerId, os, deleteFile = false, ignoreMissing = false) {
-  return request(`/workers/${workerId}/luns/disk/${encodeURIComponent(os)}`, {
+export function deleteWorkerDisk(workerId, osTag, deleteFile = false, ignoreMissing = false) {
+  return request(`/workers/${workerId}/luns/disk/${encodeURIComponent(osTag)}`, {
     method: 'DELETE',
     params: {
       delete_file: deleteFile,
@@ -180,8 +198,8 @@ export function deleteWorkerDisk(workerId, os, deleteFile = false, ignoreMissing
 }
 
 export function setWorkerDefaultBoot(workerId, data) {
-  // os / menu_default / menu_timeout 可设可清；传 null 清除对应项
-  return request(`/workers/${workerId}/default-os`, { method: 'PUT', body: data });
+  // disk(os_tag) / menu_default / menu_timeout 可设可清；传 null 清除对应项
+  return request(`/workers/${workerId}/default-disk`, { method: 'PUT', body: data });
 }
 
 export function updateWorkerMac(workerId, mac) {

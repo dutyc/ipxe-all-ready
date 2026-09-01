@@ -5,7 +5,7 @@ import logging
 from .config import settings
 from .dnsmasq import DnsmasqHosts
 from .scheduler import AgentRegistry
-from .state import CredentialStore, DeviceStore, FileStateStore, OperationLog, RuntimeSettings
+from .state import CredentialStore, DeviceStore, FileStateStore, MasterTagStore, OperationLog, RuntimeSettings
 
 log = logging.getLogger("control-plane")
 
@@ -16,6 +16,7 @@ agents = AgentRegistry(settings.agents_file, settings.agent_timeout)
 dnsmasq = DnsmasqHosts(settings.dnsmasq_hosts_file, settings.dnsmasq_container, settings.dnsmasq_reload)
 runtime_settings = RuntimeSettings(settings.settings_file)
 credentials = CredentialStore(settings.credentials_file)
+master_tags = MasterTagStore(settings.masters_file)
 
 
 def record(op: str, status: str, **extra) -> None:

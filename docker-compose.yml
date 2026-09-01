@@ -64,6 +64,8 @@ services:
       - ./webui/deploy/public:/data:ro
       # ── TOFU 自签证书（控制面启动时自动生成到 state/certs，私钥不入库；nginx 只读挂载）──
       - ./control_plane/state/certs:/etc/nginx/certs:ro
+      # ── 内部 CA 公钥（组件证书轮换 mTLS 校验用；nginx 只读挂载，仅 ca.crt 被引用）──
+      - ./control_plane/state/pki:/etc/nginx/pki:ro
       # ── iPXE 菜单/覆盖脚本 HTTPS 同源 (与 dnsmasq TFTP 同一目录) ──
       - ./tftp:/tftp:ro
     extra_hosts:

@@ -17,11 +17,13 @@ cpuid --ext 29 && set archl amd64 || set archl i386
 :start
 menu iPXE boot menu for ${initiator-iqn}
 item --gap --             ------------------------- Operating systems ------------------------------
-item --key w windows      Boot Windows (NVMe-oF)
-item --key u ubuntu       Boot Ubuntu (NVMe-oF)
-item --key d debian       Boot Debian (NVMe-oF)
-item --key u centos       Boot CentOS (NVMe-oF)
-item --key u esxi         Boot ESXi (NVMe-oF)
+# 系统启动项动态化（2026-08-30）：MAIN MENU 只保留一个通用 OS 项，
+# 系统标识由控制面 /boot-vars 下发（os / os-version / os-tag，与盘 NQN 后缀同源），不再写死在脚本；
+# 支持新系统只需控制面侧建盘，脚本无需改动。
+# os-label：有版本时显示「os version」，无版本（未下发 os-version）回退纯 os
+set os-label ${os}
+isset ${os-version} && set os-label ${os} ${os-version} ||
+item --key b boot-os      Boot ${os-label} (NVMe-oF)
 item --gap --             ------------------------- Tools and utilities ----------------------------
 item --key d menu-diag    System tools...
 item --key i menu-install Installers...
@@ -66,44 +68,15 @@ goto start
 
 ############ MAIN MENU ITEMS ############
 
-:windows
-echo Booting Windows via NVMe-oF for ${initiator-iqn}
+:boot-os
+echo Booting ${os-label} via NVMe-oF for ${initiator-iqn}
 set netX/gateway ${storager-ip}
-# C3 拼接：root-path = nvme://<storager-ip>:4420/<base-nqn>:<hostname>.<os>
-# 盘 NQN 由 Agent 按统一模板 base:worker_id.os 生成，固件重拼 = 盘记录权威值；
+# C3 拼接：root-path = nvme://<storager-ip>:4420/<base-nqn>:<hostname>.<os>.<os-tag>
+# 盘 NQN 由控制面按统一模板 base:worker_id.os.<os_tag> 生成，固件重拼 = 盘记录权威值；
+# os / os-tag 由控制面 /boot-vars 下发（= 默认盘记录投影），与盘 NQN 后缀同源；
 # 已注入 nbft-secret（DHHC-1）时附加 ?secret=（明文连接不附带）
-set root-path nvme://${storager-ip}:4420/${base-nqn}:${hostname}.windows
-isset ${nbft-secret} && set root-path nvme://${storager-ip}:4420/${base-nqn}:${hostname}.windows?secret=${nbft-secret}
-set keep-san 1
-sanboot ${root-path} || goto failed
-goto start
-
-:ubuntu
-echo Booting Ubuntu via NVMe-oF for ${initiator-iqn}
-set root-path nvme://${storager-ip}:4420/${base-nqn}:${hostname}.ubuntu
-isset ${nbft-secret} && set root-path nvme://${storager-ip}:4420/${base-nqn}:${hostname}.ubuntu?secret=${nbft-secret}
-sanboot --keep --drive 0x80 ${root-path} || goto failed
-goto start
-
-:debian
-echo Booting Debian via NVMe-oF for ${initiator-iqn}
-set root-path nvme://${storager-ip}:4420/${base-nqn}:${hostname}.debian
-isset ${nbft-secret} && set root-path nvme://${storager-ip}:4420/${base-nqn}:${hostname}.debian?secret=${nbft-secret}
-sanboot --keep --drive 0x80 ${root-path} || goto failed
-goto start
-
-:centos
-echo Booting CentOS via NVMe-oF for ${initiator-iqn}
-set root-path nvme://${storager-ip}:4420/${base-nqn}:${hostname}.centos
-isset ${nbft-secret} && set root-path nvme://${storager-ip}:4420/${base-nqn}:${hostname}.centos?secret=${nbft-secret}
-set keep-san 1
-sanboot ${root-path} || goto failed
-goto start
-
-:esxi
-echo Booting ESXi via NVMe-oF for ${initiator-iqn}
-set root-path nvme://${storager-ip}:4420/${base-nqn}:${hostname}.esxi
-isset ${nbft-secret} && set root-path nvme://${storager-ip}:4420/${base-nqn}:${hostname}.esxi?secret=${nbft-secret}
+set root-path nvme://${storager-ip}:4420/${base-nqn}:${hostname}.${os}.${os-tag}
+isset ${nbft-secret} && set root-path nvme://${storager-ip}:4420/${base-nqn}:${hostname}.${os}.${os-tag}?secret=${nbft-secret}
 set keep-san 1
 sanboot ${root-path} || goto failed
 goto start

@@ -1,7 +1,11 @@
 from dataclasses import dataclass
+from pathlib import Path
+import ssl
 from typing import Any
 
 import httpx
+
+from .config import settings
 
 
 class AgentAPIError(Exception):
@@ -16,7 +20,6 @@ class AgentAPIError(Exception):
 class AgentConfig:
     id: str
     base_url: str
-    token: str
     role_disk: bool
     role_cd: bool
     storager_ip: str | None = None
@@ -35,12 +38,40 @@ class AgentConfig:
 
 
 class AgentClient:
-    def __init__(self, agent: AgentConfig, timeout: float):
+    """控制面 → Agent 的 mTLS 客户端（K8S 同构：apiserver 持自身 client cert 访问 kubelet）。
+
+    身份 = 控制面组件证书（CN=control-plane，内部 CA 签发）；对端 agent 以
+    uvicorn ssl_cert_reqs=2 + 应用层 CN 匹配校验。缺证书材料时拒绝连接
+    （不降级明文——agent 已强制 mTLS）。
+    """
+
+    def __init__(self, agent: AgentConfig, timeout: float, *,
+                 ca_cert: Path | None = None,
+                 client_cert: Path | None = None,
+                 client_key: Path | None = None):
         self.agent = agent
         self.timeout = timeout
+        comp_dir = settings.pki_dir / "components" / settings.control_plane_component
+        self.ca_cert = ca_cert or settings.pki_dir / "ca.crt"
+        self.client_cert = client_cert or comp_dir / "client.crt"
+        self.client_key = client_key or comp_dir / "client.key"
+        self._tls_context = None
+
+    def _mtls_context(self) -> ssl.SSLContext:
+        """mTLS 上下文：固定信任内部 CA + 本组件 client cert。
+
+        强制 TLS1.2：docker-proxy（userland proxy）对 TLS1.3 客户端证书握手有
+        兼容问题（经宿主端口映射的连接会 Broken pipe），且项目 TLS ≤ 1.2 约束
+        （nginx 443 同，iPXE mbedTLS 封顶）。
+        """
+        ctx = ssl.create_default_context(cafile=str(self.ca_cert))
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        ctx.maximum_version = ssl.TLSVersion.TLSv1_2
+        ctx.load_cert_chain(str(self.client_cert), str(self.client_key))
+        return ctx
 
     def healthz(self) -> dict[str, Any]:
-        return self._request("GET", "/healthz", auth=False)
+        return self._request("GET", "/healthz")
 
     def capabilities(self) -> dict[str, Any]:
         return self._request("GET", "/capabilities")
@@ -78,13 +109,16 @@ class AgentClient:
             "sub_nqns": sub_nqns, "host_nqns": host_nqns,
         })
 
-    def _request(self, method: str, path: str, *, auth: bool = True, **kwargs: Any) -> Any:
+    def _request(self, method: str, path: str, **kwargs: Any) -> Any:
+        if not (self.ca_cert.exists() and self.client_cert.exists() and self.client_key.exists()):
+            raise AgentAPIError(self.agent.id, 503,
+                                f"control plane client cert missing: {self.client_cert.parent}")
+        if self._tls_context is None:
+            self._tls_context = self._mtls_context()
         headers = kwargs.pop("headers", {})
-        if auth:
-            headers["Authorization"] = f"Bearer {self.agent.token}"
         url = f"{self.agent.base_url.rstrip('/')}{path}"
         try:
-            with httpx.Client(timeout=self.timeout) as client:
+            with httpx.Client(timeout=self.timeout, verify=self._tls_context) as client:
                 response = client.request(method, url, headers=headers, **kwargs)
         except httpx.RequestError as exc:
             raise AgentAPIError(self.agent.id, 503, f"agent request failed: {exc}") from exc

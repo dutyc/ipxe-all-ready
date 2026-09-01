@@ -5,13 +5,47 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from .. import config, pki
 from ..agent_client import AgentAPIError, AgentClient, AgentConfig
 from ..auth import verify_control_token
-from ..models import CreateAgentRequest, CreateCdLunRequest, CreateDiskLunRequest, ProbeAgentRequest, UpdateAgentRequest
-from ..stores import agents, record, store
-from ..utils import WORKER_ID_RE, client_host
+from ..models import (
+    CreateAgentRequest,
+    CreateCdLunRequest,
+    CreateDiskLunRequest,
+    MasterTagRequest,
+    ProbeAgentRequest,
+    UpdateAgentRequest,
+)
+from ..stores import agents, master_tags, record, store
+from ..utils import WORKER_ID_RE, canonical_os, canonical_os_version, client_host
 
 router = APIRouter(dependencies=[Depends(verify_control_token)])
+
+
+@router.post("/agents/{agent_id}/bootstrap-token", status_code=201)
+def issue_bootstrap_token(agent_id: str, request: Request, component: str = Query("agent", pattern="^(agent|nvmet-host)$")):
+    """签发一次性 bootstrap token（kubeadm token create 同构，2026-08-31）。
+
+    凭据 = 管理面 Bearer（webui 鉴权）。明文仅本次响应可见（登记只存 sha256
+    hash、7 天 TTL、enroll 后即废）；已有未用 token 返回 409（明文不可恢复，
+    需删除 bootstrap-tokens.yml 对应条目后重发）。token 用于节点侧一键加入
+    （kurrent-join.sh），agent 不在册也可预签发（enroll 时自动登记）。
+    """
+    agent_id = agent_id.strip().lower()
+    token = pki.generate_bootstrap_token(config.settings.pki_dir, agent_id, component)
+    if token is None:
+        raise HTTPException(409, f"active bootstrap token exists for {agent_id}/{component}; "
+                            f"delete its entry in {config.settings.pki_dir / 'bootstrap-tokens.yml'} to reissue")
+    info = pki.get_bootstrap_token(config.settings.pki_dir, agent_id, component) or {}
+    record("agent.bootstrap-token", "ok", agent=agent_id, component=component,
+           client=client_host(request))
+    return {
+        "agent_id": agent_id,
+        "component": component,
+        "token": token,
+        "expires_at": info.get("expires_at", ""),
+        "usage": info.get("usage", []),
+    }
 
 
 @router.get("/agents")
@@ -22,7 +56,7 @@ def list_agents(live: bool = True):
 @router.post("/agents", status_code=201)
 def create_agent(req: CreateAgentRequest, request: Request):
     """注册新 Agent：写入 agents.yml（重复 id 返回 409）。
-    base_url 须 http(s):// 开头；token 支持 ${ENV} 占位（读取时展开）；
+    base_url 须 http(s):// 开头；
     role 决定磁盘/光驱角色；storager_ip 为数据面地址（缺省用 base_url 主机名）。"""
     agent_id = req.id.strip().lower()
     if not WORKER_ID_RE.match(agent_id):  # Agent id 与 worker id 同一命名规则
@@ -41,7 +75,6 @@ def create_agent(req: CreateAgentRequest, request: Request):
         agents.add(
             agent_id,
             base_url,
-            req.token.strip(),
             role_disk=req.role.disk,
             role_cd=req.role.cd,
             storager_ip=storager_ip,
@@ -55,7 +88,7 @@ def create_agent(req: CreateAgentRequest, request: Request):
 @router.put("/agents/{agent_id}")
 def update_agent(agent_id: str, req: UpdateAgentRequest, request: Request):
     """更新已有 Agent：覆盖 agents.yml 中对应条目（id 不可改，走路径参数）。
-    token 传空字符串 = 保持原值（API 不回显 token）；enabled=false 停用（不再参与调度与存活探测）。"""
+    enabled=false 停用（不再参与调度与存活探测）。"""
     agent_id = agent_id.strip().lower()
     base_url = req.base_url.strip().rstrip("/")
     if not base_url.startswith(("http://", "https://")):
@@ -70,7 +103,6 @@ def update_agent(agent_id: str, req: UpdateAgentRequest, request: Request):
         agents.update(
             agent_id,
             base_url,
-            req.token.strip() or None,
             role_disk=req.role.disk,
             role_cd=req.role.cd,
             storager_ip=storager_ip,
@@ -79,6 +111,23 @@ def update_agent(agent_id: str, req: UpdateAgentRequest, request: Request):
         )
     record("agent.update", "ok", agent=agent_id, client=client_host(request))
     return agents.get(agent_id).public_dict()
+
+
+@router.delete("/agents/{agent_id}")
+def delete_agent(agent_id: str, request: Request):
+    """删除 Agent 台账：移除 agents.yml 条目 + 清理其母盘标签（控制面台账）。
+    仅台账删除：不触碰节点上的证书/盘文件；重新加入需重新签发 bootstrap token。"""
+    agent_id = agent_id.strip().lower()
+    _agent_or_404(agent_id)
+    with store.locked():
+        agents.delete(agent_id)
+    with master_tags.locked():
+        data = master_tags.load()
+        removed = bool(data.get("masters", {}).pop(agent_id, None))
+        if removed:
+            master_tags.save(data)
+    record("agent.delete", "ok", agent=agent_id, client=client_host(request))
+    return {"deleted": agent_id, "master_tags_removed": removed}
 
 
 @router.post("/agents/probe")
@@ -91,19 +140,10 @@ def probe_agent(req: ProbeAgentRequest, request: Request):
     if not base_url.startswith(("http://", "https://")):
         raise HTTPException(400, "base_url must start with http:// or https://")
 
-    # 编辑场景：token 留空时回退注册表中该 Agent 的 token（未知 id 则按空 token 探测）
-    token = req.token.strip()
-    if not token and req.agent_id:
-        try:
-            token = agents.get(req.agent_id.strip().lower()).token
-        except KeyError:
-            pass
-
     # 临时 AgentConfig 探测（不落盘，不进入注册表）
     probe_cfg = AgentConfig(
         id="_probe",
         base_url=base_url,
-        token=token,
         role_disk=True,
         role_cd=False,
     )
@@ -173,7 +213,7 @@ def create_agent_cd_lun(agent_id: str, req: CreateCdLunRequest, request: Request
     """在指定 Agent 上创建 CD（ISO 虚拟光驱）LUN，仅 stgt 后端支持。"""
     agent = _agent_or_404(agent_id)
     if not agent.role_cd:
-        raise HTTPException(400, f"agent {agent_id} not configured for cd role (LIO backend does not support ISO)")
+        raise HTTPException(400, f"agent {agent_id} not configured for cd role")
     client = agents.client(agent)
     try:
         result = client.create_cd(req.iso, req.iqn or "")
@@ -226,7 +266,7 @@ def scan_agent_luns(agent_id: str, request: Request):
 @router.get("/masters")
 def list_masters(request: Request):
     """聚合列出全部启用磁盘角色 Agent 上的母盘（后台扫描缓存），供 WebUI 克隆选盘。
-    单台 Agent 失败不阻塞整体：失败节点返回 error 字段；全部失败时整体 502。"""
+    合并控制面登记的母盘标签（os/os_version，备注性质）；单台 Agent 失败不阻塞整体。"""
     results: list[dict[str, Any]] = []
     total = failed = 0
     for agent in agents.load():
@@ -248,11 +288,57 @@ def list_masters(request: Request):
             continue
         masters = payload.get("masters", []) if isinstance(payload, dict) else []
         record("master.list", "ok", agent=agent.id, client=client_host(request), count=len(masters))
-        entry["masters"] = masters
+        entry["masters"] = _merge_master_tags(agent.id, masters)
         results.append(entry)
     if total > 0 and failed == total:
         raise HTTPException(502, {"agents": results, "error": "all agents failed"})
     return {"agents": results}
+
+
+@router.put("/agents/{agent_id}/masters/{master_name}/tag")
+def set_master_tag(agent_id: str, master_name: str, req: MasterTagRequest, request: Request):
+    """登记母盘标签（控制面台账，备注性质）：os 为系统备注，os_version 可空（'' = 无版本）。
+    标签不校验母盘存在性（Agent 可离线，台账即权威）；/masters 聚合时合并展示。"""
+    agent_id = agent_id.strip().lower()
+    master_name = master_name.strip()
+    if not master_name:
+        raise HTTPException(400, "invalid master name")
+    _agent_or_404(agent_id)
+    os_name = canonical_os(req.os)
+    os_version = canonical_os_version(req.os_version)
+    remark = req.remark.strip()
+    with master_tags.locked():
+        data = master_tags.load()
+        agent_tags = data["masters"].setdefault(agent_id, {})
+        agent_tags[master_name] = {"os": os_name, "os_version": os_version,
+                                    "remark": remark}
+        master_tags.save(data)
+    record("master.tag", "ok", agent=agent_id, name=master_name, os=os_name,
+           os_version=os_version, remark=remark, client=client_host(request))
+    return {"agent": agent_id, "name": master_name, "os": os_name,
+            "os_version": os_version, "remark": remark}
+
+
+@router.delete("/agents/{agent_id}/masters/{master_name}/tag")
+def clear_master_tag(agent_id: str, master_name: str, request: Request):
+    """清除母盘标签（控制面台账）：母盘恢复未登记状态（克隆选盘不显示 os/os_version）。"""
+    agent_id = agent_id.strip().lower()
+    master_name = master_name.strip()
+    if not master_name:
+        raise HTTPException(400, "invalid master name")
+    _agent_or_404(agent_id)
+    with master_tags.locked():
+        data = master_tags.load()
+        agent_tags = data["masters"].get(agent_id)
+        removed = bool(agent_tags and master_name in agent_tags)
+        if removed:
+            del agent_tags[master_name]
+            if not agent_tags:
+                del data["masters"][agent_id]
+            master_tags.save(data)
+    record("master.tag.clear", "ok", agent=agent_id, name=master_name,
+           removed=removed, client=client_host(request))
+    return {"agent": agent_id, "name": master_name, "removed": removed}
 
 
 def _agent_or_404(agent_id: str):
@@ -260,6 +346,23 @@ def _agent_or_404(agent_id: str):
         return agents.get(agent_id)
     except KeyError:
         raise HTTPException(404, f"agent not found: {agent_id}") from None
+
+
+def _merge_master_tags(agent_id: str, masters: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """合并控制面登记的母盘标签（备注性质）：有登记的条目附加 os/os_version/remark；
+    未登记不附加。"""
+    with master_tags.locked():
+        agent_tags = master_tags.load()["masters"].get(agent_id, {})
+    merged = []
+    for m in masters:
+        tag = agent_tags.get(m.get("name", ""))
+        if tag:
+            merged.append({**m, "os": tag.get("os", ""),
+                           "os_version": tag.get("os_version", ""),
+                           "remark": tag.get("remark", "")})
+        else:
+            merged.append(m)
+    return merged
 
 
 def _agent_client_or_404(agent_id: str):

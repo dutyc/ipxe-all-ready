@@ -36,6 +36,18 @@
   line-height: 1.5;
 }
 
+/* 删除确认详情：盘的身份标识（类型/文件/系统/绑定/备注） */
+.confirm-details {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  background: var(--gray-50);
+  border: 1px solid var(--border-light);
+  font-size: 12px;
+  color: var(--gray-600);
+  line-height: 1.8;
+  word-break: break-all;
+}
+
 .confirm-extra {
   margin-bottom: 16px;
   display: flex;

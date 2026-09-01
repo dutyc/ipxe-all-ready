@@ -24,6 +24,8 @@
   background: var(--white);
   color: var(--black);
   outline: none;
+  width: 100%;
+  box-sizing: border-box;
   transition: border-color var(--transition);
 }
 

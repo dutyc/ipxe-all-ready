@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -31,7 +30,6 @@ class AgentRegistry:
                 AgentConfig(
                     id=str(agent_id),
                     base_url=str(raw.get("base_url", "")).rstrip("/"),
-                    token=_expand_env(str(raw.get("token", ""))),
                     role_disk=bool(role.get("disk", False)),
                     role_cd=bool(role.get("cd", False)),
                     storager_ip=raw.get("storager_ip") or None,
@@ -51,7 +49,6 @@ class AgentRegistry:
         self,
         agent_id: str,
         base_url: str,
-        token: str = "",
         *,
         role_disk: bool = False,
         role_cd: bool = False,
@@ -72,7 +69,6 @@ class AgentRegistry:
             data["agents"] = agents_data
         agents_data[agent_id] = {
             "base_url": base_url,
-            "token": token,
             "role": {"disk": role_disk, "cd": role_cd},
             "storager_ip": storager_ip or "",
             "tags": list(tags),
@@ -85,7 +81,6 @@ class AgentRegistry:
         self,
         agent_id: str,
         base_url: str,
-        token: str | None = None,
         *,
         role_disk: bool = False,
         role_cd: bool = False,
@@ -93,8 +88,7 @@ class AgentRegistry:
         enabled: bool = True,
         tags: tuple[str, ...] = (),
     ) -> None:
-        """更新已有 Agent：覆盖 agents.yml 中对应条目（id 不可改，不存在抛 KeyError）。
-        token 传 None / 空字符串时保持原值（API 不回显 token，前端无法回填）。"""
+        """更新已有 Agent：覆盖 agents.yml 中对应条目（id 不可改，不存在抛 KeyError）。"""
         with self.agents_file.open("r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
         agents_data = data.get("agents")
@@ -103,12 +97,22 @@ class AgentRegistry:
             raise KeyError(agent_id)
         agents_data[agent_id] = {
             "base_url": base_url,
-            "token": token or entry.get("token", ""),
             "role": {"disk": role_disk, "cd": role_cd},
             "storager_ip": storager_ip or "",
             "tags": list(tags),
             "enabled": enabled,
         }
+        with self.agents_file.open("w", encoding="utf-8") as f:
+            yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
+
+    def delete(self, agent_id: str) -> None:
+        """删除注册条目（不存在抛 KeyError）。"""
+        with self.agents_file.open("r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        agents_data = data.get("agents")
+        if not isinstance(agents_data, dict) or agent_id not in agents_data:
+            raise KeyError(agent_id)
+        del agents_data[agent_id]
         with self.agents_file.open("w", encoding="utf-8") as f:
             yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
 
@@ -170,7 +174,3 @@ class AgentRegistry:
             return agent.storager_ip
         parsed = urlparse(agent.base_url)
         return parsed.hostname or agent.base_url.removeprefix("http://").removeprefix("https://").split(":", 1)[0]
-
-
-def _expand_env(value: str) -> str:
-    return os.path.expandvars(value)

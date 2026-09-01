@@ -264,3 +264,62 @@
   justify-content: flex-end;
   margin-top: 16px;
 }
+
+/* ===== Join node modal (issue bootstrap token + join command) ===== */
+.join-result {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px dashed var(--gray-300);
+}
+
+.join-token-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.join-token-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.join-token-label {
+  font-size: 12px;
+  color: var(--gray-600);
+  flex-shrink: 0;
+}
+
+.join-token-code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--gray-900);
+  background: var(--gray-100);
+  border: 1px solid var(--gray-300);
+  padding: 2px 8px;
+  word-break: break-all;
+}
+
+.join-token-expires {
+  font-size: 11px;
+  color: var(--gray-500);
+}
+
+.join-cmd {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.join-cmd .code-block {
+  flex: 1;
+  margin: 0;
+}
+
+.join-cmd .button {
+  flex-shrink: 0;
+  margin-top: 2px;
+}

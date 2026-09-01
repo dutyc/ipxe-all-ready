@@ -16,6 +16,16 @@ REGISTRATION_WINDOW_TTL_MIN_MINUTES = 1
 # 挑战 nonce 短 TTL（秒）：防重放，引导期无可靠时钟不能依赖时间戳
 CHALLENGE_NONCE_TTL_SECONDS = 60
 
+# ── 组件 PKI（K8S 同构：内部 CA + bootstrap token 引导 + 证书轮换，2026-08-31）──
+# bootstrap token 短 TTL：仅引导期一次性使用（格式 <6位>.<16位>，只存 sha256 hash）
+BOOTSTRAP_TOKEN_TTL_DAYS = 7
+# 组件证书短 TTL：90 天，验证轮换链路（CA 10 年）
+COMPONENT_CERT_DAYS = 90
+# 轮换触发阈值：剩余生命周期低于该比例时重新签发
+RENEW_THRESHOLD = 0.2
+# nginx mTLS 校验通过后透传的客户端证书 DN 头（renew 用）
+CLIENT_CERT_DN_HEADER = "x-client-cert-dn"
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -38,6 +48,12 @@ class Settings:
     cert_days: int = int(os.getenv("KURRENT_CP_CERT_DAYS", "3650"))
     # NVMe-oF 认证凭据库（DHHC-1 密钥按 worker_id 索引，按 Worker 跟盘裁定 2026-08-22）
     credentials_file: Path = Path(os.getenv("KURRENT_CP_CREDENTIALS_FILE", "state/credentials.yml"))
+    # 组件 PKI 根目录（内部 CA + 组件证书 + bootstrap token 登记，2026-08-31）
+    pki_dir: Path = Path(os.getenv("KURRENT_CP_PKI_DIR", "state/pki"))
+    # 控制面自身 client cert 别名（cp→agent 的 mTLS 客户端身份，CN=control-plane）
+    control_plane_component: str = os.getenv("KURRENT_CP_COMPONENT", "control-plane")
+    # 母盘标签台账（2026-08-30 裁定：标签 = 控制面登记，备注性质，未来迁 masters 表）
+    masters_file: Path = Path(os.getenv("KURRENT_CP_MASTERS_FILE", "state/masters.yml"))
     # NQN 命名空间 base（与 agent/storager 的 KURRENT_NQN_BASE 同源；盘 NQN 与
     # host NQN 都由它派生，变更须两侧同步）
     nqn_base: str = os.getenv("KURRENT_CP_NQN_BASE", "nqn.2026-07.com.kurrent")

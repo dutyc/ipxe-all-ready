@@ -9,10 +9,15 @@ import './Operations.css'
 export default function Operations() {
   const { t } = useI18n()
   const [entries, setEntries] = useState([])
+  const [filter, setFilter] = useState('all')
   const [cursor, setCursor] = useState(0)
   const [hasMore, setHasMore] = useState(true)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+
+  // 分类：带 worker_id 归 worker；带 agent 归 agent；其余归 other
+  const catOf = (op) =>
+    op.worker_id ? 'worker' : op.agent ? 'agent' : 'other'
 
   const load = useCallback(async (since = 0, append = false) => {
     setLoading(true)
@@ -58,6 +63,18 @@ export default function Operations() {
 
   const EXCLUDE_KEYS = ['id', 'ts', 'op', 'status', 'client']
 
+  // 各分类计数（按当前已加载条目统计）
+  const counts = { worker: 0, agent: 0, other: 0 }
+  for (const op of entries) counts[catOf(op)]++
+
+  const TABS = [
+    { key: 'all', label: t('operations.catAll') },
+    { key: 'worker', label: `${t('operations.catWorker')} (${counts.worker})` },
+    { key: 'agent', label: `${t('operations.catAgent')} (${counts.agent})` },
+    { key: 'other', label: `${t('operations.catOther')} (${counts.other})` },
+  ]
+  const filtered = filter === 'all' ? entries : entries.filter((op) => catOf(op) === filter)
+
   return (
     <div>
       <h2 className="page-title">{t('operations.title')}</h2>
@@ -69,34 +86,52 @@ export default function Operations() {
       ) : entries.length === 0 ? (
         <EmptyState message={t('operations.noOps')} />
       ) : (
-        <div className="ops-list">
-          {entries.map((op) => {
-            const detailKeys = Object.keys(op).filter(
-              (k) => !EXCLUDE_KEYS.includes(k)
-            )
-            return (
-              <div key={op.id} className="ops-entry">
-                <div className="ops-entry-header">
-                  <span className="oe-id">#{op.id}</span>
-                  <span className="oe-ts">{formatTs(op.ts)}</span>
-                  <span className="oe-op">{op.op}</span>
-                  <Badge>{op.status}</Badge>
-                  <span className="oe-client">{op.client}</span>
-                </div>
-                {detailKeys.length > 0 && (
-                  <div className="ops-entry-detail">
-                    {detailKeys.map((k) => (
-                      <span key={k} className="oed-item">
-                        <span className="oed-key">{k}</span>
-                        <span className="oed-val">{renderValue(op[k])}</span>
-                      </span>
-                    ))}
+        <>
+          <div className="ops-tabs">
+            {TABS.map(({ key, label }) => (
+              <button
+                key={key}
+                className={`ops-tab${filter === key ? ' active' : ''}`}
+                onClick={() => setFilter(key)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {filtered.length === 0 ? (
+            <EmptyState message={t('operations.noOps')} />
+          ) : (
+            <div className="ops-list">
+              {filtered.map((op) => {
+                const detailKeys = Object.keys(op).filter(
+                  (k) => !EXCLUDE_KEYS.includes(k)
+                )
+                return (
+                  <div key={op.id} className="ops-entry">
+                    <div className="ops-entry-header">
+                      <span className="oe-id">#{op.id}</span>
+                      <span className="oe-ts">{formatTs(op.ts)}</span>
+                      <span className="oe-op">{op.op}</span>
+                      <Badge>{op.status}</Badge>
+                      <span className="oe-client">{op.client}</span>
+                    </div>
+                    {detailKeys.length > 0 && (
+                      <div className="ops-entry-detail">
+                        {detailKeys.map((k) => (
+                          <span key={k} className="oed-item">
+                            <span className="oed-key">{k}</span>
+                            <span className="oed-val">{renderValue(op[k])}</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
+                )
+              })}
+            </div>
+          )}
+        </>
       )}
 
       {hasMore && entries.length > 0 && (

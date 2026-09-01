@@ -1,3 +1,33 @@
+/* ===== Category Tabs ===== */
+.ops-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 24px;
+}
+
+.ops-tab {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 8px 18px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--gray-500);
+  cursor: pointer;
+  transition: color var(--transition), border-color var(--transition);
+}
+
+.ops-tab:hover {
+  color: var(--black);
+}
+
+.ops-tab.active {
+  color: var(--black);
+  border-bottom-color: var(--black);
+  font-weight: 600;
+}
+
 /* ===== Entry ===== */
 .ops-entry {
   border: 1px solid var(--border);

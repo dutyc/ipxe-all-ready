@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { createAgent, getAgents, probeAgent, updateAgent } from '../api/client'
+import { getAgents, issueBootstrapToken, probeAgent, updateAgent } from '../api/client'
 import { useI18n } from '../i18n'
 import Card from '../components/Card'
 import Badge from '../components/Badge'
 import Button from '../components/Button'
+import CodeBlock from '../components/CodeBlock'
 import EmptyState from '../components/EmptyState'
 import Input from '../components/Input'
+import Modal from '../components/Modal'
 import './Agents.css'
 
 function AgentCard({ agent, t, onEdit }) {
@@ -60,10 +62,12 @@ function AgentCard({ agent, t, onEdit }) {
               : (agent.storager_ip || t('agents.unknown'))}
           </span>
         </div>
-        <div className="agent-prop">
-          <span className="ap-label">{t('agents.cdSupport')}</span>
-          <span className="ap-value">{agent.capabilities?.cd ? t('agents.yes') : t('agents.no')}</span>
-        </div>
+        {agent.capabilities?.cd && (
+          <div className="agent-prop">
+            <span className="ap-label">{t('agents.cdSupport')}</span>
+            <span className="ap-value">{t('agents.yes')}</span>
+          </div>
+        )}
         <div className="agent-prop">
           <span className="ap-label">{t('agents.diskRole')}</span>
           <span className="ap-value">{agent.role?.disk ? t('agents.yes') : t('agents.no')}</span>
@@ -91,15 +95,11 @@ function AgentCard({ agent, t, onEdit }) {
   )
 }
 
-// 添加 / 编辑共用的两步表单：探测 → 确认 / 修改参数 → 提交
-// edit 模式：id 只读（走路径参数），token 留空 = 保持不变（探测沿用注册表 token），可切换 enabled
-function AgentForm({ mode, agentId, initial, onClose, onSaved }) {
+// 编辑 Agent 的两步表单：探测 → 确认 / 修改参数 → 保存（id 只读，走路径参数）
+function AgentForm({ agentId, initial, onClose, onSaved }) {
   const { t } = useI18n()
-  const isEdit = mode === 'edit'
   const [form, setForm] = useState(() => ({
-    id: initial?.id || '',
     base_url: initial?.base_url || '',
-    token: '',
     storager_ip: initial?.storager_ip || '',
     role_disk: initial?.role?.disk ?? true,
     role_cd: initial?.role?.cd ?? false,
@@ -128,8 +128,7 @@ function AgentForm({ mode, agentId, initial, onClose, onSaved }) {
     try {
       const result = await probeAgent({
         base_url: form.base_url.trim(),
-        token: form.token.trim(),
-        ...(isEdit ? { agent_id: agentId } : {}),
+        agent_id: agentId,
       })
       setProbe(result)
       setIscsiOpen(true) // 探测推导了数据面地址（base_url 主机名），展开以便确认或改为 Worker 可达的局域网 IP
@@ -156,19 +155,14 @@ function AgentForm({ mode, agentId, initial, onClose, onSaved }) {
     setSaveError(null)
     const body = {
       base_url: form.base_url.trim(),
-      token: form.token.trim(),
       role: { disk: form.role_disk, cd: form.role_cd },
-      enabled: isEdit ? form.enabled : true,
+      enabled: form.enabled,
     }
     if (form.storager_ip.trim()) body.storager_ip = form.storager_ip.trim()
     const tags = form.tags.split(',').map((s) => s.trim()).filter(Boolean)
     if (tags.length) body.tags = tags
     try {
-      if (isEdit) {
-        await updateAgent(agentId, body)
-      } else {
-        await createAgent({ id: form.id.trim(), ...body })
-      }
+      await updateAgent(agentId, body)
       onSaved()
     } catch (err) {
       setSaveError(err.message)
@@ -179,21 +173,10 @@ function AgentForm({ mode, agentId, initial, onClose, onSaved }) {
 
   return (
     <form className="create-form" onSubmit={handleSubmit}>
-      <div className="create-form-title">{isEdit ? t('agents.editTitle') : t('agents.addTitle')}</div>
+      <div className="create-form-title">{t('agents.editTitle')}</div>
       <p className="create-hint">{t('agents.probeHint')}</p>
       <div className="create-form-grid">
-        {isEdit ? (
-          <Input label={t('agents.idLabel')} value={agentId} disabled />
-        ) : (
-          <Input
-            label={t('agents.idLabel')}
-            name="id"
-            value={form.id}
-            onChange={setField('id')}
-            placeholder={t('agents.idPlaceholder')}
-            required
-          />
-        )}
+        <Input label={t('agents.idLabel')} value={agentId} disabled />
         <Input
           label={t('agents.baseUrl')}
           name="base_url"
@@ -201,13 +184,6 @@ function AgentForm({ mode, agentId, initial, onClose, onSaved }) {
           onChange={setField('base_url')}
           placeholder={t('agents.baseUrlPlaceholder')}
           required
-        />
-        <Input
-          label={t('agents.tokenLabel')}
-          name="token"
-          value={form.token}
-          onChange={setField('token')}
-          placeholder={isEdit ? t('agents.tokenKeepPlaceholder') : t('agents.tokenPlaceholder')}
         />
       </div>
       <div className="iscsi-collapse">
@@ -291,23 +267,19 @@ function AgentForm({ mode, agentId, initial, onClose, onSaved }) {
               />
               {t('agents.roleCd')}
             </label>
-            {isEdit && (
-              <label className="agent-role-check">
-                <input
-                  type="checkbox"
-                  checked={form.enabled}
-                  onChange={setField('enabled')}
-                />
-                {t('agents.enabled')}
-              </label>
-            )}
+            <label className="agent-role-check">
+              <input
+                type="checkbox"
+                checked={form.enabled}
+                onChange={setField('enabled')}
+              />
+              {t('agents.enabled')}
+            </label>
           </div>
           {saveError && <p className="create-error">{saveError}</p>}
           <div className="create-actions">
             <Button type="submit" disabled={saving}>
-              {saving
-                ? (isEdit ? t('agents.saving') : t('agents.adding'))
-                : (isEdit ? t('agents.saveBtn') : t('agents.addBtn'))}
+              {saving ? t('agents.saving') : t('agents.saveBtn')}
             </Button>
             <Button variant="ghost" type="button" onClick={onClose}>
               {t('agents.cancel')}
@@ -319,13 +291,152 @@ function AgentForm({ mode, agentId, initial, onClose, onSaved }) {
   )
 }
 
+// 加入节点弹窗：签发一次性 bootstrap token（kubeadm token create 同构）并输出 join 命令。
+// 节点执行 join 后自动引导证书 + 控制面自动登记（kubelet 自动注册 Node 同构）。
+function JoinAgentModal({ onClose }) {
+  const { t } = useI18n()
+  const [agentId, setAgentId] = useState('')
+  const [nvmet, setNvmet] = useState(false)
+  const [cpUrl, setCpUrl] = useState(() => `https://${window.location.hostname}`)
+  const [issuing, setIssuing] = useState(false)
+  const [error, setError] = useState(null)
+  const [tokens, setTokens] = useState(null) // { agent: {token, expires_at}, nvmet: {...} | null }
+  const [copied, setCopied] = useState(false)
+
+  const handleIssue = async (e) => {
+    e.preventDefault()
+    const id = agentId.trim()
+    if (!id) return
+    setIssuing(true)
+    setError(null)
+    setTokens(null)
+    try {
+      const agent = await issueBootstrapToken(id, 'agent')
+      let nvmetTok = null
+      if (nvmet) {
+        try {
+          nvmetTok = await issueBootstrapToken(id, 'nvmet-host')
+        } catch (err) {
+          // agent token 已签发（不因 nvmet 失败作废），仅提示
+          setError(`${t('agents.nvmetIssueFailed')}: ${err.message}`)
+        }
+      }
+      setTokens({ agent, nvmet: nvmetTok })
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setIssuing(false)
+    }
+  }
+
+  const joinCmd = () => {
+    if (!tokens?.agent) return ''
+    let cmd = `kurrent join ${cpUrl.trim()} ${tokens.agent.token} ${agentId.trim()}`
+    if (tokens.nvmet) cmd += ` --nvmet-token ${tokens.nvmet.token}`
+    return cmd
+  }
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(joinCmd())
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch { /* 剪贴板不可用时忽略 */ }
+  }
+
+  return (
+    <Modal
+      title={t('agents.joinTitle')}
+      onClose={onClose}
+      width="640px"
+      footer={
+        <Button variant="primary" onClick={onClose}>
+          {t('agents.done')}
+        </Button>
+      }
+    >
+      <form onSubmit={handleIssue}>
+        <p className="create-hint">{t('agents.joinHint')}</p>
+        <div className="create-form-grid">
+          <Input
+            label={t('agents.idLabel')}
+            value={agentId}
+            onChange={(e) => setAgentId(e.target.value)}
+            placeholder={t('agents.idPlaceholder')}
+            required
+          />
+          <Input
+            label={t('agents.cpUrlLabel')}
+            value={cpUrl}
+            onChange={(e) => setCpUrl(e.target.value)}
+            placeholder="https://<control-plane-host>"
+          />
+        </div>
+        <label className="agent-role-check">
+          <input
+            type="checkbox"
+            checked={nvmet}
+            onChange={(e) => setNvmet(e.target.checked)}
+          />
+          {t('agents.nvmetLabel')}
+        </label>
+        {error && <p className="create-error">{error}</p>}
+        <div className="create-actions">
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={issuing || !agentId.trim()}
+          >
+            {issuing ? t('agents.issuing') : t('agents.issueBtn')}
+          </Button>
+          <Button variant="ghost" type="button" onClick={onClose}>
+            {t('agents.cancel')}
+          </Button>
+        </div>
+      </form>
+
+      {tokens?.agent && (
+        <div className="join-result">
+          <div className="join-token-list">
+            <div className="join-token-row">
+              <span className="join-token-label">{t('agents.tokenAgent')}</span>
+              <code className="join-token-code">{tokens.agent.token}</code>
+              <span className="join-token-expires">
+                {t('agents.expires')}: {tokens.agent.expires_at}
+              </span>
+            </div>
+            {tokens.nvmet && (
+              <div className="join-token-row">
+                <span className="join-token-label">{t('agents.tokenNvmet')}</span>
+                <code className="join-token-code">{tokens.nvmet.token}</code>
+                <span className="join-token-expires">
+                  {t('agents.expires')}: {tokens.nvmet.expires_at}
+                </span>
+              </div>
+            )}
+          </div>
+          <p className="create-hint">{t('agents.burnHint')}</p>
+          <p className="create-hint">{t('agents.joinCmdHint')}</p>
+          <div className="join-cmd">
+            <CodeBlock code={joinCmd()} />
+            <Button variant="ghost" onClick={handleCopy}>
+              {copied ? t('agents.copied') : t('agents.copyBtn')}
+            </Button>
+          </div>
+          <p className="create-hint">{t('agents.joinGuide')}</p>
+        </div>
+      )}
+    </Modal>
+  )
+}
+
 export default function Agents() {
   const { t } = useI18n()
   const [agents, setAgents] = useState([])
   const [loading, setLoading] = useState(true)
   const [live, setLive] = useState(true)
   const [error, setError] = useState(null)
-  const [showAdd, setShowAdd] = useState(false)
+  const [showJoin, setShowJoin] = useState(false)
   const [editAgent, setEditAgent] = useState(null)
 
   // ===== 页面介绍弹层 =====
@@ -350,7 +461,7 @@ export default function Agents() {
   }, [live])
 
   const closeForms = () => {
-    setShowAdd(false)
+    setShowJoin(false)
     setEditAgent(null)
   }
 
@@ -371,11 +482,8 @@ export default function Agents() {
               ? t('agents.count', { count: agents.length, healthy })
               : t('agents.countStatic', { count: agents.length })}
           </span>
-          <Button variant="primary" onClick={() => {
-            setShowAdd(!showAdd)
-            if (!showAdd) setEditAgent(null)
-          }}>
-            {t('agents.add')}
+          <Button variant="primary" onClick={() => setShowJoin(!showJoin)}>
+            {t('agents.joinBtn')}
           </Button>
           <Button
             variant={live ? 'secondary' : 'ghost'}
@@ -389,14 +497,11 @@ export default function Agents() {
         </div>
       </div>
 
-      {showAdd && (
-        <AgentForm mode="add" onClose={() => setShowAdd(false)} onSaved={handleSaved} />
-      )}
+      {showJoin && <JoinAgentModal onClose={() => setShowJoin(false)} />}
       {editAgent && (
         <div className="agent-modal-overlay" onClick={closeForms}>
           <div className="agent-modal" onClick={(e) => e.stopPropagation()}>
             <AgentForm
-              mode="edit"
               agentId={editAgent.id}
               initial={editAgent}
               onClose={closeForms}
@@ -416,7 +521,7 @@ export default function Agents() {
         <div className="agents-grid">
           {agents.map((agent) => (
             <Link key={agent.id} to={`/agents/${agent.id}`} className="agent-card-link">
-              <AgentCard agent={agent} t={t} onEdit={(a) => { setEditAgent(a); setShowAdd(false) }} />
+              <AgentCard agent={agent} t={t} onEdit={(a) => { setEditAgent(a); setShowJoin(false) }} />
             </Link>
           ))}
         </div>

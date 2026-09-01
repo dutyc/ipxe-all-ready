@@ -73,6 +73,7 @@ curl -s "$BASE_URL/workers" \
 |---|---|
 | `config/agents.yml` | Agent 节点清单与调度角色 |
 | `state/workers.yml` | Worker 存储台账 |
+| `state/masters.yml` | 母盘标签登记台账（os / os_version 备注，见 6.4） |
 | `dnsmasq/dhcp-hosts.conf` | `MAC -> hostname` 绑定唯一真相 |
 | `state/operations.jsonl` | 控制面操作轨迹 |
 
@@ -109,9 +110,13 @@ curl -s "$BASE_URL/workers" \
 | `GET` | `/agents` | 查询 Agent 列表与能力 |
 | `POST` | `/agents` | 注册新 Agent（写入 agents.yml，重复 id 返回 409） |
 | `POST` | `/agents/probe` | 探测 Agent 并自动推导注册参数（预览，不写文件） |
-| `PUT` | `/agents/{agent_id}` | 更新 Agent 配置（id 不可改，token 留空保持不变） |
+| `PUT` | `/agents/{agent_id}` | 更新 Agent 配置（id 不可改） |
+| `POST` | `/agents/{agent_id}/bootstrap-token` | 签发节点加入 bootstrap token（一次性，幂等 409，见 6.5） |
+| `DELETE` | `/agents/{agent_id}` | 删除 Agent 台账（含母盘标签清理，见 6.6） |
 | `GET` | `/agents/{agent_id}/luns` | 列出指定 Agent 上的 iSCSI target/LUN |
-| `GET` | `/masters` | 聚合列出全部存储节点上的母盘清单（供克隆选盘） |
+| `GET` | `/masters` | 聚合列出全部存储节点上的母盘清单（合并登记标签，供克隆选盘） |
+| `PUT` | `/agents/{agent_id}/masters/{master_name}/tag` | 登记母盘标签（os / os_version 备注，见 6.4） |
+| `DELETE` | `/agents/{agent_id}/masters/{master_name}/tag` | 清除母盘标签（见 6.4） |
 | `POST` | `/agents/{agent_id}/luns/disk` | 在指定 Agent 上创建磁盘 LUN（母盘克隆/空白盘） |
 | `POST` | `/agents/{agent_id}/luns/cd` | 在指定 Agent 上创建 CD（ISO 虚拟光驱）LUN |
 | `DELETE` | `/agents/{agent_id}/luns` | 删除指定 Agent 上的 LUN/target |
@@ -120,8 +125,8 @@ curl -s "$BASE_URL/workers" \
 | `POST` | `/workers/batch` | 批量创建 Worker（数量 + 命名规则，逐项独立，`macs` 可选直接绑定，见 7.6） |
 | `POST` | `/workers/{worker_id}/luns/disk` | 给指定 Worker 创建系统盘 LUN |
 | `POST` | `/workers/luns/disk/batch` | 批量给多个 Worker 创建系统盘（每项指定存储节点） |
-| `DELETE` | `/workers/{worker_id}/luns/disk/{os}` | 删除 Worker 单个系统盘（保留/删除 .img 文件） |
-| `PUT` | `/workers/{worker_id}/default-os` | 设置 Worker 默认启动配置（系统 / 菜单项 / 超时） |
+| `DELETE` | `/workers/{worker_id}/luns/disk/{os_tag}` | 删除 Worker 单个系统盘（保留/删除 .img 文件） |
+| `PUT` | `/workers/{worker_id}/default-disk` | 设置 Worker 默认启动配置（默认盘 os_tag / 菜单项 / 超时） |
 | `PUT` | `/workers/{worker_id}/mac` | 修改 Worker 的 MAC 绑定（更新 dnsmasq 绑定并 HUP 重载，审计旧/新 MAC，见 7.5） |
 | `GET` | `/workers` | 列出 Worker |
 | `GET` | `/workers/{worker_id}` | 查询单个 Worker |
@@ -179,13 +184,16 @@ Control Plane 按以下顺序识别设备并投影启动变量：
 
 | 返回字段 | 来源 |
 |---|---|
-| `base_nqn` | 默认启动盘（同选盘规则）的盘 NQN 前缀（C3 拼接：盘 NQN 由 Agent 按统一模板 `base:worker_id.os` 生成，固件侧 `sanboot nvme://<ip>:4420/${base-nqn}:<worker>.<os>` 拼装消费 = 盘记录权威值）；盘记录缺 `nqn`（存量盘）时不返回（不兼容遗留、不派生）；Worker 无系统盘时不返回 |
-| `base_iqn` | `workers.yml` 中该 Worker 默认启动盘（`default_os` 对应的盘，未设时取第一块）的 `iqn` 去掉最后一个 `:` 后的前缀——盘标识权威 = NQN，IQN 由盘 NQN 派生；Worker 无系统盘时**不返回**（iPXE 沿用 `boot.ipxe.cfg` 静态默认值） |
+| `base_nqn` | 默认启动盘（同选盘规则）的盘 NQN 前缀（C3 拼接：盘 NQN 由控制面按统一模板 `base:worker_id.os.<os_tag>` 生成，固件侧 `sanboot nvme://<ip>:4420/${base-nqn}:<worker>.<os>.<os-tag>` 拼装消费 = 盘记录权威值）；盘记录缺 `nqn` 时不返回（不兼容遗留、不派生）；Worker 无系统盘时不返回 |
+| `base_iqn` | `workers.yml` 中该 Worker 默认启动盘（`default_disk` 对应的盘，未设时取第一块）的 `iqn` 去掉最后一个 `:` 后的前缀——盘标识权威 = NQN，IQN 由盘 NQN 派生；Worker 无系统盘时**不返回**（iPXE 沿用 `boot.ipxe.cfg` 静态默认值） |
 | `storager_ip` | 默认启动盘（同上选盘规则）的 `agent` -> `agents.yml` 中该 Agent 的 `storager_ip`（数据面地址，NVMe-oF 引导与 iSCSI 安装器共用）；无系统盘时不返回 |
 | `iscsi_sep` | iSCSI root **连接符**（`${storager-ip}` 与 `${base-iqn}` 之间的分隔字段，安装器 iSCSI 拼装消费），root-path 拼装由 iPXE 侧完成。**仅 stgt / LIO 后端返回**：stgt 后端为 `:::1:`（lun 占位 1），LIO 后端为 `::::`（空占位）；后端类型优先读 `agents.yml` 该 Agent 的 `tags`（含 `nvmet` / `lio` / `stgt` 标记），未标记时查询 Agent `/capabilities` 的 `backend` 字段，查询失败默认 stgt 格式；**nvmet 后端不下发**（menu 安装器项 `isset ${iscsi-sep}` 守卫跳过）；无系统盘时不返回 |
 | `nbft_secret` | 该 Worker 的 NVMe-oF 认证密钥（DHHC-1，`state/credentials.yml` 按 worker_id 索引，见 7.7）；**已绑定 Worker 且密钥库有条目时注入**，无密钥 / 未绑定 / 请求被拒时不返回。固件侧消费：menu 拼 `nvme://...?secret=${nbft-secret}`（C3 已启用：secret 条件化拼装，无密钥走明文连接） |
 | `hostnqn` | 该 Worker 的发起端 Host NQN（`KURRENT_CP_NQN_BASE` + `:host.<worker_id>`，与 nvmet-host 登记的 host 条目一致）；**已绑定 Worker 时注入**。固件侧消费：iPXE nvmetcp 默认 hostnqn 为 `nqn.2014-08.org.ipxe:<uuid>`（无 UUID 回退 `:ipxe`），与登记值不匹配时严格模式认证必败，须以本字段覆盖（固件 0011 补丁支持 `hostnqn` 设置） |
-| `menu_default` | 推导链：`workers.yml` 的 `default_os`（建盘后单独设置）> `boot.menu_default`（显式配置）> `reboot`（未配置时循环重启等待） |
+| `os` | 默认启动盘（`default_disk` 对应的盘，未设时取第一块）的 os 名（盘记录权威）——2026-08-30 MAIN MENU 动态化：菜单只保留一个通用 OS 项（`boot-os`），固件用本变量拼 `nvme://...:${hostname}.${os}`，支持新系统无需改脚本；与盘 NQN 后缀同源。Worker 无系统盘时不返回（reboot 循环等待建盘） |
+| `os_version` | 默认启动盘的版本备注（盘记录 `os_version`，`''` = 无版本）——空值不下发，menu.ipxe 的 `os-label` 拼接自适应（有版本显示 `os version`）。Worker 无系统盘时不返回 |
+| `os_tag` | 默认启动盘的随机标识（盘记录 `os_tag`，12 位 hex，数据面唯一键）——固件拼盘 NQN 后缀 `${hostname}.${os}.${os-tag}`（与盘 NQN 同源同值）；Worker 无系统盘时不返回 |
+| `menu_default` | 推导链：`workers.yml` 的 `default_disk`（建盘后单独设置，os_tag 引用具体盘）> `boot.menu_default`（显式配置）> `reboot`（未配置时循环重启等待）。2026-08-30 动态化：菜单 OS 项已收敛为唯一通用项 `boot-os`，OS 语义的默认值（`default_disk`，或 `boot.menu_default` 中的旧系统名）统一归一到 `boot-os`；非 OS 导航值（`menu-diag` / `menu-install` / `config` / `shell` / `reboot` / `exit`）原样返回 |
 | `menu_timeout` | 已配置默认启动时：`boot.menu_timeout` > `IPXE_CP_BOOT_MENU_TIMEOUT`（默认 5000）；处于 `reboot` 循环时：固定用 `IPXE_CP_AUTO_BOOT_TIMEOUT`（默认 1）。单位均为毫秒 |
 
 查找 Worker 的规则（**hostname 优先**）：
@@ -205,19 +213,19 @@ hostname 未命中或未传 -> mac -> devices.yml（设备台账）-> bound_work
 默认启动项由 `/boot-vars` 按以下顺序推导：
 
 ```text
-default_os（建盘后单独设置，见 7.3）-> boot.menu_default（显式配置）-> reboot（未配置）
+default_disk（建盘后单独设置，见 7.3）-> boot.menu_default（显式配置）-> reboot（未配置）
 ```
 
-- 推荐做法：创建系统盘后调用 `PUT /workers/{worker_id}/default-os` 设置默认启动系统：
+- 推荐做法：创建系统盘后调用 `PUT /workers/{worker_id}/default-disk` 设置默认启动盘（os_tag 引用具体盘）：
 
 ```text
-os=ubuntu  -> menu_default=ubuntu
-os=debian  -> menu_default=debian
-os=windows -> menu_default=windows
+disk=<os_tag> -> menu_default=boot-os, os=<该盘 os>, os-version=<该盘 os_version（如有）>, os-tag=<该盘 os_tag>
 ```
 
-- 也可以不设置 `default_os`，改用 `boot.menu_default` 指定 iPXE 菜单默认项（如安装期 `menu-install`、退出 `exit`）
-- 两者都没有时，`menu_default` 返回 `reboot`（短超时循环重启，等待管理员建盘 / 设置默认系统；`exit` 仅出现在显式设置时）
+- 2026-08-30 起 MAIN MENU 只保留一个通用 OS 项：`menu_default` 归一到 `boot-os`（`boot.menu_default` 里的旧系统名同样归一），`os` / `os-version` / `os-tag` 字段承载通用项消费的盘标识
+
+- 也可以不设置 `default_disk`，改用 `boot.menu_default` 指定 iPXE 菜单默认项（如安装期 `menu-install`、退出 `exit`）
+- 两者都没有时，`menu_default` 返回 `reboot`（短超时循环重启，等待管理员建盘 / 设置默认盘；`exit` 仅出现在显式设置时）
 
 ### 注册窗口期注册（Zero-touch Provisioning）
 
@@ -276,13 +284,14 @@ set base-nqn nqn.2026-07.com.kurrent
 set base-iqn iqn.2026-07.com.kurrent
 set storager-ip 192.168.80.3
 set iscsi-sep :::1:
-set menu-default ubuntu
+set menu-default boot-os
 set menu-timeout 5000
+set os ubuntu
 set nbft-secret DHHC-1:01:<base64>   # 仅 NVMe-oF 认证启用时返回（见 7.7）
 set hostnqn nqn.2026-07.com.kurrent:host.worker-01
 ```
 
-已注册但未配置默认启动（无系统盘 / 未设 `default_os` / 未显式设 `boot.menu_default`）时返回：
+已注册但未配置默认启动（无系统盘 / 未设 `default_disk` / 未显式设 `boot.menu_default`）时返回：
 
 ```ipxe
 #!ipxe
@@ -312,8 +321,9 @@ curl -s "$BASE_URL/boot-vars?mac=000c29b98b2d&hostname=worker-01&format=json"
   "base_iqn": "iqn.2026-07.com.kurrent",
   "storager_ip": "192.168.80.3",
   "iscsi_sep": ":::1:",
-  "menu_default": "ubuntu",
+  "menu_default": "boot-os",
   "menu_timeout": 5000,
+  "os": "ubuntu",
   "nbft_secret": "DHHC-1:01:<base64>",
   "hostnqn": "nqn.2026-07.com.kurrent:host.worker-01"
 }
@@ -547,7 +557,6 @@ curl -s "$BASE_URL/agents?live=false" \
 |---|---:|---|
 | `id` | 是 | Agent 编号。自动转小写，规则同 worker id（字母、数字、点、下划线、短横线） |
 | `base_url` | 是 | Agent 控制面 API 地址，须以 `http://` 或 `https://` 开头，末尾 `/` 自动去除 |
-| `token` | 否 | Agent 鉴权 Token，支持 `${ENV}` 环境变量占位（Control Plane 读取时展开）；无鉴权 Agent 可留空 |
 | `storager_ip` | 否 | 数据面地址（业务网段 IP，协议中立）。缺省时回退为 `base_url` 的主机名 |
 | `role` | 否 | 角色：`disk`=可建系统盘（存储节点），`cd`=可挂载 ISO（光驱节点）；默认 `{disk: false, cd: false}` |
 | `tags` | 否 | 自由标签数组（如 `storage`/`lio`/`stgt`），展示用；`lio`/`stgt` 标记同时参与 `/boot-vars` 连接符推导 |
@@ -562,7 +571,6 @@ curl -s -X POST "$BASE_URL/agents" \
   -d '{
     "id": "storage-stgt-02",
     "base_url": "http://host.docker.internal:4840",
-    "token": "${STORAGE_STGT_02_TOKEN}",
     "storager_ip": "192.168.1.6",
     "role": {"disk": true, "cd": false},
     "tags": ["storage", "stgt"],
@@ -596,7 +604,7 @@ curl -s -X POST "$BASE_URL/agents" \
 
 ### 说明
 
-探测 Agent 并自动推导注册参数（**只读预览，不写任何文件**）：调用 Agent `/healthz`（无鉴权）+ `/capabilities`（Bearer token），按以下规则推导：
+探测 Agent 并自动推导注册参数（**只读预览，不写任何文件**）：经 mTLS（控制面 CA 签发的客户端证书，K8S 同构）调用 Agent `/healthz` + `/capabilities`，按以下规则推导：
 
 | 参数 | 推导规则 |
 |---|---|
@@ -610,8 +618,7 @@ curl -s -X POST "$BASE_URL/agents" \
 | 字段 | 必填 | 说明 |
 |---|---:|---|
 | `base_url` | 是 | Agent 控制面 API 地址，须以 `http://` 或 `https://` 开头 |
-| `token` | 否 | Agent 鉴权 Token；Agent 配置了 `IPXE_AGENT_TOKEN` 时必填（Agent 不回显自身 token，无法自动获取） |
-| `agent_id` | 否 | 编辑场景：`token` 留空时，沿用注册表中该 Agent 的 token 探测（未知 id 忽略） |
+| `agent_id` | 否 | 编辑场景的 Agent 标识（探测逻辑当前未使用，为前端预留） |
 
 ### curl
 
@@ -619,7 +626,7 @@ curl -s -X POST "$BASE_URL/agents" \
 curl -s -X POST "$BASE_URL/agents/probe" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"base_url": "http://host.docker.internal:4840", "token": "${STORAGE_STGT_02_TOKEN}"}'
+  -d '{"base_url": "http://host.docker.internal:4840"}'
 ```
 
 ### 成功返回
@@ -645,7 +652,7 @@ curl -s -X POST "$BASE_URL/agents/probe" \
 | 状态码 | 场景 |
 |---|---|
 | `400` | `base_url` 非 http(s) 开头 |
-| `502` | Agent 不可达（`/healthz` 失败）或 `/capabilities` 调用失败（如 token 错误） |
+| `502` | Agent 不可达（`/healthz` 失败）或 `/capabilities` 调用失败（如 mTLS 客户端证书非控制面 CA 签发） |
 
 ---
 
@@ -653,16 +660,15 @@ curl -s -X POST "$BASE_URL/agents/probe" \
 
 ### 说明
 
-更新已有 Agent：覆盖 `config/agents.yml` 中对应条目，保存后立即生效（建盘/挂载调度即用新配置）。`id` 不可改（走路径参数）；`token` 传空字符串 = **保持原值**（API 不回显 token，前端无法回填）。
+更新已有 Agent：覆盖 `config/agents.yml` 中对应条目，保存后立即生效（建盘/挂载调度即用新配置）。`id` 不可改（走路径参数）。
 
-适用场景：存储节点配置变动——数据面地址迁移、API 地址变更、Token 轮换、停用 / 启用节点。
+适用场景：存储节点配置变动——数据面地址迁移、API 地址变更、停用 / 启用节点。
 
 ### 请求体字段
 
 | 字段 | 必填 | 说明 |
 |---|---:|---|
 | `base_url` | 是 | Agent 控制面 API 地址，须以 `http://` 或 `https://` 开头，末尾 `/` 自动去除 |
-| `token` | 否 | 传空字符串 = 保持原值（不覆盖）；传新值 = 轮换。支持 `${ENV}` 占位 |
 | `storager_ip` | 否 | 数据面地址。缺省时回退为 `base_url` 的主机名 |
 | `role` | 否 | 角色：`disk`=可建系统盘，`cd`=可挂载 ISO；默认 `{disk: false, cd: false}` |
 | `tags` | 否 | 自由标签数组 |
@@ -676,7 +682,6 @@ curl -s -X PUT "$BASE_URL/agents/storage-stgt-02" \
   -H "Content-Type: application/json" \
   -d '{
     "base_url": "http://host.docker.internal:4840",
-    "token": "",
     "storager_ip": "192.168.1.8",
     "role": {"disk": true, "cd": false},
     "tags": ["storage", "stgt"],
@@ -704,8 +709,152 @@ curl -s -X PUT "$BASE_URL/agents/storage-stgt-02" \
 | `400` | `base_url` 非 http(s) 开头 |
 | `404` | Agent `id` 不存在 |
 
-> **编辑探测**：编辑场景建议先调 `POST /agents/probe`（6.2）验证新地址可达再保存——`token` 留空时，探测请求带 `agent_id` 参数即可，后端自动沿用注册表中该 Agent 的 token。
+> **编辑探测**：编辑场景建议先调 `POST /agents/probe`（6.2）验证新地址可达再保存——探测经控制面 mTLS 客户端证书鉴权（身份绑定组件 CA，K8S 同构），无需 token。
 
+---
+
+## 6.4 母盘标签（/agents/{agent_id}/masters/{master_name}/tag）
+
+### 说明
+
+母盘标签 = 控制面登记台账（`state/masters.yml`），os / os_version 为**备注性质**（便于人类理解，不做白名单校验）：
+
+- 2026-08-30 起 OS 不再设合法集合（OS_ITEMS 退役）：建盘 `os` 为自由字符串，同系统多版本靠盘级 `os_tag`（12 位 hex 随机标识，数据面唯一键）区分，母盘标签只负责把母盘名 ↔ 系统/版本关联起来
+- **登记不校验母盘存在性**（Agent 可离线，台账即权威）；`/masters` 聚合时对已登记条目附加 `os` / `os_version` 字段，未登记不附加
+- 建盘选母盘时 WebUI 自动带出标签（备注可再改）；清除标签仅影响后续建盘
+
+### PUT（登记 / 更新）
+
+| 字段 | 必填 | 说明 |
+|---|---:|---|
+| `os` | 是 | 系统备注（自由字符串，小写归一；人类理解用，不是数据面标识） |
+| `os_version` | 否 | 版本备注，默认 `''`（无版本） |
+
+#### curl
+
+```bash
+curl -s -X PUT "$BASE_URL/agents/storage-lio-01/masters/_tpl_ubuntu_2204.img/tag" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "os": "ubuntu",
+    "os_version": "22.04"
+  }'
+```
+
+#### 成功返回
+
+```json
+{ "agent": "storage-lio-01", "name": "_tpl_ubuntu_2204.img", "os": "ubuntu", "os_version": "22.04" }
+```
+
+### DELETE（清除）
+
+```bash
+curl -s -X DELETE "$BASE_URL/agents/storage-lio-01/masters/_tpl_ubuntu_2204.img/tag" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+返回 `{ "agent": ..., "name": ..., "removed": true|false }`（`removed=false` = 原本就没有标签）。
+
+### 常见错误
+
+| HTTP 状态码 | 常见原因 |
+|---:|---|
+| `400` | `os` 为空 / 非法字符；`os_version` 含非法字符 |
+| `401` | 缺少 Token 或 Token 错误 |
+| `404` | Agent 不存在 |
+
+## 6.5 一键加入：bootstrap token 签发 + enroll 自动登记
+
+### 说明
+
+K8S 同构（kubeadm join）：控制面签发一次性 bootstrap token（`<6位>.<16位>`，仅存 sha256 摘要、7 天 TTL），节点引导时以 `Authorization: Bearer` 携带完成 enroll；enroll 成功后 token 即废（后续轮换走 mTLS，见 6.5.1）。**token 明文不可恢复**：重复签发未使用 token 返回 409，须删除 `state/pki/bootstrap-tokens.yml` 对应条目后重发。
+
+### POST /agents/{agent_id}/bootstrap-token
+
+#### Query 参数
+
+| 字段 | 必填 | 说明 |
+|---|---:|---|
+| `component` | 否 | `agent`（默认）或 `nvmet-host`；nvmet 组件须 agent 组件已登记 |
+
+#### curl
+
+```bash
+curl -s -X POST "$BASE_URL/agents/storage-lio-01/bootstrap-token?component=agent" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+#### 成功返回（201）
+
+```json
+{
+  "agent_id": "storage-lio-01",
+  "component": "agent",
+  "token": "a1b2c3.0123456789abcdef",
+  "expires_at": "2026-09-07T12:00:00Z",
+  "usage": ["enroll"]
+}
+```
+
+`token` 明文仅本次返回可见（存储只留 sha256 摘要），后续使用方式见 6.5.2。
+
+#### 常见错误
+
+| HTTP 状态码 | 常见原因 |
+|---:|---|
+| `401` | 缺少 Token 或 Token 错误 |
+| `409` | 该 agent/component 已有未用 token（明文不可恢复，删条目重发） |
+| `422` | `component` 非法 |
+
+### 6.5.1 enroll 自动登记（POST /enroll，nginx 入口 /api/cp/enroll）
+
+K8S 同构（kubelet 首次上报自动注册 Node）：agent 组件引导（`POST /enroll`，Bearer = bootstrap token）时若 `agents.yml` 无该 id，**自动创建条目**（role_disk=True、role_cd=False、enabled=True、tags=`("auto",)`），并把请求体 `base_url` 字段（agent 侧 `KURRENT_ADVERTISE_URL`，控制面可达地址）写入台账。规则：
+
+- `nvmet-host` 组件**不自动登记**（与 agent 共享 agent_id，须 agent 组件先行在册；否则 400，容器重启重试）
+- `base_url` 非空时必须为 `http://` / `https://` 开头，否则 400（不自动登记）
+- 已登记 agent 的 `base_url` 不因 enroll 更新（登记信息以 `agents.yml` 为权威）
+
+### 6.5.2 一键加入命令（节点侧）
+
+控制面签发后，在目标节点仓库根执行（自动写 `.env` + compose up，幂等可重跑；仓库根以外执行加 `--dir` 指定 storager 目录）：
+
+```bash
+# 控制面（签发并输出可直接粘贴的 join 命令）：
+./cli/kurrent nodes token storage-lio-01 --nvmet
+
+# 节点（storage-01 上执行，kubeadm join 同构；无 Go 环境可用 ./kurrent-join.sh 等价替代）：
+./kurrent join https://<cp-host> <token> storage-lio-01 --nvmet-token <nvmet-token>
+```
+
+## 6.6 DELETE /agents/{agent_id}
+
+### 说明
+
+删除 Agent 台账（`config/agents.yml` 条目）并清理该 agent 的母盘标签（`state/masters.yml` 中 masters 下对应条目）。**已签发的证书与运行中的 LUN 不受影响**（容器重启后因不在册引导失败，进入等待重试）。
+
+### curl
+
+```bash
+curl -s -X DELETE "$BASE_URL/agents/storage-lio-01" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### 成功返回
+
+```json
+{ "deleted": "storage-lio-01", "master_tags_removed": false }
+```
+
+### 常见错误
+
+| HTTP 状态码 | 常见原因 |
+|---:|---|
+| `401` | 缺少 Token 或 Token 错误 |
+| `404` | Agent 不存在 |
+
+---
 ---
 
 ## 7. POST /workers
@@ -739,18 +888,18 @@ docker exec ipxe-dnsmasq killall -HUP dnsmasq
 | `hostname` | 否 | 主机名。不传时默认等于 `worker_id` |
 | `arch` | 否 | 架构。不传时默认 `x86_64` |
 | `windows_iso` | 否 | Windows 安装期 ISO 文件名。传入即在注册时额外创建安装光驱 target |
-| `boot` | 否 | iPXE 菜单默认项与超时配置；不传则由 `/boot-vars` 按默认启动系统和全局默认值推导。与 7.3 `default-os` 端点写的是同一组台账字段，后设覆盖先设 |
+| `boot` | 否 | iPXE 菜单默认项与超时配置；不传则由 `/boot-vars` 按默认启动盘和全局默认值推导。与 7.3 `default-disk` 端点写的是同一组台账字段，后设覆盖先设 |
 
 ### `boot` 字段
 
 | 字段 | 必填 | 说明 |
 |---|---:|---|
-| `menu_default` | 否 | iPXE 主菜单默认项（菜单超时后自动选中启动），合法值见 7.3 合法值表；不区分大小写，如 `ubuntu`、`debian`、`windows`、`exit` |
+| `menu_default` | 否 | iPXE 主菜单默认项（菜单超时后自动选中启动），合法值见 7.3 合法值表；不区分大小写，如 `menu-install`、`reboot`、`exit` |
 | `menu_timeout` | 否 | iPXE 菜单超时，单位毫秒，如 `5000`；传 `0` 表示菜单无限等待、永不自动选择 |
 
 不传 `boot` 时：
 
-- `menu_default` 默认使用 `default_os`（建盘后单独设置，见 7.3）；未设置时默认 `reboot`（循环重启等待配置，见 5 节）；
+- `menu_default` 默认使用 `default_disk`（建盘后单独设置，见 7.3）；未设置时默认 `reboot`（循环重启等待配置，见 5 节）；
 - `menu_timeout` 已配置默认启动时默认使用 `IPXE_CP_BOOT_MENU_TIMEOUT`（当前 `5000`）；处于 `reboot` 循环时固定用 `IPXE_CP_AUTO_BOOT_TIMEOUT`（当前 `1` 毫秒，见 5 节）。
 
 因此大多数 Worker 不需要传 `boot`。例如：
@@ -769,7 +918,7 @@ set menu-default reboot
 set menu-timeout 1
 ```
 
-创建系统盘后，调用 `PUT /workers/{worker_id}/default-os`（见 7.3）设置默认启动系统，`menu-default` 随即切换为该系统的菜单项（如 `ubuntu`）。
+创建系统盘后，调用 `PUT /workers/{worker_id}/default-disk`（见 7.3）设置默认启动盘（os_tag 引用具体盘），`menu-default` 随即切换为通用 OS 项 `boot-os`。
 
 只有要覆盖菜单行为时才传 `boot`：
 
@@ -812,16 +961,16 @@ Windows 安装期如果希望默认进入安装菜单，可以这样传：
 
 ### 说明
 
-给指定 Worker 创建系统盘 LUN。系统盘按系统分类，一个 Worker 可挂多个系统的盘（同一系统至多一个）。Control Plane 会：
+给指定 Worker 创建系统盘 LUN。系统盘按 (os, os_version) 分类，一个 Worker 可挂多个系统的盘（同一系统同一版本至多一块，不同版本可并存——同系统多版本靠盘级 `os_tag` 随机标识区分）。Control Plane 会：
 
-1. 校验 Worker 存在且尚未挂载该系统的盘（已存在时返回 `409`）
-2. 确定该系统盘对应的系统：请求体 `os` 必填，决定 IQN 后缀与文件名
+1. 校验 Worker 存在且尚未挂载该 (os, os_version) 的盘（已存在时返回 `409`）
+2. 生成盘级随机标识 `os_tag`（12 位 hex，数据面唯一键）——决定盘 NQN 后缀与文件名
 3. 选择存储 Agent（`disk_agent` 指定或自动选择）
-4. 拼接 IQN 和 backing filename（`base-iqn:worker-id.os`）
+4. 拼接盘 NQN（`base-nqn:worker-id.os.<os_tag>`）与 backing filename（`worker-id.os.<os_tag>.img`）
 5. 调用 Agent 创建磁盘 target（母盘克隆或空白盘）
 6. 更新 `state/workers.yml` 中该 Worker 的 `disks` 台账（追加到数组），首次建盘时 `state` 由 `registered` 转为 `ready`
 
-端点位于 `/luns/` 命名空间下，为将来数据盘（`/luns/data`）预留；多系统盘场景下，默认启动哪个系统由 `PUT /workers/{worker_id}/default-os` 的 `os` 决定。
+端点位于 `/luns/` 命名空间下，为将来数据盘（`/luns/data`）预留；多盘场景下，默认启动哪个盘由 `PUT /workers/{worker_id}/default-disk` 的 `disk`（os_tag）决定。
 
 ### Path 参数
 
@@ -836,7 +985,8 @@ Windows 安装期如果希望默认进入安装菜单，可以这样传：
 | `type` | 是 | `master` 或 `empty` |
 | `name` | 条件必填 | 当 `type=master` 时必填。表示母盘文件名 |
 | `size` | 条件必填 | 当 `type=empty` 时必填。表示空白盘大小，如 `40G` |
-| `os` | 是 | 该系统盘对应的系统（决定 IQN 后缀与文件名）。仅允许 `windows`、`ubuntu`、`debian`、`centos`、`esxi`（menu.ipxe 操作系统项） |
+| `os` | 是 | 系统备注（人类理解用，决定盘 NQN/文件名中的 os 段）。自由字符串，小写归一，**不做白名单校验**（2026-08-30 OS_ITEMS 退役） |
+| `os_version` | 否 | 版本备注（`''` = 无版本，默认）；同一 (os, os_version) 至多一块，不同版本可并存 |
 | `disk_agent` | 否 | 指定存储 Agent；不传时 Control Plane 自动选择 |
 
 ### 7.1.1 从母盘克隆
@@ -850,6 +1000,7 @@ curl -s -X POST "$BASE_URL/workers/worker-01/luns/disk" \
   -d '{
     "type": "master",
     "os": "ubuntu",
+    "os_version": "22.04",
     "name": "_tpl_ubuntu_2204.img"
   }'
 ```
@@ -879,11 +1030,13 @@ curl -s -X POST "$BASE_URL/workers/worker-00/luns/disk" \
   "disks": [
     {
       "agent": "storage-lio-01",
-      "nqn": "nqn.2026-07.com.controller:worker-01.ubuntu",  # NVMe-oF 数据面标识（权威，NQN 不用 IQN 定义）
-      "iqn": "iqn.2026-07.com.controller:worker-01.ubuntu",  # iSCSI 数据面标识（由 NQN 派生）
-      "filename": "worker-01.ubuntu.img",
-      "backing": "/home/iscsi_img/worker-01.ubuntu.img",
+      "nqn": "nqn.2026-07.com.controller:worker-01.ubuntu.0d26b6f33a89",  # NVMe-oF 数据面标识（权威，NQN 不用 IQN 定义；后缀带 os_tag）
+      "iqn": "iqn.2026-07.com.controller:worker-01.ubuntu.0d26b6f33a89",  # iSCSI 数据面标识（由 NQN 派生）
+      "filename": "worker-01.ubuntu.0d26b6f33a89.img",
+      "backing": "/home/iscsi_img/worker-01.ubuntu.0d26b6f33a89.img",
       "os": "ubuntu",
+      "os_version": "22.04",
+      "os_tag": "0d26b6f33a89",
       "source": {
         "type": "master",
         "name": "_tpl_ubuntu_2204.img"
@@ -906,10 +1059,12 @@ curl -s -X POST "$BASE_URL/workers/worker-00/luns/disk" \
   "disks": [
     {
       "agent": "storage-lio-01",
-      "iqn": "iqn.2026-07.com.controller:worker-00.ubuntu",
-      "filename": "worker-00.ubuntu.img",
-      "backing": "/home/iscsi_img/worker-00.ubuntu.img",
+      "iqn": "iqn.2026-07.com.controller:worker-00.ubuntu.5f1c2a3b4d5e",
+      "filename": "worker-00.ubuntu.5f1c2a3b4d5e.img",
+      "backing": "/home/iscsi_img/worker-00.ubuntu.5f1c2a3b4d5e.img",
       "os": "ubuntu",
+      "os_version": "",
+      "os_tag": "5f1c2a3b4d5e",
       "source": {
         "type": "empty",
         "size": "40G"
@@ -926,14 +1081,15 @@ curl -s -X POST "$BASE_URL/workers/worker-00/luns/disk" \
 
 批量部署场景：同一套盘参数应用到多个 Worker，每个 Worker 使用各自分配的存储节点（`targets[].agent` 必填——由 WebUI 的「接管所选 Worker」或拖拽指定产生，不存在默认公共分配）。
 
-与单盘一致：`master` 走母盘克隆、`empty` 建空白盘；同一 `os` 至多一块，已存在则**自动跳过**（不算失败）。**创建成功的 Worker 自动将 `default_os` 设为本次批量系统**——批量部署直接进入默认启动，无需再调 `PUT /workers/{worker_id}/default-os`（单盘接口不自动设置）。逐项独立执行，单项失败不影响其余，返回 `succeeded` / `skipped` / `failed` 汇总。
+与单盘一致：`master` 走母盘克隆、`empty` 建空白盘；同一 (os, os_version) 至多一块，已存在则**自动跳过**（不算失败）。**创建成功的 Worker 自动将 `default_disk` 设为本次批量盘的 `os_tag`**——批量部署直接进入默认启动，无需再调 `PUT /workers/{worker_id}/default-disk`（单盘接口不自动设置）。逐项独立执行，单项失败不影响其余，返回 `succeeded` / `skipped` / `failed` 汇总。
 
 #### 请求体字段
 
 | 字段 | 必填 | 说明 |
 |---|---:|---|
 | `type` | 是 | `master` 或 `empty` |
-| `os` | 是 | 该系统盘对应的系统（同一批次所有 Worker 相同，决定 IQN 后缀与文件名） |
+| `os` | 是 | 系统备注（同一批次所有 Worker 相同，决定盘 NQN/文件名中的 os 段；自由字符串，不做白名单校验） |
+| `os_version` | 否 | 版本备注（`''` = 无版本，默认） |
 | `name` | 条件必填 | 当 `type=master` 时必填。表示母盘文件名 |
 | `size` | 条件必填 | 当 `type=empty` 时必填。表示空白盘大小，如 `40G` |
 | `targets` | 是 | 数组，每项 `{worker_id, agent}`：Worker 编号 + 该 Worker 已分配的存储节点 |
@@ -961,11 +1117,11 @@ curl -s -X POST "$BASE_URL/workers/luns/disk/batch" \
 ```json
 {
   "succeeded": [
-    { "worker_id": "worker-01", "agent": "storage-lio-01", "iqn": "iqn.2026-07.com.controller:worker-01.ubuntu" },
-    { "worker_id": "worker-03", "agent": "storage-stgt-01", "iqn": "iqn.2026-07.com.controller:worker-03.ubuntu" }
+    { "worker_id": "worker-01", "agent": "storage-lio-01", "iqn": "iqn.2026-07.com.controller:worker-01.ubuntu.0d26b6f33a89" },
+    { "worker_id": "worker-03", "agent": "storage-stgt-01", "iqn": "iqn.2026-07.com.controller:worker-03.ubuntu.a1b2c3d4e5f6" }
   ],
   "skipped": [
-    { "worker_id": "worker-02", "reason": "already has a ubuntu system disk" }
+    { "worker_id": "worker-02", "reason": "already has a ubuntu 22.04 system disk" }
   ],
   "failed": [
     { "worker_id": "worker-04", "agent": "storage-lio-01", "error": "worker not found: worker-04" }
@@ -1017,10 +1173,12 @@ curl -s -X POST "$BASE_URL/workers/worker-win-build/luns/disk" \
   "disks": [
     {
       "agent": "storage-lio-01",
-      "iqn": "iqn.2026-07.com.controller:worker-win-build.windows",
-      "filename": "worker-win-build.windows.img",
-      "backing": "/home/iscsi_img/worker-win-build.windows.img",
+      "iqn": "iqn.2026-07.com.controller:worker-win-build.windows.9b8a7c6d5e4f",
+      "filename": "worker-win-build.windows.9b8a7c6d5e4f.img",
+      "backing": "/home/iscsi_img/worker-win-build.windows.9b8a7c6d5e4f.img",
       "os": "windows",
+      "os_version": "",
+      "os_tag": "9b8a7c6d5e4f",
       "source": {
         "type": "empty",
         "size": "80G"
@@ -1044,35 +1202,35 @@ curl -s -X POST "$BASE_URL/workers/worker-win-build/luns/disk" \
 
 | HTTP 状态码 | 常见原因 |
 |---:|---|
-| `400` | 参数格式错误；`os` 不在 {windows/ubuntu/debian/centos/esxi}；`type=master` 却没传 `name`；`type=empty` 却没传 `size` |
+| `400` | 参数格式错误；`os` 为空或含非法字符；`type=master` 却没传 `name`；`type=empty` 却没传 `size` |
 | `401` | 缺少 Token 或 Token 错误 |
 | `404` | 创建系统盘时 Worker 不存在 |
-| `409` | `worker_id` 已存在；`hostname` 已存在；MAC 已绑定；Worker 已有该系统盘（同 `os` 重复创建）；Agent 上 IQN 已存在；backing 文件已存在 |
+| `409` | `worker_id` 已存在；`hostname` 已存在；MAC 已绑定；Worker 已有该 (os, os_version) 系统盘（同版本重复创建）；Agent 上 IQN 已存在；backing 文件已存在 |
 | `500` | dnsmasq reload 失败；写文件失败；其他未预期错误 |
 | `503` | Agent 不可达；docker.sock 不可用 |
 
 ---
 
-## 7.3 PUT /workers/{worker_id}/default-os
+## 7.3 PUT /workers/{worker_id}/default-disk
 
 ### 说明
 
-**「默认启动系统」是干什么的**：一台 Worker 可以挂多块系统盘（同一系统至多一块，如 `ubuntu` + `windows`）。每次开机，iPXE 菜单在超时后会自动选中某一项启动——本端点配置的默认启动系统决定自动选中哪一项，同时决定 `/boot-vars` 投影哪块盘的连接信息（`base_nqn` / `storager_ip` 取默认启动盘，见 5 节）。不设置时菜单自动选 `reboot`，配合 1 毫秒超时循环重启，等待管理员完成配置，避免静默进错系统。
+**「默认启动盘」是干什么的**：一台 Worker 可以挂多块系统盘（同一系统同一版本至多一块，如 `ubuntu 22.04` + `windows`，同系统不同版本可并存）。每次开机，iPXE 菜单在超时后会自动选中某一项启动——本端点配置的默认启动盘决定自动选中哪一项，同时决定 `/boot-vars` 投影哪块盘的连接信息（`base_nqn` / `storager_ip` 取默认启动盘，见 5 节）。不设置时菜单自动选 `reboot`，配合 1 毫秒超时循环重启，等待管理员完成配置，避免静默进错系统。
 
-**注意**：`os` 不是系统盘的任意名称，而是 menu.ipxe 操作系统菜单项的 ID（与建盘 7.1 的 `os` 同枚举），与已挂系统盘一一对应。
+**注意**：`disk` 不是系统名，而是盘级随机标识 `os_tag`（建盘 7.1 时生成，12 位 hex，数据面唯一键）——同系统多版本共存时，只有 os_tag 能精确定位要默认启动的**具体盘**。
 
 `/boot-vars` 的 `menu_default` 推导链：
 
 ```text
-default_os（本端点 os 字段，优先）-> boot.menu_default（本端点 menu_default 字段）-> reboot（未配置，循环重启等待）
+default_disk（本端点 disk 字段，优先）-> boot.menu_default（本端点 menu_default 字段）-> reboot（未配置，循环重启等待）
 ```
 
 请求体三个字段可单独或组合传，至少传一个；传 `null`（或空字符串）表示清除对应项。可重复调用，后设覆盖先设——与注册时传入的 `boot`（见 7.0）写的是同一组台账字段。
 
 要求：
 
-- 设置 `os`：Worker 必须已有该系统盘（`POST /workers/{worker_id}/luns/disk` 创建的某个 `os`），否则返回 `400` 并列出当前系统盘；多盘模型下用 `os` 精确匹配要默认启动的系统
-- 设置 `menu_default`：值必须为 `menu.ipxe` 主菜单的 item ID（严格校验，防止 iPXE `choose --default` 落空）
+- 设置 `disk`：Worker 必须已有该 `os_tag` 对应的系统盘（`POST /workers/{worker_id}/luns/disk` 创建的某块盘），否则返回 `400` 并列出当前系统盘；多盘模型下用 `os_tag` 精确匹配要默认启动的盘
+- 设置 `menu_default`：值必须为 `menu.ipxe` 主菜单的 item ID（严格校验，防止 iPXE `choose --default` 落空）；OS 语义值（旧系统名）统一归一到通用 OS 项 `boot-os`
 - 设置 `menu_timeout`：非负整数；清除后恢复默认 `IPXE_CP_BOOT_MENU_TIMEOUT`
 
 ### Path 参数
@@ -1085,7 +1243,7 @@ default_os（本端点 os 字段，优先）-> boot.menu_default（本端点 men
 
 | 字段 | 必填 | 说明 |
 |---|---:|---|
-| `os` | 否 | 默认启动的系统（菜单项 ID，不是盘名）——仅允许 `windows` `ubuntu` `debian` `centos` `esxi`（与建盘 7.1 同枚举），不区分大小写（自动转小写），须与该 Worker 已挂系统盘一致；传 `null` 清除 |
+| `disk` | 否 | 默认启动盘的 `os_tag`（12 位 hex，精确引用具体盘），须与该 Worker 已挂盘一致；传 `null` 清除 |
 | `menu_default` | 否 | iPXE 主菜单默认项（菜单超时后自动选中），见下方合法值表；不区分大小写（自动转小写）；传 `null` 清除 |
 | `menu_timeout` | 否 | 菜单超时毫秒数，非负整数；传 `0` 表示菜单无限等待、永不自动选择（等人工按键）；传 `null` 清除，恢复默认 `IPXE_CP_BOOT_MENU_TIMEOUT`（当前 `5000`） |
 
@@ -1093,25 +1251,25 @@ default_os（本端点 os 字段，优先）-> boot.menu_default（本端点 men
 
 | 类别 | 合法值 |
 |---|---|
-| 操作系统 | `windows` `ubuntu` `debian` `centos` `esxi` |
+| 通用 OS 项 | `boot-os`（由默认盘配置推导，不在此手工设置；OS 语义旧值自动归一到此项） |
 | 工具 / 安装 | `menu-diag` `menu-install` |
 | 高级 | `config` `shell` `reboot` `exit` |
 
-### 示例：设置默认系统
+### 示例：设置默认启动盘
 
 ```bash
-curl -s -X PUT "$BASE_URL/workers/worker-01/default-os" \
+curl -s -X PUT "$BASE_URL/workers/worker-01/default-disk" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "os": "ubuntu"
+    "disk": "0d26b6f33a89"
   }'
 ```
 
 ### 示例：设置菜单默认项与超时
 
 ```bash
-curl -s -X PUT "$BASE_URL/workers/worker-win-build/default-os" \
+curl -s -X PUT "$BASE_URL/workers/worker-win-build/default-disk" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1120,42 +1278,42 @@ curl -s -X PUT "$BASE_URL/workers/worker-win-build/default-os" \
   }'
 ```
 
-### 示例：清除默认系统
+### 示例：清除默认启动盘
 
 ```bash
-curl -s -X PUT "$BASE_URL/workers/worker-01/default-os" \
+curl -s -X PUT "$BASE_URL/workers/worker-01/default-disk" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "os": null
+    "disk": null
   }'
 ```
 
 ### 成功返回
 
-返回该 Worker 的完整台账（含 `default_os`、`boot.menu_default`、`boot.menu_timeout` 等已设置字段）。
+返回该 Worker 的完整台账（含 `default_disk`、`boot.menu_default`、`boot.menu_timeout` 等已设置字段）。
 
 ### 常见错误
 
 | HTTP 状态码 | 常见原因 |
 |---:|---|
-| `400` | 三个字段都没传；`os` 与该 Worker 已挂载系统盘不一致；`menu_default` 不在合法值表；`menu_timeout` 为负数 |
+| `400` | 三个字段都没传；`disk` 与该 Worker 已挂盘不一致；`menu_default` 不在合法值表；`menu_timeout` 为负数 |
 | `401` | 缺少 Token 或 Token 错误 |
 | `404` | Worker 不存在 |
-| `409` | 设置 `os` 时 Worker 还没有系统盘 |
+| `409` | 设置 `disk` 时 Worker 还没有系统盘 |
 
 ---
 
-## 7.4 DELETE /workers/{worker_id}/luns/disk/{os}
+## 7.4 DELETE /workers/{worker_id}/luns/disk/{os_tag}
 
 ### 说明
 
-删除指定 Worker 的单个系统盘（按系统名，`os` 不区分大小写）。Control Plane 会：
+删除指定 Worker 的单个系统盘（按盘级随机标识 `os_tag`，12 位 hex）。Control Plane 会：
 
-1. 校验 Worker 存在且已挂载该系统盘（不存在时返回 `404`）
+1. 校验 Worker 存在且已挂载该 `os_tag` 对应的盘（不存在时返回 `404`）
 2. 调用该盘所在 Agent 删除 iSCSI target
 3. 从 `state/workers.yml` 的 `disks` 数组中移除该盘记录
-4. 联动清理：被删系统若为默认启动系统（`default_os`），一并清除 `default_os` 与同名的 `boot.menu_default`（防止 iPXE 启动到已删除的系统盘）
+4. 联动清理：被删盘若为默认启动盘（`default_disk` 等于该盘 `os_tag`），一并清除 `default_disk` 与同名（同 os）的 `boot.menu_default`（防止 iPXE 启动到已删除的系统盘）
 5. 删完最后一块盘时 `state` 由 `ready` 回退 `registered`（等待重新建盘）
 
 ### Query 参数
@@ -1168,28 +1326,28 @@ curl -s -X PUT "$BASE_URL/workers/worker-01/default-os" \
 ### 示例：删除系统盘但保留 .img
 
 ```bash
-curl -s -X DELETE "$BASE_URL/workers/worker-01/luns/disk/ubuntu" \
+curl -s -X DELETE "$BASE_URL/workers/worker-01/luns/disk/0d26b6f33a89" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
 ### 示例：删除系统盘并同时删除 .img 文件
 
 ```bash
-curl -s -X DELETE "$BASE_URL/workers/worker-01/luns/disk/ubuntu?delete_file=true" \
+curl -s -X DELETE "$BASE_URL/workers/worker-01/luns/disk/0d26b6f33a89?delete_file=true" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
 ### 成功返回
 
-返回该 Worker 的完整台账（`disks` 已不含被删系统盘；若为默认系统，`default_os`/`boot.menu_default` 已被清除；无盘时 `state=registered`）。
+返回该 Worker 的完整台账（`disks` 已不含被删系统盘；若为默认盘，`default_disk`/`boot.menu_default` 已被清除；无盘时 `state=registered`）。
 
 ### 常见错误
 
 | HTTP 状态码 | 常见原因 |
 |---:|---|
-| `400` | `os` 非法 |
+| `400` | `os_tag` 非法（非 12 位 hex） |
 | `401` | 缺少 Token 或 Token 错误 |
-| `404` | Worker 不存在，或该 Worker 没有此系统盘 |
+| `404` | Worker 不存在，或该 Worker 没有此 `os_tag` 对应的盘 |
 
 ---
 
@@ -1760,15 +1918,16 @@ curl -s -X POST "$BASE_URL/workers/worker-00/luns/disk" \
 ### 13.6 设置默认启动配置
 
 ```bash
-curl -s -X PUT "$BASE_URL/workers/worker-00/default-os" \
+# disk = 13.5 建盘返回的 os_tag（12 位 hex 随机标识，精确引用具体盘）
+curl -s -X PUT "$BASE_URL/workers/worker-00/default-disk" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "os": "ubuntu"
+    "disk": "0d26b6f33a89"
   }'
 ```
 
-此时 `/boot-vars` 的 `menu-default` 返回 `ubuntu`。菜单项与超时的设置示例见 7.3。
+此时 `/boot-vars` 的 `menu-default` 返回 `boot-os`（2026-08-30 MAIN MENU 动态化：OS 项已收敛为唯一通用项）。菜单项与超时的设置示例见 7.3。
 
 ### 13.7 查询 Worker 台账
 
@@ -1799,7 +1958,7 @@ curl -s -X DELETE "$BASE_URL/workers/worker-00?delete_disk=false" \
 
 ### 说明
 
-Control Plane 可以直接管理任意 Agent 上的 iSCSI target/LUN。请求经 Control Plane 转发到 Agent（Agent 的 Bearer token 由 `config/agents.yml` 提供），因此调用方只需持有 Control Plane Token，无需直接接触 Agent。
+Control Plane 可以直接管理任意 Agent 上的 iSCSI target/LUN。请求经 Control Plane 转发到 Agent（mTLS，控制面组件客户端证书绑定内部 CA，K8S 同构），因此调用方只需持有 Control Plane Token，无需直接接触 Agent。
 
 与 Worker 生命周期接口（`POST /workers`、`DELETE /workers/{worker_id}`）的区别：
 
@@ -2260,7 +2419,7 @@ curl -X POST "http://<host>:4839/devices/bind/batch" \
 - boot-vars 防冒领（绑定即认证，5 节）
 - iPXE 设备信息上报（11 字段指纹，`GET /devices/report`，窗口期注册只入池不建 Worker）
 - Worker 系统盘创建（`POST /workers/{worker_id}/luns/disk`）
-- Worker 默认启动配置设置（系统 / 菜单项 / 超时，`PUT /workers/{worker_id}/default-os`）
+- Worker 默认启动配置设置（默认盘 / 菜单项 / 超时，`PUT /workers/{worker_id}/default-disk`）
 - Worker 删除
 - Agent 选择
 - Agent LUN 直管（列出 / 创建磁盘 / 创建 CD / 删除 / 扫描）
@@ -2268,7 +2427,8 @@ curl -X POST "http://<host>:4839/devices/bind/batch" \
 - Windows ISO 特例
 - dnsmasq 主机名绑定
 - Worker 与操作轨迹查询
-- 多系统盘（一个 Worker 可挂载多个系统的系统盘，同一系统至多一个，由 `os` 区分、`default_os` 决定默认启动）
+- 多系统盘（一个 Worker 可挂载多个系统盘：同一 (os, os_version) 至多一块、不同版本可并存，盘级 `os_tag` 区分，`default_disk` 决定默认启动）
+- 母盘标签登记（os / os_version 备注，`PUT/DELETE /agents/{agent_id}/masters/{master_name}/tag`，6.4 节；`/masters` 聚合合并展示）
 - NVMe-oF 认证凭据库（DHHC-1，按 Worker 跟盘，7.7 节；/boot-vars 注入 `nbft_secret`，5 节）
 - 凭据推送驱动（凭据设置/吊销、绑定/解绑/换绑、建盘/删盘、删 Worker 时推送 Agent，Agent 转调 nvmet 宿主服务同步 hosts 矩阵）
 

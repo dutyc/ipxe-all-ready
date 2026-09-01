@@ -63,6 +63,36 @@ class DeviceStore:
         _atomic_write_text(self.devices_file, yaml.safe_dump(data, sort_keys=True, allow_unicode=False))
 
 
+class MasterTagStore:
+    """母盘标签台账（masters.yml）：键 = agent_id → 母盘名 → {os, os_version}。
+    标签为备注性质（人类理解用），由控制面登记；母盘本体在 Agent 侧文件系统扫描。
+    按库表形态建模（未来 masters(agent_id, name, os, os_version) 表）：字段原子、
+    空版本用 ''（避免 SQL NULL 不参与复合唯一键的语义陷阱）。"""
+
+    def __init__(self, masters_file: Path):
+        self.masters_file = masters_file
+        self._lock = threading.RLock()
+
+    @contextmanager
+    def locked(self):
+        with self._lock:
+            yield
+
+    def load(self) -> dict[str, Any]:
+        data = _load_yaml(self.masters_file, {"masters": {}})
+        masters = data.get("masters")
+        if masters is None:
+            data["masters"] = {}
+        if not isinstance(data["masters"], dict):
+            raise ValueError(f"invalid masters file: {self.masters_file}")
+        return data
+
+    def save(self, data: dict[str, Any]) -> None:
+        if "masters" not in data:
+            data["masters"] = {}
+        _atomic_write_text(self.masters_file, yaml.safe_dump(data, sort_keys=True, allow_unicode=False))
+
+
 class CredentialStore:
     """NVMe-oF 认证凭据库（credentials.yml）：键 = worker_id（按 Worker 跟盘裁定，2026-08-22）。
     原子写 + 线程锁，模式同 FileStateStore/DeviceStore。DHHC-1 明文（启动注入必需）与

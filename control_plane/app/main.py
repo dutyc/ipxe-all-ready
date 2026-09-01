@@ -9,8 +9,8 @@ import logging
 
 from fastapi import FastAPI
 
-from . import cert_bootstrap, config
-from .routers import agents, boot, devices, operations, settings, workers
+from . import cert_bootstrap, config, pki
+from .routers import agents, boot, devices, enroll, operations, settings, workers
 
 log = logging.getLogger("control-plane")
 
@@ -23,6 +23,7 @@ app.include_router(settings.router)
 app.include_router(agents.router)
 app.include_router(workers.router)
 app.include_router(operations.router)
+app.include_router(enroll.router)
 
 # 启动时执行一次旧数据迁移（幂等；失败仅记日志，不阻断启动）
 devices.migrate_legacy_devices()
@@ -32,3 +33,12 @@ try:
     cert_bootstrap.ensure_server_cert(config.settings.cert_dir, config.settings.cert_san, config.settings.cert_days)
 except Exception:
     log.exception("cert: failed to ensure server certificate")
+
+# 启动时幂等生成组件 PKI：内部 CA + 控制面自身 client cert（cp→agent 的 mTLS 客户端身份）
+try:
+    ca_cert, ca_key = pki.ensure_ca(config.settings.pki_dir)
+    pki.ensure_control_plane_client_cert(
+        config.settings.pki_dir, ca_cert, ca_key, config.settings.control_plane_component,
+    )
+except Exception:
+    log.exception("pki: failed to ensure component PKI")

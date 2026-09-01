@@ -59,12 +59,16 @@ class CredentialRequest(BaseModel):
 
 
 class CreateWorkerDiskRequest(BaseModel):
-    """给指定 Worker 创建系统盘 LUN（母盘克隆或空白盘）。os 为该盘对应的系统，决定 IQN 后缀与文件名。"""
+    """给指定 Worker 创建系统盘 LUN（母盘克隆或空白盘）。os 为系统备注（人类理解用）；
+    os_version 可空（'' = 无版本）；os_tag 由服务端随机生成（盘级标识，进 NQN/文件名）；
+    remark 为盘备注（自由文本，可空）。"""
     type: Literal["master", "empty"]
     os: str
+    os_version: str = ""
     name: str | None = None
     size: str | None = None
     disk_agent: str | None = None
+    remark: str = ""
 
 
 class AgentRoleRequest(BaseModel):
@@ -75,18 +79,16 @@ class AgentRoleRequest(BaseModel):
 
 class ProbeAgentRequest(BaseModel):
     """探测 Agent 并自动推导注册参数（预览，不写任何文件）。
-    agent_id 可选：编辑场景 token 留空时，使用注册表中该 Agent 的 token 探测。"""
+    身份由 mTLS 组件证书承载（K8S 同构），无需 token。"""
     base_url: str
-    token: str = ""
     agent_id: str | None = None
 
 
 class CreateAgentRequest(BaseModel):
-    """注册新 Agent 到 agents.yml。token 支持 ${ENV} 占位（Control Plane 读取时展开）；
+    """注册新 Agent 到 agents.yml。
     tags 自由标签（如 storage/lio/stgt），仅作展示。"""
     id: str
     base_url: str
-    token: str = ""
     storager_ip: str | None = None
     role: AgentRoleRequest = Field(default_factory=AgentRoleRequest)
     tags: list[str] = Field(default_factory=list)
@@ -94,10 +96,8 @@ class CreateAgentRequest(BaseModel):
 
 
 class UpdateAgentRequest(BaseModel):
-    """更新已有 Agent 的配置（id 不可改，走路径参数）。
-    token 传空字符串 = 保持原值（API 不回显 token，前端无法回填）。"""
+    """更新已有 Agent 的配置（id 不可改，走路径参数）。"""
     base_url: str
-    token: str = ""
     storager_ip: str | None = None
     role: AgentRoleRequest = Field(default_factory=AgentRoleRequest)
     tags: list[str] = Field(default_factory=list)
@@ -120,20 +120,31 @@ class BatchDeleteWorkersRequest(BaseModel):
 
 class BatchCreateWorkerDiskRequest(BaseModel):
     """批量创建系统盘：同一套盘参数应用到 targets 指定的多个 Worker，
-    每个 Worker 使用各自分配的存储节点（agent）。同一 os 至多一块，重复自动跳过。"""
+    每个 Worker 使用各自分配的存储节点（agent）。同一 (os, os_version) 至多一块，重复自动跳过；
+    remark 为盘备注（自由文本，可空）。"""
     type: Literal["master", "empty"]
     os: str
+    os_version: str = ""
     name: str | None = None
     size: str | None = None
     targets: list[BatchDiskTarget]
+    remark: str = ""
 
 
 class SetWorkerDefaultBootRequest(BaseModel):
-    """设置 Worker 默认启动配置。os=默认系统（须与已挂系统盘一致）；
-    menu_default/menu_timeout=菜单项覆盖；传 null 清除对应项。推导链：default_os > boot.menu_default > reboot。"""
-    os: str | None = None
+    """设置 Worker 默认启动配置。disk=默认启动盘（os_tag，须为已挂系统盘）；
+    menu_default/menu_timeout=菜单项覆盖；传 null 清除对应项。推导链：default_disk > boot.menu_default > reboot。"""
+    disk: str | None = None
     menu_default: str | None = None
     menu_timeout: int | None = None
+
+
+class MasterTagRequest(BaseModel):
+    """母盘标签登记（控制面台账，备注性质）：os 为系统备注，os_version 可空（'' = 无版本），
+    remark 为自由文本备注（可空，不做枚举校验）。"""
+    os: str
+    os_version: str = ""
+    remark: str = ""
 
 
 class OpenRegistrationWindowRequest(BaseModel):

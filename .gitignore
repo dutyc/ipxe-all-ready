@@ -4,7 +4,8 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 app/node_modules
-
+.tmp-pkidemo/
+.npm-cache/
 # Python 虚拟环境
 .venv/
 .venv*/
@@ -22,6 +23,9 @@ webui/app/node_modules
 
 # WebUI 构建产物（vite build 生成，不入库）
 webui/app/dist/
+
+# CLI 构建产物（go build 生成，不入库）
+cli/kurrent
 
 # 固件仓库对接测试指南（归属 kurrent-firmware 仓库侧，待搬迁后删除）
 firmware-connectivity-test-guide.zh.md
@@ -41,6 +45,7 @@ user_report/
 webui/deploy/public/install/debian/12/netboot
 webui/deploy/public/install/windows/24h2/boot
 webui/deploy/public/install/windows/24h2/sources
+storager_img/
 
 
 .env.local
@@ -65,10 +70,16 @@ control_plane/state/devices.yml
 control_plane/state/credentials.yml
 # TOFU 自签证书（控制面启动时自动生成，含私钥，不入库）
 control_plane/state/certs/
+# 组件 PKI 与 bootstrap token（运行时签发，含私钥与 token 摘要，不入库）
+control_plane/state/pki/
+# 母盘标签台账（运行时生成，不入库）
+control_plane/state/masters.yml
 # 根级误落盘防再犯：未设 env 重定向的本地运行以仓库根为 cwd 时，control_plane 默认相对路径会在此落盘（测试产物）
 /state/
 /config/
 storager/agent/logs/ops.jsonl
+# DHHC-1 明文凭据缓存（运行时生成，mode 0600，不入库）
+storager/agent/logs/nvmet-credentials.json
 dnsmasq/dnsmasq.leases
 dnsmasq/dhcp-hosts.conf
 dnsmasq/dnsmasq.conf

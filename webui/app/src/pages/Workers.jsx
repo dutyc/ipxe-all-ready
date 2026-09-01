@@ -8,15 +8,8 @@ import Select from '../components/Select'
 import Badge from '../components/Badge'
 import ConfirmAction from '../components/ConfirmAction'
 import EmptyState from '../components/EmptyState'
+import Modal from '../components/Modal'
 import './Workers.css'
-
-const OS_OPTIONS = [
-  { value: 'ubuntu', label: 'Ubuntu' },
-  { value: 'debian', label: 'Debian' },
-  { value: 'centos', label: 'CentOS' },
-  { value: 'esxi', label: 'ESXi' },
-  { value: 'windows', label: 'Windows' },
-]
 
 function useForm(initial) {
   const [values, setValues] = useState(initial)
@@ -54,7 +47,8 @@ export default function Workers() {
   const [mastersData, setMastersData] = useState(null)
   const [assign, setAssign] = useState({})
   const [spreadIds, setSpreadIds] = useState([])
-  const [batchForm, setBatchForm] = useState({ os: 'ubuntu', type: 'empty', name: '', size: '40G', master: '' })
+  const [batchForm, setBatchForm] = useState({ os: 'ubuntu', os_version: '', type: 'empty', name: '', size: '40G', master: '', remark: '' })
+  const [diskModalOpen, setDiskModalOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [batchError, setBatchError] = useState(null)
   const [batchResult, setBatchResult] = useState(null)
@@ -292,7 +286,7 @@ export default function Workers() {
     setSubmitting(true)
     setBatchError(null)
     setBatchResult(null)
-    const body = { type: batchForm.type, os: batchForm.os, targets }
+    const body = { type: batchForm.type, os: batchForm.os, os_version: batchForm.os_version.trim(), remark: batchForm.remark.trim(), targets }
     if (batchForm.type === 'master') {
       body.name = batchForm.master.trim()
     } else {
@@ -301,6 +295,7 @@ export default function Workers() {
     try {
       const res = await batchCreateWorkerDisks(body)
       setBatchResult(res)
+      setDiskModalOpen(false)
       await fetchWorkers()
     } catch (err) {
       setBatchError(err.message)
@@ -579,53 +574,11 @@ export default function Workers() {
             <p className="batch-hint">{t('workers.batch.autoDefaultHint')}</p>
             <p className="batch-hint">{t('workers.batch.rangeHint')}</p>
 
-            <form className="batch-form" onSubmit={handleBatchCreate}>
-              <Select
-                label={t('workers.os')}
-                name="os"
-                value={batchForm.os}
-                onChange={(e) => setBatchForm((prev) => ({ ...prev, os: e.target.value }))}
-                options={OS_OPTIONS}
-              />
-              <Select
-                label={t('workers.diskType')}
-                name="type"
-                value={batchForm.type}
-                onChange={(e) => setBatchForm((prev) => ({ ...prev, type: e.target.value }))}
-                options={DISK_TYPE_OPTIONS}
-              />
-              {batchForm.type === 'master' ? (
-                <>
-                  <Select
-                    label={t('workers.masterName')}
-                    name="disk_name"
-                    value={batchForm.master}
-                    onChange={handleMasterSelect}
-                    options={masterOptions}
-                    placeholder={masterOptions.length === 0 ? t('workers.noMasters') : t('workers.masterSelectPlaceholder')}
-                    required
-                  />
-                  {masterOptions.length > 0 && (
-                    <p className="batch-hint">{t('workers.batch.spreadMasterHint')}</p>
-                  )}
-                </>
-              ) : (
-                <Input
-                  label={t('workers.diskSize')}
-                  name="disk_size"
-                  value={batchForm.size}
-                  onChange={(e) => setBatchForm((prev) => ({ ...prev, size: e.target.value }))}
-                  placeholder={t('workers.diskSizePlaceholder')}
-                  required
-                />
-              )}
-
-              {batchError && <p className="batch-error">{batchError}</p>}
-
-              <Button type="submit" disabled={submitting}>
-                {submitting ? t('workers.batch.creating') : t('workers.batch.create')}
+            <div className="batch-actions">
+              <Button variant="primary" disabled={submitting} onClick={() => setDiskModalOpen(true)}>
+                {t('workers.batch.create')}
               </Button>
-            </form>
+            </div>
 
             {batchResult && (
               <div className="batch-result">
@@ -653,6 +606,85 @@ export default function Workers() {
               </div>
             )}
           </aside>
+        )}
+
+        {diskModalOpen && (
+          <Modal
+            title={t('workers.batch.enter')}
+            width="640px"
+            onClose={() => setDiskModalOpen(false)}
+            footer={
+              <>
+                <Button type="submit" form="workers-batch-disk-create" disabled={submitting}>
+                  {submitting ? t('workers.batch.creating') : t('workers.batch.create')}
+                </Button>
+                <Button variant="ghost" onClick={() => setDiskModalOpen(false)} disabled={submitting}>
+                  {t('workers.cancel')}
+                </Button>
+              </>
+            }
+          >
+            <form id="workers-batch-disk-create" onSubmit={handleBatchCreate}>
+              <p className="create-hint">{t('workers.batch.selected', { count: selected.length })}</p>
+              <div className="create-form-grid">
+                <Input
+                  label={t('workers.os')}
+                  name="os"
+                  value={batchForm.os}
+                  onChange={(e) => setBatchForm((prev) => ({ ...prev, os: e.target.value }))}
+                  placeholder={t('workers.osPlaceholder')}
+                  required
+                />
+                <Input
+                  label={t('workers.osVersion')}
+                  name="os_version"
+                  value={batchForm.os_version}
+                  onChange={(e) => setBatchForm((prev) => ({ ...prev, os_version: e.target.value }))}
+                  placeholder={t('workers.osVersionPlaceholder')}
+                />
+                <Input
+                  label={t('workers.remark')}
+                  name="remark"
+                  value={batchForm.remark}
+                  onChange={(e) => setBatchForm((prev) => ({ ...prev, remark: e.target.value }))}
+                  placeholder={t('workers.remarkPlaceholder')}
+                />
+                <Select
+                  label={t('workers.diskType')}
+                  name="type"
+                  value={batchForm.type}
+                  onChange={(e) => setBatchForm((prev) => ({ ...prev, type: e.target.value }))}
+                  options={DISK_TYPE_OPTIONS}
+                />
+                {batchForm.type === 'master' ? (
+                  <>
+                    <Select
+                      label={t('workers.masterName')}
+                      name="disk_name"
+                      value={batchForm.master}
+                      onChange={handleMasterSelect}
+                      options={masterOptions}
+                      placeholder={masterOptions.length === 0 ? t('workers.noMasters') : t('workers.masterSelectPlaceholder')}
+                      required
+                    />
+                    {masterOptions.length > 0 && (
+                      <p className="create-hint">{t('workers.batch.spreadMasterHint')}</p>
+                    )}
+                  </>
+                ) : (
+                  <Input
+                    label={t('workers.diskSize')}
+                    name="disk_size"
+                    value={batchForm.size}
+                    onChange={(e) => setBatchForm((prev) => ({ ...prev, size: e.target.value }))}
+                    placeholder={t('workers.diskSizePlaceholder')}
+                    required
+                  />
+                )}
+              </div>
+              {batchError && <p className="create-error">{batchError}</p>}
+            </form>
+          </Modal>
         )}
 
         <div className="workers-main">

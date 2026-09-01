@@ -12,6 +12,55 @@
 
 ---
 
+## 2026-09-01
+
+### 修复
+
+- **enroll token 消耗顺序（nvmet-host 重试不再烧 token）**——`POST /enroll` 先校验在册再 consume：nvmet-host 与 agent 共享 agent_id，agent 未登记时 400 拒绝且 token 保持可用（restart 重试即 201），消除「400 但 token 已 used」崩溃循环；回归测试 `test_nvmet_token_not_burned_when_agent_missing`
+- **storager-agent 镜像旧导致 base_url 上报缺失**——容器内 `pki_client.py` 为旧版（`docker compose up -d` 不带 `--build` 不更新 COPY 层，宿主文件与镜像内文件不同步），`--build` 重建镜像并重走 join 后恢复 base_url 登记
+
+### 变更
+
+- **Agent 能力上报（K8S `--node-labels` 同构）**——`pki_client.py` 引导时随 enroll 上报 `capabilities`（backend/cd；映射表 `BACKEND_CD_CAPABILITY`：stgt 支持 CD，lio/nvmet 不支持）；`/enroll` 自动登记据此推导 `tags=[auto, storage, <backend>]` 与 `role.cd`；旧 agent 缺省兼容（tags=auto、role.cd 默认 false）
+- **光驱能力 UI 隐藏策略（不支持的后端不显示）**——AgentLuns 详情页：`role.cd=false` 时隐藏「+ 创建光驱」按钮与提示（移除写死 LIO 文案）、状态栏 cd 标记条件显示；Agents 列表页光驱属性行仅 `capabilities.cd=true` 时显示；i18n 键拆分（`statusRole`/`statusRoleCd`）
+
+### 新增
+
+- 回归测试 4 用例（token 不烧 1 + 能力推导 3：nvmet/stgt/旧兼容），控制面全量 187 测试通过
+
+---
+
+## 2026-08-31
+
+### 新增
+
+- **组件 PKI 体系（kubeadm 同构：bootstrap token + 组件证书 mTLS）**——控制面 `pki.py`：CA 自举（`state/pki/`）、bootstrap token 签发与一次性消耗（复合键 `agent_id/component`，Bearer 头携带）、组件证书签发（client/serving 双证书，CSR 控制面签发、serving SAN 校验）；`POST /enroll` 登记端点（agent_id/component/双 CSR/serving_sans/base_url），agent 与 nvmet-host 共享 agent_id，agent 自动登记（首次引导写入 agents.yml：base_url、role_disk、tags=auto）；`storager/agent` 与 `nvmet-host` 各新增 `pki_client.py` 引导客户端（首次引导 enroll → 证书落盘 → 到期自动续签，`KURRENT_*` 环境变量驱动，`KURRENT_ADVERTISE_URL` 支持 base_url 上报）
+- **一键加入（kurrent-join.sh + CLI）**——`storager/kurrent-join.sh` 幂等 upsert `.env`（agent_id/bootstrap token/CP 地址/backend 等 8 键）+ `docker compose up -d`；`cli/`（Go）`kurrent join` 命令（连接控制面 → 签发 agent/nvmet-host 双 bootstrap token → 本地执行 join 脚本）+ `agents/nodes/workers` 子命令；`tests/scripts/test_kurrent_join.sh` 端到端脚本测试
+- **Agent 管理 WebUI 增强**——Agents 页 agent 详情卡（backend/tags/base_url/health）、AgentLuns 操作面板、全局 `Modal.jsx` 组件、Layout 侧边栏重构（收起态）
+- 组件 PKI 与一键加入测试套件——`tests/control_plane/test_join_flow.py`（join 全流程）、`tests/agent/test_pki_client.py`、`tests/pki_testkit.py`（测试 CA 工具）、`tests/scripts/test_kurrent_join.sh`；既有测试夹具同步 mTLS 化
+
+### 变更
+
+- **nginx 客户端 mTLS 认证**——`/agents/*`、`/luns/*` 等 agent 通道要求控制面 CA 签发证书，与 agent/nvmet-host 证书体系闭环；`nginx.conf` 新增 `ssl_verify_client` 配置
+- **storager-agent / nvmet-host mTLS 化**——两组件对外调用改走 pki_client 证书（`agent_client.py` 双端适配），`/capabilities` 端点返回 backend/cd；nvmet-host 接入 `KURRENT_BACKEND`/`AGENT_PKI_HOST` 等配置；docker-compose/Dockerfile/requirements/.env.example 配套更新
+- **WebUI 全站改造**——Agents/AgentLuns/Operations/WorkerDetail/Workers 页面重写（详情页布局：顶部状态栏 + 分类 Tab）；控制面 `agent_client.py`/`config.py`/`main.py` mTLS 与证书链适配
+
+---
+
+## 2026-08-30
+
+### 变更
+
+- **母盘身份标签分层模型（os_tag 盘级随机标识，2026-08-30 裁定）**——数据面唯一标识 = `worker_id.os.<os_tag>`（os_tag = 12 位 hex 随机串，`secrets.token_hex(6)`，docker 容器 ID 短形式；进盘 NQN / 文件名，IQN 由 NQN 派生）；上层台账 = (os, os_version, os_tag) 备注性质（人类理解用）；`build_nqn`/`build_disk_filename` 后缀带 os_tag（`worker-01.ubuntu.0d26b6f33a89`）；盘唯一性改为同一 worker 同一 (os, os_version) 至多一块（`find_disk_by_os_version`，空版本用 `''` 参与唯一键），同系统不同版本可并存；删盘/默认启动改按 os_tag 引用（`find_disk_by_tag`）
+- **OS_ITEMS 退役（建盘 os 校验放开）**——2026-08-30 起不再存在合法 OS 集合：建盘 `os` 为自由字符串（小写归一，仅格式校验），同系统多版本靠盘级 os_tag 区分；`CreateWorkerDiskRequest`/`BatchCreateWorkerDiskRequest` 新增 `os_version` 字段（空 = 无版本）；`PUT /workers/{worker_id}/default-disk`（原 `/default-os` 废止）`disk` = 盘 os_tag（12 hex，精确引用具体盘），`menu_default` 严格校验集合收敛为导航项 + 遗留 OS 名（归一为 `boot-os`）
+- **boot-vars 从默认盘投影系统标识 + menu 归一（MAIN MENU 动态化）**——`/boot-vars` 新增 `os`/`os_version`/`os_tag` 字段（来源 = 默认盘记录投影，与盘 NQN 后缀同源；空版本不下发），`base_nqn` 语义 = 盘 NQN 前缀（统一模板 `base:worker_id.os.<os_tag>`）；`menu_default` 推导链 `default_disk > boot.menu_default > reboot`，OS 语义默认值统一归一为唯一通用项 `boot-os`；`tftp/menu.ipxe` 主菜单收敛为唯一 OS 项（`os-label` 拼版本展示、root-path 拼 `${hostname}.${os}.${os-tag}`，新增 OS 无需改脚本）；WebUI WorkerDetail 建盘表单/默认启动选择器（os_tag）/boot-vars 预览、Workers 批量建盘同步；api/ 两份 API 文档全量同步（6.4 母盘标签新节、7.0-7.4 重写、13.6/17 节）
+
+### 新增
+
+- **母盘标签登记台账 + 端点（控制面登记，备注性质）**——`state/masters.yml`（`MasterTagStore`，键 = agent_id → 母盘名 → {os, os_version}，库表形态：字段原子、空版本 `''`）；`PUT/DELETE /agents/{agent_id}/masters/{master_name}/tag` 登记/清除（不校验母盘存在性，Agent 离线台账即权威）；`GET /masters` 聚合时合并标签（有登记附加 os/os_version，未登记不附加）；`KURRENT_CP_MASTERS_FILE` 配置项；WebUI AgentLuns 页母盘标签登记面板（编辑/保存/清除）；控制面测试新增母盘标签 8 用例，全量 203 测试通过
+
+---
+
 ## 2026-08-24
 
 ### 修复

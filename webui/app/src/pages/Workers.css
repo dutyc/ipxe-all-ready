@@ -182,18 +182,26 @@
   gap: 10px;
 }
 
+/* ===== Workers main column ===== */
+.workers-main {
+  flex: 1;
+  min-width: 0;
+}
+
 /* ===== Batch Layout（左侧参数 / 列表 / 右侧存储节点） =====
- * 侧边栏悬浮于视口两侧（fixed），不挤占原 Worker 列表宽度；
- * left/right 用 max() 贴容器外缘：宽屏时对齐 1100px 容器外侧，窄屏时贴视口边缘 */
+ * 批量模式三栏在页面流内展开（非悬浮）：左右面板 sticky 跟随滚动，不遮挡内容 */
 .workers-batch-layout {
-  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
 }
 
 .batch-sidebar {
-  position: fixed;
-  top: 76px;
+  position: sticky;
+  top: 16px;
   width: 230px;
-  max-height: calc(100vh - 100px);
+  flex-shrink: 0;
+  max-height: calc(100vh - 32px);
   overflow-y: auto;
   z-index: 90;
   background: var(--white);
@@ -203,11 +211,24 @@
 }
 
 .batch-sidebar-left {
-  left: max(16px, calc((100vw - 1100px) / 2 - 246px));
+  /* 页面流内：位于列表左侧 */
 }
 
 .batch-sidebar-right {
-  right: max(16px, calc((100vw - 1100px) / 2 - 246px));
+  /* 页面流内：位于列表右侧 */
+}
+
+/* 窄屏：三栏改为纵向堆叠（面板不再 sticky） */
+@media (max-width: 1100px) {
+  .workers-batch-layout {
+    flex-direction: column;
+  }
+
+  .batch-sidebar {
+    position: static;
+    width: 100%;
+    max-height: none;
+  }
 }
 
 .batch-sidebar-title {
@@ -233,10 +254,7 @@
   margin-bottom: 8px;
 }
 
-.batch-form {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.batch-actions {
   margin-top: 12px;
 }
 

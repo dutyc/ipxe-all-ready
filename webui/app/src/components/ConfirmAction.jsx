@@ -8,6 +8,7 @@ export default function ConfirmAction({
   message,
   onConfirm,
   extraFields,
+  details,
 }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
@@ -40,6 +41,7 @@ export default function ConfirmAction({
         <div className="confirm-overlay" onClick={handleClose}>
           <div className="confirm-box" onClick={(e) => e.stopPropagation()}>
             <p className="confirm-msg">{message}</p>
+            {details && <div className="confirm-details">{details}</div>}
             {extraFields && (
               <div className="confirm-extra">
                 {extraFields.map((f) => (

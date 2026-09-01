@@ -2,6 +2,8 @@
 
 storager/agent/app 注入 sys.path（顶层 app 包名与 control_plane.app / nvmet_host_main
 均不冲突），KURRENT_* 环境变量在 import 前全量设置（main.py 顶层 _require_env）。
+PKI 引导跳过：预生成占位 client.crt（长有效期）使 ensure_pki() 走 ready 分支，
+单测不连控制面（引导/轮换/证书落盘由部署集成测试覆盖）。
 """
 
 import os
@@ -14,16 +16,21 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 AGENT_DIR = PROJECT_ROOT / "storager" / "agent"
 sys.path.insert(0, str(AGENT_DIR))  # 注入 agent 目录：import app → agent/app 包
+sys.path.insert(0, str(PROJECT_ROOT / "tests"))  # pki_testkit 共享工具
+
+from pki_testkit import gen_pki_dir  # noqa: E402
 
 _STATE = Path(tempfile.mkdtemp(prefix="storager-agent-test-"))
 os.environ["KURRENT_DISK_DIR"] = str(_STATE / "disks")
 os.environ["KURRENT_NQN_BASE"] = "nqn.2026-07.com.test"
 os.environ["KURRENT_BACKEND"] = "nvmet"
-os.environ["KURRENT_AGENT_TOKEN"] = "test-agent-token"
 os.environ["KURRENT_LOG_FILE"] = str(_STATE / "ops.jsonl")
-os.environ["KURRENT_NVMET_HOST_URL"] = "http://127.0.0.1:4841"
-os.environ["KURRENT_NVMET_HOST_TOKEN"] = "test-host-token"
+os.environ["KURRENT_NVMET_HOST_URL"] = "https://127.0.0.1:4841"
 os.environ["KURRENT_NVMET_CACHE_FILE"] = str(_STATE / "nvmet-credentials.json")
+_PKI_DIR = gen_pki_dir(_STATE / "pki")
+os.environ["KURRENT_PKI_DIR"] = str(_PKI_DIR)
+os.environ["KURRENT_AGENT_ID"] = "test-agent-01"
+os.environ["KURRENT_CP_ENROLL_URL"] = "https://127.0.0.1"
 
 import app.main as agent_main  # noqa: E402
 
@@ -112,6 +119,7 @@ def agent_client(monkeypatch, fake_host, tmp_path):
     return client, fake, calls
 
 
-@pytest.fixture()
-def auth_headers():
-    return {"Authorization": "Bearer test-agent-token"}
+@pytest.fixture(scope="session")
+def pki_dir():
+    """测试 PKI 目录（conftest 顶层生成）：NvmetHostClient 构造 SSLContext 用（请求被 mock）。"""
+    return _PKI_DIR

@@ -1,5 +1,7 @@
 """Worker 域（Bearer 鉴权）：CRUD / 批量 / MAC 换绑 / 系统盘（mock agent）/ 默认启动 / 删除。"""
 
+import re
+
 import pytest
 
 MAC_A = "00:11:22:33:44:55"
@@ -11,7 +13,7 @@ MAC_C = "00:11:22:33:44:77"
 def register_agent(client, auth_headers, mock_agent_client):
     """注册磁盘角色 Agent（mock client 已就位，无网络）。"""
     res = client.post("/agents", json={
-        "id": "ag-01", "base_url": "http://ag-01:8000", "token": "test-token",
+        "id": "ag-01", "base_url": "http://ag-01:8000",
         "role": {"disk": True, "cd": False}, "tags": ["storage", "stgt"],
     }, headers=auth_headers)
     assert res.status_code == 201, res.text
@@ -165,7 +167,7 @@ class TestWorkerMac:
 
 
 class TestWorkerDisks:
-    """系统盘：建盘（mock agent）/ 批量建盘 / 删盘 / default_os 联动。"""
+    """系统盘：建盘（mock agent）/ 批量建盘 / 删盘 / default_disk 联动。"""
 
     def test_create_disk_ready(self, client, auth_headers, register_agent):
         client.post("/workers", json={"worker_id": "worker-01"}, headers=auth_headers)
@@ -175,10 +177,16 @@ class TestWorkerDisks:
         assert res.status_code == 201, res.text
         body = res.json()
         assert body["state"] == "ready"
-        assert body["disks"][0]["os"] == "ubuntu"
-        assert body["disks"][0]["agent"] == "ag-01"
-        assert body["disks"][0]["iqn"].endswith("worker-01.ubuntu")
-        assert body["disks"][0]["source"] == {"type": "master", "name": "ubuntu-24.04-master"}
+        disk = body["disks"][0]
+        assert disk["os"] == "ubuntu"
+        assert disk["os_version"] == ""  # 无版本 → ''（库表形态）
+        assert re.fullmatch(r"[0-9a-f]{12}", disk["os_tag"])  # 盘级随机标识（数据面唯一键）
+        # 盘标识权威 = NQN：后缀带 os_tag（worker_id.os.<os_tag>），IQN/文件名由其派生
+        assert disk["nqn"] == f"nqn.2026-07.com.test:worker-01.ubuntu.{disk['os_tag']}"
+        assert disk["iqn"] == "iqn." + disk["nqn"][4:]
+        assert disk["filename"] == f"worker-01.ubuntu.{disk['os_tag']}.img"
+        assert disk["agent"] == "ag-01"
+        assert disk["source"] == {"type": "master", "name": "ubuntu-24.04-master"}
 
     def test_create_disk_duplicate_os_409(self, client, auth_headers, register_agent):
         client.post("/workers", json={"worker_id": "worker-01"}, headers=auth_headers)
@@ -186,28 +194,61 @@ class TestWorkerDisks:
         assert client.post("/workers/worker-01/luns/disk", json=body, headers=auth_headers).status_code == 201
         res = client.post("/workers/worker-01/luns/disk", json=body, headers=auth_headers)
         assert res.status_code == 409
+        assert "already has a ubuntu system disk" in res.json()["detail"]
 
-    def test_create_disk_invalid_os_400(self, client, auth_headers, register_agent):
+    def test_create_disk_free_os_accepted(self, client, auth_headers, register_agent):
+        """OS_ITEMS 已退役（2026-08-30）：os 为自由字符串（备注性质），无白名单。"""
+        client.post("/workers", json={"worker_id": "worker-01"}, headers=auth_headers)
+        for os_name in ("freedos", "alpine", "kali-linux"):
+            res = client.post("/workers/worker-01/luns/disk", json={
+                "type": "empty", "os": os_name, "size": "40G",
+            }, headers=auth_headers)
+            assert res.status_code == 201, res.text
+
+    def test_create_disk_invalid_os_version_400(self, client, auth_headers, register_agent):
         client.post("/workers", json={"worker_id": "worker-01"}, headers=auth_headers)
         res = client.post("/workers/worker-01/luns/disk", json={
-            "type": "empty", "os": "freedos", "size": "40G",
+            "type": "empty", "os": "ubuntu", "os_version": "bad version!", "size": "40G",
         }, headers=auth_headers)
         assert res.status_code == 400
+        assert "invalid os_version" in res.json()["detail"]
 
-    def test_batch_create_disks_sets_default_os(self, client, auth_headers, register_agent):
+    def test_create_disk_same_os_multi_version_coexist(self, client, auth_headers, register_agent):
+        """同系统多版本并存：唯一键 = (os, os_version)，不同版本各一块，os_tag 区分。"""
+        client.post("/workers", json={"worker_id": "worker-01"}, headers=auth_headers)
+        for version in ("22.04", "24.04"):
+            res = client.post("/workers/worker-01/luns/disk", json={
+                "type": "empty", "os": "ubuntu", "os_version": version, "size": "40G",
+            }, headers=auth_headers)
+            assert res.status_code == 201, res.text
+        disks = client.get("/workers/worker-01", headers=auth_headers).json()["disks"]
+        assert len(disks) == 2
+        assert {d["os_version"] for d in disks} == {"22.04", "24.04"}
+        assert len({d["os_tag"] for d in disks}) == 2  # 盘标识各不相同
+
+    def test_create_disk_duplicate_os_version_409(self, client, auth_headers, register_agent):
+        client.post("/workers", json={"worker_id": "worker-01"}, headers=auth_headers)
+        body = {"type": "empty", "os": "ubuntu", "os_version": "24.04", "size": "40G"}
+        assert client.post("/workers/worker-01/luns/disk", json=body, headers=auth_headers).status_code == 201
+        res = client.post("/workers/worker-01/luns/disk", json=body, headers=auth_headers)
+        assert res.status_code == 409
+        assert "already has a ubuntu 24.04 system disk" in res.json()["detail"]
+
+    def test_batch_create_disks_sets_default_disk(self, client, auth_headers, register_agent):
         client.post("/workers/batch", json={"count": 2, "name_prefix": "node-"}, headers=auth_headers)
         res = client.post("/workers/luns/disk/batch", json={
-            "type": "empty", "os": "debian", "size": "40G",
+            "type": "empty", "os": "debian", "os_version": "12", "size": "40G",
             "targets": [{"worker_id": "node-01", "agent": "ag-01"},
                         {"worker_id": "node-02", "agent": "ag-01"}],
         }, headers=auth_headers)
         assert res.status_code == 200
         body = res.json()
         assert len(body["succeeded"]) == 2
-        # 批量建盘约定：自动设为默认启动系统
+        # 批量建盘约定：自动设为默认启动盘（default_disk = 新建盘的 os_tag）
         for wid in ("node-01", "node-02"):
             w = client.get(f"/workers/{wid}", headers=auth_headers).json()
-            assert w["default_os"] == "debian"
+            assert re.fullmatch(r"[0-9a-f]{12}", w["default_disk"])
+            assert w["default_disk"] == w["disks"][0]["os_tag"]
             assert w["state"] == "ready"
 
     def test_batch_disk_skips_existing(self, client, auth_headers, register_agent):
@@ -225,48 +266,87 @@ class TestWorkerDisks:
 
     def test_delete_disk_regress_state(self, client, auth_headers, register_agent):
         client.post("/workers", json={"worker_id": "worker-01"}, headers=auth_headers)
-        client.post("/workers/worker-01/luns/disk", json={
+        disk = client.post("/workers/worker-01/luns/disk", json={
             "type": "master", "os": "ubuntu", "name": "m",
-        }, headers=auth_headers)
-        client.put("/workers/worker-01/default-os", json={"os": "ubuntu"}, headers=auth_headers)
-        res = client.delete("/workers/worker-01/luns/disk/ubuntu", headers=auth_headers)
+        }, headers=auth_headers).json()["disks"][0]
+        os_tag = disk["os_tag"]
+        client.put("/workers/worker-01/default-disk", json={"disk": os_tag}, headers=auth_headers)
+        res = client.delete(f"/workers/worker-01/luns/disk/{os_tag}", headers=auth_headers)
         assert res.status_code == 200
         body = res.json()
         assert body["state"] == "registered"  # 无盘回退
         assert body["disks"] == []
-        assert "default_os" not in body  # 默认启动联动清除
+        assert "default_disk" not in body  # 默认启动联动清除
+
+    def test_delete_disk_missing_tag_404(self, client, auth_headers, register_agent):
+        client.post("/workers", json={"worker_id": "worker-01"}, headers=auth_headers)
+        res = client.delete("/workers/worker-01/luns/disk/0d26b6f33a89", headers=auth_headers)
+        assert res.status_code == 404
+        assert "no system disk with os_tag" in res.json()["detail"]
 
 
 class TestDefaultBoot:
-    """默认启动配置：os 须与已挂盘一致；menu_default 严格校验。"""
+    """默认启动配置：disk=盘 os_tag（精确引用具体盘）；menu_default/menu_timeout 严格校验。"""
 
-    def test_set_default_os_requires_disk(self, client, auth_headers):
+    def _create_ubuntu_disk(self, client, auth_headers, os_version="") -> str:
         client.post("/workers", json={"worker_id": "worker-01"}, headers=auth_headers)
-        res = client.put("/workers/worker-01/default-os", json={"os": "ubuntu"}, headers=auth_headers)
+        body = {"type": "empty", "os": "ubuntu", "size": "40G"}
+        if os_version:
+            body["os_version"] = os_version
+        res = client.post("/workers/worker-01/luns/disk", json=body, headers=auth_headers)
+        assert res.status_code == 201, res.text
+        return res.json()["disks"][0]["os_tag"]
+
+    def test_set_default_disk_requires_existing_disk(self, client, auth_headers, register_agent):
+        client.post("/workers", json={"worker_id": "worker-01"}, headers=auth_headers)
+        res = client.put("/workers/worker-01/default-disk", json={"disk": "0d26b6f33a89"},
+                         headers=auth_headers)
         assert res.status_code == 400
-        assert "no ubuntu system disk" in res.json()["detail"]
+        assert "no system disk with os_tag" in res.json()["detail"]
+
+    def test_set_default_disk_invalid_tag_400(self, client, auth_headers, register_agent):
+        client.post("/workers", json={"worker_id": "worker-01"}, headers=auth_headers)
+        res = client.put("/workers/worker-01/default-disk", json={"disk": "not-a-tag"},
+                         headers=auth_headers)
+        assert res.status_code == 400
+        assert "invalid os_tag" in res.json()["detail"]
 
     def test_set_invalid_menu_default_400(self, client, auth_headers):
         client.post("/workers", json={"worker_id": "worker-01"}, headers=auth_headers)
-        res = client.put("/workers/worker-01/default-os", json={"menu_default": "hack"},
+        res = client.put("/workers/worker-01/default-disk", json={"menu_default": "hack"},
                          headers=auth_headers)
         assert res.status_code == 400
 
     def test_set_menu_timeout_negative_400(self, client, auth_headers):
         client.post("/workers", json={"worker_id": "worker-01"}, headers=auth_headers)
-        res = client.put("/workers/worker-01/default-os", json={"menu_timeout": -1},
+        res = client.put("/workers/worker-01/default-disk", json={"menu_timeout": -1},
                          headers=auth_headers)
         assert res.status_code == 400
 
-    def test_clear_default_os(self, client, auth_headers, register_agent):
+    def test_default_disk_points_to_specific_disk(self, client, auth_headers, register_agent):
+        """default_disk 精确引用某块盘：多盘并存时可任意切换指向。"""
         client.post("/workers", json={"worker_id": "worker-01"}, headers=auth_headers)
-        client.post("/workers/worker-01/luns/disk", json={
-            "type": "master", "os": "ubuntu", "name": "m",
-        }, headers=auth_headers)
-        client.put("/workers/worker-01/default-os", json={"os": "ubuntu"}, headers=auth_headers)
-        res = client.put("/workers/worker-01/default-os", json={"os": None}, headers=auth_headers)
+        disk = client.post("/workers/worker-01/luns/disk", json={
+            "type": "empty", "os": "ubuntu", "size": "40G",
+        }, headers=auth_headers).json()["disks"][0]
+        debian = client.post("/workers/worker-01/luns/disk", json={
+            "type": "empty", "os": "debian", "os_version": "12", "size": "40G",
+        }, headers=auth_headers).json()["disks"][0]
+        res = client.put("/workers/worker-01/default-disk", json={"disk": disk["os_tag"]},
+                         headers=auth_headers)
         assert res.status_code == 200
-        assert "default_os" not in res.json()
+        assert res.json()["default_disk"] == disk["os_tag"]
+        # 切换指向另一块盘
+        res = client.put("/workers/worker-01/default-disk", json={"disk": debian["os_tag"]},
+                         headers=auth_headers)
+        assert res.json()["default_disk"] == debian["os_tag"]
+
+    def test_clear_default_disk(self, client, auth_headers, register_agent):
+        os_tag = self._create_ubuntu_disk(client, auth_headers)
+        client.put("/workers/worker-01/default-disk", json={"disk": os_tag}, headers=auth_headers)
+        res = client.put("/workers/worker-01/default-disk", json={"disk": None}, headers=auth_headers)
+        assert res.status_code == 200
+        assert "default_disk" not in res.json()
 
 
 class TestWorkerDelete:

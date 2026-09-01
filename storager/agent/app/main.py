@@ -5,9 +5,9 @@ import shutil
 import threading
 import time
 import logging
-import hmac
 import json
 import datetime
+from pathlib import Path
 from contextlib import asynccontextmanager, contextmanager
 
 import docker
@@ -46,8 +46,11 @@ DISK_DIR = _require_env("KURRENT_DISK_DIR")
 NQN_BASE = _require_env("KURRENT_NQN_BASE")        # 权威：盘标识命名空间（NVMe-oF 首选协议）
 IQN_BASE = nqn_to_iqn(NQN_BASE)                 # 派生：iSCSI 数据面（同后缀前缀变换）
 BACKEND = _require_env("KURRENT_BACKEND")
-TOKEN = _require_env("KURRENT_AGENT_TOKEN")          # 必填，无默认值
 LOG_FILE = _require_env("KURRENT_LOG_FILE")
+
+# 组件 PKI 引导/轮换（K8S 同构）：证书未就绪则抛错阻断启动（uvicorn 起服务前）
+from .pki_client import ensure_pki  # noqa: E402
+ensure_pki()
 
 
 # ============================ 框架层：文件操作 ============================
@@ -139,8 +142,10 @@ def _make_empty(backing: str, size: str) -> None:
 def _remove_file(path: str) -> None:
     try:
         os.remove(path)
-    except OSError:
-        pass
+        log.info(f"deleted backing file: {path}")
+    except OSError as e:
+        # 不再静默吞掉：删除失败要留痕，便于排查路径/权限问题
+        log.warning(f"failed to remove backing file {path}: {e}")
 
 
 # ============================ 框架层：母盘扫描 ============================
@@ -262,14 +267,22 @@ class OperationLog:
 oplog = OperationLog(LOG_FILE)
 
 
-# ============================ 框架层：token 鉴权 ============================
+# ============================ 框架层：mTLS 客户端证书鉴权 ============================
 
-def verify_token(request: Request) -> None:
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
-        raise HTTPException(401, "unauthorized")
-    # 常量时间比对，防时序攻击；不回显 token、日志不记 token
-    if not hmac.compare_digest(auth[len("Bearer "):].strip(), TOKEN):
+
+def verify_client_cert(request: Request) -> None:
+    """mTLS 客户端证书鉴权（K8S 同构：kubelet --client-ca-file 信任模型）。
+
+    uvicorn 以 ssl_cert_reqs=CERT_REQUIRED + ssl_ca_certs=内部 CA 起服：TLS 层
+    强制客户端证书且校验链到内部 CA（无证书/链不符握手即被拒），此处只需确认
+    连接信息存在——身份边界 = 内部 CA 签发范围（bootstrap token 一次性引导 +
+    CSR CN 校验 + 组件登记，签发受控制面管控）。
+
+    注：uvicorn 不透传客户端证书到 ASGI scope（Kludex/uvicorn#745），应用层
+    无法做 CN=control-plane 白名单；若未来 uvicorn 支持 scope 证书，可在此
+    补 CN 匹配（防 CA 下其他组件冒名控制面）。
+    """
+    if request.client is None:
         raise HTTPException(401, "unauthorized")
 
 
@@ -404,7 +417,10 @@ class StgtBackend(Backend):
         raise RuntimeError("stgt not ready after retries")
 
     def scan(self) -> dict:
-        names = [n for n in os.listdir(DISK_DIR) if n.lower().endswith((".img", ".iso"))]
+        # 母盘（*_tpl_*）由 MasterScanner 单独管理（克隆建盘专用），
+        # 目录扫描跳过母盘文件，不为其创建普通 target
+        names = [n for n in os.listdir(DISK_DIR)
+                 if n.lower().endswith((".img", ".iso")) and "_tpl_" not in n]
         created, skipped = [], []
         existing = {t["iqn"] for t in self.list_targets()}
         for name in names:
@@ -493,7 +509,10 @@ class LioBackend(Backend):
         raise RuntimeError("lio not ready after retries")
 
     def scan(self) -> dict:
-        names = [n for n in os.listdir(DISK_DIR) if n.lower().endswith((".img", ".iso"))]
+        # 母盘（*_tpl_*）由 MasterScanner 单独管理（克隆建盘专用），
+        # 目录扫描跳过母盘文件，不为其创建普通 target
+        names = [n for n in os.listdir(DISK_DIR)
+                 if n.lower().endswith((".img", ".iso")) and "_tpl_" not in n]
         created, skipped = [], []
         existing = {t["iqn"] for t in self.list_targets()}
         for name in names:
@@ -530,7 +549,7 @@ def _make_backend() -> Backend:
         # 宿主原生 nvmet（C4）：经 nvmet-host 服务调 configfs；env 按需读取，不影响其他后端
         from .nvmet import NvmetBackend, NvmetCredentialCache, NvmetHostClient
         host = NvmetHostClient(_require_env("KURRENT_NVMET_HOST_URL"),
-                               _require_env("KURRENT_NVMET_HOST_TOKEN"))
+                               Path(_require_env("KURRENT_PKI_DIR")))
         cache_path = os.environ.get("KURRENT_NVMET_CACHE_FILE") or \
             os.path.join(os.path.dirname(LOG_FILE), "nvmet-credentials.json")
         cache = NvmetCredentialCache(host, cache_path)
@@ -607,7 +626,7 @@ def healthz():
     return {"status": "ok"}
 
 
-@app.post("/credential", dependencies=[Depends(verify_token)])
+@app.post("/credential", dependencies=[Depends(verify_client_cert)])
 def push_credential(req: CredentialPushReq, request: Request):
     """NVMe-oF 凭据推送（控制面驱动，仅 nvmet 后端）：更新缓存 + 转调宿主服务同步 hosts 矩阵。
     secret=null 吊销该 worker 全部绑定设备认证；审计不记密钥本体。"""
@@ -623,7 +642,7 @@ def push_credential(req: CredentialPushReq, request: Request):
             raise HTTPException(503, f"nvmet host error: {exc.detail}") from exc
 
 
-@app.post("/lun/disk", dependencies=[Depends(verify_token)])
+@app.post("/lun/disk", dependencies=[Depends(verify_client_cert)])
 def create_disk(req: DiskReq, request: Request):
     req_dict = {"iqn": req.iqn, "master": req.master, "size": req.size, "filename": req.filename}
     with logged("disk", req_dict, request.client.host):
@@ -650,7 +669,7 @@ def create_disk(req: DiskReq, request: Request):
         return {"iqn": iqn, "backing": backing}
 
 
-@app.post("/lun/cd", dependencies=[Depends(verify_token)])
+@app.post("/lun/cd", dependencies=[Depends(verify_client_cert)])
 def create_cd(req: CdReq, request: Request):
     req_dict = {"iso": req.iso, "iqn": req.iqn}
     with logged("cd", req_dict, request.client.host):
@@ -663,7 +682,7 @@ def create_cd(req: CdReq, request: Request):
         return {"iqn": iqn, "backing": iso_path}
 
 
-@app.post("/lun/scan", dependencies=[Depends(verify_token)])
+@app.post("/lun/scan", dependencies=[Depends(verify_client_cert)])
 def scan(request: Request):
     try:
         result = backend.scan()
@@ -675,34 +694,55 @@ def scan(request: Request):
         raise
 
 
-@app.delete("/lun", dependencies=[Depends(verify_token)])
+@app.delete("/lun", dependencies=[Depends(verify_client_cert)])
 def delete(iqn: str, request: Request, delete_file: bool = False):
     req_dict = {"iqn": iqn, "delete_file": delete_file}
     with logged("delete", req_dict, request.client.host):
         iqn = iqn.lower()
         backings = []
-        t = next((x for x in backend.list_targets() if x["iqn"] == iqn), None)
+        # nvmet 后端 list_targets 的 iqn 键实际为子系统 NQN（nqn. 前缀），
+        # stgt/lio 后端则为 iqn. 前缀：请求可能是任一形态，前缀互转后双匹配
+        alt = (
+            f"nqn.{iqn[4:]}" if iqn.startswith("iqn.")
+            else f"iqn.{iqn[4:]}" if iqn.startswith("nqn.")
+            else None
+        )
+        t = next(
+            (x for x in backend.list_targets()
+             if x["iqn"] == iqn or (alt and x["iqn"] == alt)),
+            None,
+        )
         if t:
             backings = [l["backing"] for l in t["luns"] if l.get("backing")]
         backend.delete_target(iqn)
         if delete_file:
             for b in backings:
-                _remove_file(b)
+                # backing 是宿主服务视角路径（如 /srv/nvmet-disks/x.img），
+                # agent 容器挂载同一目录于 KURRENT_DISK_DIR：basename 重建容器内路径
+                _remove_file(_agent_disk_path(b))
         return {"deleted": iqn, "delete_file": delete_file}
 
 
-@app.get("/lun", dependencies=[Depends(verify_token)])
+def _agent_disk_path(backing: str) -> str:
+    """宿主服务视角的 backing 路径 → agent 容器内路径（同一宿主机目录）。"""
+    name = os.path.basename(backing)
+    if name and not backing.startswith(DISK_DIR):
+        return os.path.join(DISK_DIR, name)
+    return backing
+
+
+@app.get("/lun", dependencies=[Depends(verify_client_cert)])
 def list_luns():
     return backend.list_targets()
 
 
-@app.get("/masters", dependencies=[Depends(verify_token)])
+@app.get("/masters", dependencies=[Depends(verify_client_cert)])
 def list_masters():
     """列出 DISK_DIR 下 *_tpl_* 母盘（后台线程周期扫描的缓存清单，供 Control Plane / WebUI 克隆选盘）。"""
     return {"masters": masters.list()}
 
 
-@app.get("/capabilities", dependencies=[Depends(verify_token)])
+@app.get("/capabilities", dependencies=[Depends(verify_client_cert)])
 def capabilities():
     caps = backend.capabilities()
     # 盘标识命名空间权威 = NQN（控制面建盘生成盘 NQN 依赖此键；iSCSI 数据面 IQN 由 NQN 派生）
@@ -720,6 +760,6 @@ def capabilities():
     return caps
 
 
-@app.get("/logs", dependencies=[Depends(verify_token)])
+@app.get("/logs", dependencies=[Depends(verify_client_cert)])
 def get_logs(since: int = 0, limit: int = 1000):
     return oplog.read(since, limit)

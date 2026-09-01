@@ -27,20 +27,23 @@ def test_healthz_configfs_ready(nvmet, client, configfs):
     assert client.get("/healthz").json()["configfs"] is True
 
 
-def test_requires_auth(client):
-    """除 healthz 外全部端点要求 Bearer token。"""
-    assert client.get("/capabilities").status_code == 401
-    assert client.get("/subsystems").status_code == 401
-    assert client.post("/subsystems", json={"nqn": NQN, "backing": BACKING}).status_code == 401
-    assert client.post("/port").status_code == 401
-    assert client.put(f"/subsystems/{NQN}/hosts",
-                      json={"hostnqn": HOST_NQN, "secret": SECRET}).status_code == 401
-    bad = {"Authorization": "Bearer wrong"}
-    assert client.get("/capabilities", headers=bad).status_code == 401
+def test_requires_auth(nvmet):
+    """mTLS 鉴权（K8S 同构）：TLS 层由 uvicorn CERT_REQUIRED + 内部 CA 强制
+    （TestClient 无法模拟 TLS 层），应用层 verify_client_cert 仅确认连接信息存在——
+    无连接信息（request.client=None）→ 401。"""
+    import pytest
+    from fastapi import HTTPException
+
+    class _NoPeer:
+        client = None
+
+    with pytest.raises(HTTPException) as exc_info:
+        nvmet.verify_client_cert(_NoPeer())
+    assert exc_info.value.status_code == 401
 
 
-def test_capabilities(client, auth_headers):
-    res = client.get("/capabilities", headers=auth_headers)
+def test_capabilities(client):
+    res = client.get("/capabilities")
     assert res.status_code == 200
     caps = res.json()
     assert caps["backend"] == "nvmet"
@@ -48,8 +51,8 @@ def test_capabilities(client, auth_headers):
     assert caps["port"] == {"trtype": "tcp", "trsvcid": "4420", "tsas": "none"}
 
 
-def test_ensure_port(client, auth_headers, configfs):
-    res = client.post("/port", params={"trsvcid": "4420"}, headers=auth_headers)
+def test_ensure_port(client, configfs):
+    res = client.post("/port", params={"trsvcid": "4420"})
     assert res.status_code == 200
     port = configfs / "ports" / "1"
     assert (port / "addr_trtype").read_text().strip() == "tcp"
@@ -58,9 +61,9 @@ def test_ensure_port(client, auth_headers, configfs):
     assert not (port / "addr_tsas").exists()  # 不写即无 TLS（内核属性仅接受 tls1.3）
 
 
-def test_create_subsystem_strict(client, auth_headers, configfs, symlinks):
+def test_create_subsystem_strict(client, configfs, symlinks):
     """创建子系统：严格模式（allow_any_host=0）+ namespace/1 + port 挂载。"""
-    res = client.post("/subsystems", json={"nqn": NQN, "backing": BACKING}, headers=auth_headers)
+    res = client.post("/subsystems", json={"nqn": NQN, "backing": BACKING})
     assert res.status_code == 201
     sub = configfs / "subsystems" / NQN
     assert (sub / "attr_allow_any_host").read_text().strip() == "0"
@@ -73,16 +76,16 @@ def test_create_subsystem_strict(client, auth_headers, configfs, symlinks):
     assert symlinks[str(link)] == str(configfs / "subsystems" / NQN)
 
 
-def test_create_duplicate_409(client, auth_headers, configfs):
-    client.post("/subsystems", json={"nqn": NQN, "backing": BACKING}, headers=auth_headers)
-    res = client.post("/subsystems", json={"nqn": NQN, "backing": BACKING}, headers=auth_headers)
+def test_create_duplicate_409(client, configfs):
+    client.post("/subsystems", json={"nqn": NQN, "backing": BACKING})
+    res = client.post("/subsystems", json={"nqn": NQN, "backing": BACKING})
     assert res.status_code == 409
 
 
-def test_list_subsystems(client, auth_headers, configfs):
-    client.post("/subsystems", json={"nqn": NQN, "backing": BACKING}, headers=auth_headers)
-    client.post("/subsystems", json={"nqn": NQN + ".2", "backing": BACKING + "2"}, headers=auth_headers)
-    res = client.get("/subsystems", headers=auth_headers)
+def test_list_subsystems(client, configfs):
+    client.post("/subsystems", json={"nqn": NQN, "backing": BACKING})
+    client.post("/subsystems", json={"nqn": NQN + ".2", "backing": BACKING + "2"})
+    res = client.get("/subsystems")
     assert res.status_code == 200
     subs = {s["nqn"]: s for s in res.json()["subsystems"]}
     assert set(subs) == {NQN, NQN + ".2"}
@@ -90,12 +93,12 @@ def test_list_subsystems(client, auth_headers, configfs):
     assert subs[NQN]["hosts"] == []
 
 
-def test_set_host_auth(client, auth_headers, configfs, symlinks):
+def test_set_host_auth(client, configfs, symlinks):
     """host 认证：全局 hosts/<hostnqn>/dhchap_key 写 DHHC-1 明文（无换行，写 key 即启用），
     再 symlink 挂到子系统 allowed_hosts/ 完成严格模式准入。"""
-    client.post("/subsystems", json={"nqn": NQN, "backing": BACKING}, headers=auth_headers)
+    client.post("/subsystems", json={"nqn": NQN, "backing": BACKING})
     res = client.put(f"/subsystems/{NQN}/hosts",
-                     json={"hostnqn": HOST_NQN, "secret": SECRET}, headers=auth_headers)
+                     json={"hostnqn": HOST_NQN, "secret": SECRET})
     assert res.status_code == 200
     host_dir = configfs / "hosts" / HOST_NQN
     assert (host_dir / "dhchap_key").read_text() == SECRET  # newline=False：内容与密钥完全一致
@@ -105,41 +108,41 @@ def test_set_host_auth(client, auth_headers, configfs, symlinks):
     assert symlinks[str(link)] == str(host_dir)
 
 
-def test_set_host_idempotent(client, auth_headers, configfs):
-    client.post("/subsystems", json={"nqn": NQN, "backing": BACKING}, headers=auth_headers)
+def test_set_host_idempotent(client, configfs):
+    client.post("/subsystems", json={"nqn": NQN, "backing": BACKING})
     for _ in range(2):
         res = client.put(f"/subsystems/{NQN}/hosts",
-                         json={"hostnqn": HOST_NQN, "secret": SECRET}, headers=auth_headers)
+                         json={"hostnqn": HOST_NQN, "secret": SECRET})
         assert res.status_code == 200
 
 
-def test_set_host_missing_subsystem_404(client, auth_headers, configfs):
+def test_set_host_missing_subsystem_404(client, configfs):
     res = client.put(f"/subsystems/{NQN}/hosts",
-                     json={"hostnqn": HOST_NQN, "secret": SECRET}, headers=auth_headers)
+                     json={"hostnqn": HOST_NQN, "secret": SECRET})
     assert res.status_code == 404
 
 
-def test_delete_host(client, auth_headers, configfs):
-    client.post("/subsystems", json={"nqn": NQN, "backing": BACKING}, headers=auth_headers)
+def test_delete_host(client, configfs):
+    client.post("/subsystems", json={"nqn": NQN, "backing": BACKING})
     client.put(f"/subsystems/{NQN}/hosts",
-               json={"hostnqn": HOST_NQN, "secret": SECRET}, headers=auth_headers)
-    res = client.delete(f"/subsystems/{NQN}/hosts/{HOST_NQN}", headers=auth_headers)
+               json={"hostnqn": HOST_NQN, "secret": SECRET})
+    res = client.delete(f"/subsystems/{NQN}/hosts/{HOST_NQN}")
     assert res.status_code == 200
     # 先摘 allowed_hosts 挂载，再删全局 hosts/<hostnqn>
     assert not (configfs / "subsystems" / NQN / "allowed_hosts" / HOST_NQN).exists()
     assert not (configfs / "hosts" / HOST_NQN).exists()
 
 
-def test_delete_subsystem_detaches_port(client, auth_headers, configfs):
-    client.post("/subsystems", json={"nqn": NQN, "backing": BACKING}, headers=auth_headers)
+def test_delete_subsystem_detaches_port(client, configfs):
+    client.post("/subsystems", json={"nqn": NQN, "backing": BACKING})
     client.put(f"/subsystems/{NQN}/hosts",
-               json={"hostnqn": HOST_NQN, "secret": SECRET}, headers=auth_headers)
-    res = client.delete(f"/subsystems/{NQN}", headers=auth_headers)
+               json={"hostnqn": HOST_NQN, "secret": SECRET})
+    res = client.delete(f"/subsystems/{NQN}")
     assert res.status_code == 200
     assert not (configfs / "subsystems" / NQN).exists()
     assert not (configfs / "ports" / "1" / "subsystems" / NQN).exists()  # port 挂载已摘
 
 
-def test_delete_subsystem_404(client, auth_headers, configfs):
-    res = client.delete(f"/subsystems/{NQN}", headers=auth_headers)
+def test_delete_subsystem_404(client, configfs):
+    res = client.delete(f"/subsystems/{NQN}")
     assert res.status_code == 404

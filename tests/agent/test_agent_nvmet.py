@@ -28,6 +28,9 @@ class _FakeResponse:
     def read(self):
         return self._payload
 
+    def close(self):
+        pass  # Python 3.14 HTTPError 以 tempfile 包装 fp，__del__ 时会调用 close
+
     def __enter__(self):
         return self
 
@@ -35,13 +38,13 @@ class _FakeResponse:
         return False
 
 
-def test_host_client_request(monkeypatch):
-    """请求构造：Bearer token + JSON body + 路径 URL 编码；响应 JSON 解析。"""
+def test_host_client_request(monkeypatch, pki_dir):
+    """请求构造：mTLS 上下文（pki_dir 证书）+ JSON body + 路径 URL 编码；响应 JSON 解析。"""
     from app.nvmet import NvmetHostClient
 
     captured = {}
 
-    def fake_urlopen(req, timeout=None):
+    def fake_urlopen(req, *, context=None, timeout=None):
         captured["url"] = req.full_url
         captured["method"] = req.get_method()
         captured["header"] = req.get_header("Authorization")
@@ -49,63 +52,63 @@ def test_host_client_request(monkeypatch):
         return _FakeResponse(b'{"ok": true}')
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
-    client = NvmetHostClient("http://127.0.0.1:4841", "tok-123")
+    client = NvmetHostClient("https://127.0.0.1:4841", pki_dir)
     result = client.create_subsystem("iqn.2026-07.com.test:worker-01.ubuntu", "/srv/x.img")
     assert result == {"ok": True}
-    assert captured["url"] == "http://127.0.0.1:4841/subsystems"
+    assert captured["url"] == "https://127.0.0.1:4841/subsystems"
     assert captured["method"] == "POST"
-    assert captured["header"] == "Bearer tok-123"
+    assert captured["header"] is None  # mTLS：客户端证书由 TLS 层承载，无 Authorization 头
     assert json.loads(captured["body"]) == {"nqn": "iqn.2026-07.com.test:worker-01.ubuntu",
                                             "backing": "/srv/x.img"}
 
 
-def test_host_client_path_quoting(monkeypatch):
+def test_host_client_path_quoting(monkeypatch, pki_dir):
     """NQN 含冒号/点：路径段必须 URL 编码（宿主服务路由才能正确解析）。"""
     from app.nvmet import NvmetHostClient
 
     captured = {}
 
-    def fake_urlopen(req, timeout=None):
+    def fake_urlopen(req, *, context=None, timeout=None):
         captured["url"] = req.full_url
         return _FakeResponse(b"{}")
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
-    client = NvmetHostClient("http://127.0.0.1:4841", "tok")
+    client = NvmetHostClient("https://127.0.0.1:4841", pki_dir)
     client.set_host(IQN_UBUNTU, HOST_NQN, SECRET)
     assert captured["url"] == (
-        "http://127.0.0.1:4841/subsystems/"
+        "https://127.0.0.1:4841/subsystems/"
         "iqn.2026-07.com.test%3Aworker-01.ubuntu/hosts"
     )
 
 
-def test_host_client_http_error(monkeypatch):
+def test_host_client_http_error(monkeypatch, pki_dir):
     """HTTPError → NvmetHostError(status, detail)；detail 取响应 JSON 的 detail 字段。"""
     import urllib.error
 
     from app.nvmet import NvmetHostClient, NvmetHostError
 
-    def fake_urlopen(req, timeout=None):
+    def fake_urlopen(req, *, context=None, timeout=None):
         raise urllib.error.HTTPError(req.full_url, 409, "conflict", {}, _FakeResponse(b'{"detail":"subsystem exists"}'))
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
     with pytest.raises(NvmetHostError) as exc_info:
-        NvmetHostClient("http://127.0.0.1:4841", "tok").create_subsystem("nqn:x", "/srv/x.img")
+        NvmetHostClient("https://127.0.0.1:4841", pki_dir).create_subsystem("nqn:x", "/srv/x.img")
     assert exc_info.value.status == 409
     assert "subsystem exists" in exc_info.value.detail
 
 
-def test_host_client_unreachable(monkeypatch):
+def test_host_client_unreachable(monkeypatch, pki_dir):
     """URLError（宿主服务停机）→ NvmetHostError(status=0)。"""
     import urllib.error
 
     from app.nvmet import NvmetHostClient, NvmetHostError
 
-    def fake_urlopen(req, timeout=None):
+    def fake_urlopen(req, *, context=None, timeout=None):
         raise urllib.error.URLError("connection refused")
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
     with pytest.raises(NvmetHostError) as exc_info:
-        NvmetHostClient("http://127.0.0.1:4841", "tok").healthz()
+        NvmetHostClient("https://127.0.0.1:4841", pki_dir).healthz()
     assert exc_info.value.status == 0
     assert "unreachable" in exc_info.value.detail
 
@@ -262,11 +265,11 @@ def test_cache_reconcile_drops_stale(backend, fake_host):
 # ============================ POST /credential 端点 ============================
 
 
-def test_push_credential_endpoint(agent_client, auth_headers):
+def test_push_credential_endpoint(agent_client):
     """控制面推送 → 200：缓存更新 + 宿主服务 set_host；审计不记密钥本体。"""
     client, backend, calls = agent_client
     backend.create_target(IQN_UBUNTU, "/srv/x.img", cd=False)
-    res = client.post("/credential", headers=auth_headers, json={
+    res = client.post("/credential", json={
         "worker_id": "worker-01", "secret": SECRET,
         "sub_nqns": [NQN_UBUNTU], "host_nqns": [HOST_NQN],
     })
@@ -282,15 +285,15 @@ def test_push_credential_endpoint(agent_client, auth_headers):
     assert SECRET not in json.dumps(cred, ensure_ascii=False)
 
 
-def test_push_credential_revoke(agent_client, auth_headers):
+def test_push_credential_revoke(agent_client):
     """secret=null：delete_host + 缓存条目移除。"""
     client, backend, calls = agent_client
     backend.create_target(IQN_UBUNTU, "/srv/x.img", cd=False)
-    client.post("/credential", headers=auth_headers, json={
+    client.post("/credential", json={
         "worker_id": "worker-01", "secret": SECRET,
         "sub_nqns": [NQN_UBUNTU], "host_nqns": [HOST_NQN],
     })
-    res = client.post("/credential", headers=auth_headers, json={
+    res = client.post("/credential", json={
         "worker_id": "worker-01", "secret": None,
         "sub_nqns": [NQN_UBUNTU], "host_nqns": [HOST_NQN],
     })
@@ -300,9 +303,19 @@ def test_push_credential_revoke(agent_client, auth_headers):
     assert "worker-01" not in backend.cache._entries
 
 
-def test_push_credential_requires_auth(agent_client):
-    client, _, _ = agent_client
-    assert client.post("/credential", json={"worker_id": "w"}).status_code == 401
+def test_verify_client_cert():
+    """mTLS 鉴权（K8S 同构）：TLS 层由 uvicorn CERT_REQUIRED + 内部 CA 强制，
+    应用层 verify_client_cert 仅确认连接信息存在——无连接信息（request.client=None）→ 401。"""
+    from fastapi import HTTPException
+
+    import app.main as agent_main
+
+    class _NoPeer:
+        client = None
+
+    with pytest.raises(HTTPException) as exc_info:
+        agent_main.verify_client_cert(_NoPeer())
+    assert exc_info.value.status_code == 401
 
 
 def test_push_credential_requires_nvmet_backend(monkeypatch):
@@ -313,18 +326,17 @@ def test_push_credential_requires_nvmet_backend(monkeypatch):
 
     monkeypatch.setattr(agent_main, "backend", object())
     client = TestClient(agent_main.app)
-    res = client.post("/credential", json={"worker_id": "w"},
-                      headers={"Authorization": "Bearer test-agent-token"})
+    res = client.post("/credential", json={"worker_id": "w"})
     assert res.status_code == 400
     assert "nvmet" in res.json()["detail"]
 
 
-def test_push_credential_host_unreachable(agent_client, auth_headers, fake_host):
+def test_push_credential_host_unreachable(agent_client, fake_host):
     """宿主服务不可达：端点 503（同步失败但缓存已更新，等待周期 reconcile 重放）。"""
     client, backend, _ = agent_client
     host, _ = fake_host
     host.unreachable = True
-    res = client.post("/credential", headers=auth_headers, json={
+    res = client.post("/credential", json={
         "worker_id": "worker-01", "secret": SECRET,
         "sub_nqns": [NQN_UBUNTU], "host_nqns": [HOST_NQN],
     })

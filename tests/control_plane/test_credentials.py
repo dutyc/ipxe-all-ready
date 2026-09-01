@@ -211,15 +211,18 @@ def test_boot_vars_credential_audit(client, auth_headers, register_claimed_devic
 
 # Host NQN = worker 维度派生（发起端身份，与绑定设备无关；nqn.2026-07.com.kurrent:host.<worker_id>）
 HOST_NQN = "nqn.2026-07.com.kurrent:host.worker-01"
-# 盘标识权威 = NQN（控制面 build_nqn 生成盘 NQN，IQN 由 NQN 派生；推送 sub_nqns 用 NQN）
-DISK_NQN = "nqn.2026-07.com.test:worker-01.ubuntu"
-DISK_IQN = "iqn." + DISK_NQN[4:]
+# 盘标识权威 = NQN（控制面 build_nqn 生成盘 NQN，后缀带 os_tag；IQN 由 NQN 派生；推送 sub_nqns 用 NQN）
+
+
+def _disk_nqn(worker_record: dict) -> str:
+    """从建盘响应提取盘 NQN（带 os_tag 后缀，随机生成不能硬编码）。"""
+    return worker_record["disks"][0]["nqn"]
 
 
 def _setup_agent_and_disk(client, auth_headers, worker_id="worker-01") -> dict:
     """注册 disk agent + 空转 worker + 建系统盘（mock_agent_client 接管 Agent 调用）。"""
     res = client.post("/agents", json={
-        "id": "ag-01", "base_url": "http://ag-01:8000", "token": "t",
+        "id": "ag-01", "base_url": "http://ag-01:8000",
         "role": {"disk": True, "cd": False}, "tags": ["storage", "stgt"],
     }, headers=auth_headers)
     assert res.status_code == 201, res.text
@@ -233,7 +236,8 @@ def _setup_agent_and_disk(client, auth_headers, worker_id="worker-01") -> dict:
 
 def test_push_on_credential_set(client, auth_headers, register_claimed_device, mock_agent_client):
     """PUT credential → 向持盘 Agent 推送 {secret, sub_nqns, host_nqns}（审计不记密钥）。"""
-    _setup_agent_and_disk(client, auth_headers)
+    worker = _setup_agent_and_disk(client, auth_headers)
+    disk_nqn = _disk_nqn(worker)
     _bind_existing_worker(client, auth_headers, register_claimed_device)
     secret = make_secret()
     pushes = []
@@ -241,7 +245,7 @@ def test_push_on_credential_set(client, auth_headers, register_claimed_device, m
 
     res = client.put("/workers/worker-01/credential", json={"secret": secret}, headers=auth_headers)
     assert res.status_code == 200
-    assert pushes == [( "worker-01", secret, [DISK_NQN], [HOST_NQN] )]
+    assert pushes == [("worker-01", secret, [disk_nqn], [HOST_NQN])]
     ops = settings.operations_file.read_text(encoding="utf-8")
     assert '"credential.push"' in ops
     assert secret not in ops
@@ -249,7 +253,8 @@ def test_push_on_credential_set(client, auth_headers, register_claimed_device, m
 
 def test_push_on_credential_revoke(client, auth_headers, register_claimed_device, mock_agent_client):
     """DELETE credential → 推送 secret=None（吊销该 worker 认证）。"""
-    _setup_agent_and_disk(client, auth_headers)
+    worker = _setup_agent_and_disk(client, auth_headers)
+    disk_nqn = _disk_nqn(worker)
     _bind_existing_worker(client, auth_headers, register_claimed_device)
     client.put("/workers/worker-01/credential", json={"secret": make_secret()}, headers=auth_headers)
     pushes = []
@@ -257,7 +262,7 @@ def test_push_on_credential_revoke(client, auth_headers, register_claimed_device
 
     res = client.delete("/workers/worker-01/credential", headers=auth_headers)
     assert res.status_code == 200
-    assert pushes == [("worker-01", None, [DISK_NQN], [HOST_NQN])]
+    assert pushes == [("worker-01", None, [disk_nqn], [HOST_NQN])]
 
 
 def test_push_host_nqn_derives_from_worker_id(client, auth_headers, mock_agent_client):
@@ -294,13 +299,14 @@ def test_push_on_bind_unbind(client, auth_headers, register_claimed_device, mock
 
     res = client.delete(f"/devices/{MAC_A}/bind", headers=auth_headers)
     assert res.status_code == 200
-    assert pushes[-1] == ("worker-01", secret, [DISK_NQN], [HOST_NQN])  # 解绑后 host_nqns 不变（worker 维度恒定）
+    disk_nqn = _disk_nqn(client.get("/workers/worker-01", headers=auth_headers).json())
+    assert pushes[-1] == ("worker-01", secret, [disk_nqn], [HOST_NQN])  # 解绑后 host_nqns 不变（worker 维度恒定）
 
 
 def test_push_on_disk_create(client, auth_headers, register_claimed_device, mock_agent_client):
     """建盘触发推送：新子系统立即登记 hosts（worker 已有密钥时）。"""
     res = client.post("/agents", json={
-        "id": "ag-01", "base_url": "http://ag-01:8000", "token": "t",
+        "id": "ag-01", "base_url": "http://ag-01:8000",
         "role": {"disk": True, "cd": False}, "tags": ["storage", "stgt"],
     }, headers=auth_headers)
     assert res.status_code == 201
@@ -313,9 +319,10 @@ def test_push_on_disk_create(client, auth_headers, register_claimed_device, mock
         "type": "master", "os": "ubuntu", "name": "ubuntu-24.04-master",
     }, headers=auth_headers)
     assert res.status_code == 201, res.text
+    disk_nqn = _disk_nqn(res.json())
     assert pushes[-1][0] == "worker-01"
     assert pushes[-1][1] is not None
-    assert DISK_NQN in pushes[-1][2]
+    assert disk_nqn in pushes[-1][2]
 
 
 def test_push_failure_nonblocking(client, auth_headers, register_claimed_device, mock_agent_client):

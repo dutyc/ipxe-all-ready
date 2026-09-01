@@ -26,11 +26,52 @@
   gap: 14px;
 }
 
+/* ===== 顶部状态栏 ===== */
+.agent-status-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  font-size: 12px;
+  color: var(--gray-500);
+  margin-top: 6px;
+}
+
+/* ===== 分类页 Tab ===== */
+.agent-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 24px;
+}
+
+.agent-tab {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 8px 18px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--gray-500);
+  cursor: pointer;
+  transition: color var(--transition), border-color var(--transition);
+}
+
+.agent-tab:hover {
+  color: var(--black);
+}
+
+.agent-tab.active {
+  color: var(--black);
+  border-bottom-color: var(--black);
+  font-weight: 600;
+}
+
 /* ===== Toolbar ===== */
 .luns-toolbar {
   display: flex;
   align-items: center;
   gap: 12px;
+  margin-bottom: 14px; /* 与下方表格边框保持视觉间隔 */
 }
 
 .luns-meta {
@@ -84,7 +125,7 @@
 
 .luns-header {
   display: grid;
-  grid-template-columns: 2fr 110px 1.2fr 150px 90px;
+  grid-template-columns: 2fr 100px 1.1fr 1.3fr 120px 1.2fr 100px;
   gap: 16px;
   padding: 12px 20px;
   background: var(--gray-25);
@@ -98,7 +139,7 @@
 
 .luns-row {
   display: grid;
-  grid-template-columns: 2fr 110px 1.2fr 150px 90px;
+  grid-template-columns: 2fr 100px 1.1fr 1.3fr 120px 1.2fr 100px;
   gap: 16px;
   padding: 14px 20px;
   border-bottom: 1px solid var(--border-light);
@@ -116,6 +157,27 @@
   word-break: break-all;
 }
 
+/* 系统身份标识：os + 版本（os_tag 悬停显示） */
+.lr-os {
+  font-size: 12px;
+  color: var(--gray-600);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 盘备注：多行截断，悬停看全文 */
+.lr-remark {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-all;
+  font-size: 12px;
+  color: var(--gray-600);
+}
+
 .lr-backing {
   font-family: var(--font-mono);
   font-size: 12px;
@@ -130,4 +192,123 @@
 
 .lr-action {
   text-align: right;
+}
+
+/* ===== Master Table（与 Target 页 LUN 列表同构：表头 + 网格行 + Badge） ===== */
+/* 母盘页提示：朴素文字（无框无底），位于卡片外独立位置，与表格明确分离 */
+.master-hint {
+  font-size: 12px;
+  color: var(--gray-500);
+  line-height: 1.6;
+  margin: 0 0 14px;
+}
+
+.master-table-wrap {
+  overflow-x: auto;
+  margin-top: 14px; /* 与上方提示框保持视觉间隔 */
+}
+
+.master-table {
+  min-width: 1080px; /* 窄屏时横向滚动，避免布局崩坏 */
+  border: 1px solid var(--border);
+}
+
+/* 表头与行共用同一列模板：各列严格一一对应（操作列固定宽，避免 auto 列导致错位） */
+.master-table-header,
+.master-table-row {
+  grid-template-columns: 1.6fr 80px 70px 2fr 130px 1.3fr 140px;
+}
+
+.master-table-header {
+  display: grid;
+  gap: 16px;
+  padding: 12px 20px;
+  background: var(--gray-25);
+  border-bottom: 1px solid var(--border);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--gray-500);
+}
+
+.master-table-row {
+  display: grid;
+  gap: 16px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-light);
+  font-size: 13px;
+  align-items: center;
+}
+
+.master-table-row:last-child {
+  border-bottom: none;
+}
+
+.mtr-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.mtr-name-text {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.mtr-size {
+  font-size: 12px;
+  color: var(--gray-600);
+  white-space: nowrap;
+}
+
+.mtr-nqn {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.mtr-bound {
+  font-size: 12px;
+}
+
+.mtr-remark {
+  font-size: 12px;
+  color: var(--gray-600);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-all;
+  white-space: normal;
+}
+
+.mtr-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+
+/* 编辑弹窗：os 与 os_version 并排（min-width: 0 允许收缩，避免溢出贴边） */
+.master-tag-form-row {
+  display: flex;
+  gap: 12px;
+}
+
+.master-tag-form-row .field {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* 备注输入：textarea 复用 input 底色，纵向可伸缩 */
+.master-remark-input {
+  resize: vertical;
+  min-height: 38px;
+  line-height: 1.5;
+  font-family: inherit;
 }

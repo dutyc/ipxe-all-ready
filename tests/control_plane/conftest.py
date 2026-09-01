@@ -33,6 +33,7 @@ def client():
         settings.settings_file,
         settings.dnsmasq_hosts_file,
         settings.credentials_file,
+        settings.masters_file,
     ):
         f.unlink(missing_ok=True)
     trust_mod._nonce_store.clear()

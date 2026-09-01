@@ -15,22 +15,27 @@ services:
     container_name: storager-agent
     restart: unless-stopped
     ports:
-      - "4840:8080"                    # 控制面 HTTP，给 Controller
+      - "4840:8080"                    # 控制面 HTTPS（mTLS），给 Controller
     env_file: ../.env
     extra_hosts:
       - "host.docker.internal:host-gateway"   # nvmet-host 为 host 网络模式，经宿主 loopback 访问其 4841
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock   # 用来 exec 进后端容器（nvmet 由 Agent 经 HTTP 驱动）
       - /etc/localtime:/etc/localtime:ro
-      - /pool1/iscsi_img:/home/iscsi_img            # 请修改为实际存储 img 硬盘的路径
+      - /home/lecreate/Development/Gitclone/kurrent/storager_img:/home/iscsi_img            # 请修改为实际存储 img 硬盘的路径
       - ../agent/logs:/var/log/ipxe-agent
+      # 组件 PKI（K8S 同构，2026-08-31）：本组件证书目录（可写，引导/轮换时落盘）；
+      # 宿主路径可用 KURRENT_AGENT_PKI_HOST 覆盖（kurrent-join.sh 按 agent_id 写入）
+      - ${KURRENT_AGENT_PKI_HOST:-../../control_plane/state/pki/components/agent-storage-lio-01}:/etc/ipxe-agent/pki
+      # 控制面 nginx 服务器证书（自签，作为 enroll/renew 的 TOFU 信任根）
+      - ../../control_plane/state/certs/server.crt:/etc/ipxe-agent/cp-ca.crt:ro
 
   # ── NVMe-oF 宿主管理服务（KURRENT_BACKEND=nvmet 时启用）──
   # 内核 nvmet target 在宿主（modprobe nvmet nvmet-tcp + 挂载 configfs，见 nvmet-host README）；
   # 本容器只承载配置面管理进程：bind mount configfs 后普通 root 即可写入，无需 privileged。
   # host 网络模式：nvmet 监听 socket 由写 configfs 的进程（本容器）创建，绑定到该进程所在
   # 网络命名空间；host 模式下即宿主 netns，客户端（iPXE/QEMU）可直接访问 4420，容器重建不丢监听。
-  # Agent 经 http://127.0.0.1:4841 访问本服务（见 storager/.env 的 KURRENT_NVMET_HOST_URL）。
+  # Agent 经 https://host.docker.internal:4841 访问本服务（mTLS，见 storager/.env 的 KURRENT_NVMET_HOST_URL）。
   nvmet-host:
     build:
       context: ./nvmet-host
@@ -48,11 +53,23 @@ services:
       - /sys/kernel/config:/sys/kernel/config
       # 磁盘镜像目录：configfs device_path 由写入进程（本容器）所在挂载命名空间解析，
       # 须让本容器能看见盘文件（与 agent 的 KURRENT_DISK_DIR 内容一致，路径可不同）
-      - /pool1/iscsi_img:/srv/nvmet-disks
+      - /home/lecreate/Development/Gitclone/kurrent/storager_img:/srv/nvmet-disks
       - /etc/localtime:/etc/localtime:ro
+      # 组件 PKI（K8S 同构，2026-08-31）：nvmet-host 独立组件身份（cn=nvmet-<agent_id>）；
+      # 宿主路径可用 KURRENT_NVMET_PKI_HOST 覆盖（kurrent-join.sh 按 agent_id 写入）
+      - ${KURRENT_NVMET_PKI_HOST:-../../control_plane/state/pki/components/nvmet-storage-lio-01}:/etc/ipxe-agent/pki
+      - ../../control_plane/state/certs/server.crt:/etc/ipxe-agent/cp-ca.crt:ro
     environment:
-      NVMET_HOST_TOKEN: ${KURRENT_NVMET_HOST_TOKEN:-}
       NVMET_HOST_ADDR: 0.0.0.0
       NVMET_HOST_PORT: "4841"
       # 容器内磁盘目录：device_path 重拼前缀（backing 的 basename 拼到此目录）
       NVMET_HOST_DISK_DIR: /srv/nvmet-disks
+      # 组件 PKI（K8S 同构，2026-08-31）：nvmet-host 自身引导/轮换
+      KURRENT_AGENT_ID: ${KURRENT_AGENT_ID:-}
+      KURRENT_COMPONENT: nvmet-host
+      KURRENT_PKI_DIR: /etc/ipxe-agent/pki
+      # host 网络模式下容器共享宿主网络栈：无 host.docker.internal 解析
+      # （该条目仅 bridge 网络 + extra_hosts host-gateway 生效），直连宿主 loopback 的 nginx 443
+      KURRENT_CP_ENROLL_URL: https://127.0.0.1
+      KURRENT_CP_CA: /etc/ipxe-agent/cp-ca.crt
+      KURRENT_BOOTSTRAP_TOKEN: ${KURRENT_BOOTSTRAP_TOKEN_NVMET:-}

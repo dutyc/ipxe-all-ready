@@ -24,7 +24,7 @@ from ..utils import (
     now_iso,
     parse_uint,
 )
-from .workers import _host_nqn_for
+from .workers import MENU_NAV_ITEMS, _host_nqn_for
 
 router = APIRouter()
 
@@ -208,9 +208,21 @@ def _worker_boot_payload(match: tuple[str, dict[str, Any]]) -> dict[str, Any]:
         "menu_default": str(menu_default),
         "menu_timeout": int(menu_timeout),
     }
+    # 系统标识投影（2026-08-30 MAIN MENU 动态化 + 盘标识分层）：menu.ipxe 通用 OS 项
+    # 消费 ${os} / ${os-version}（label 展示）与 ${os-tag}（NQN 后缀拼接）；
+    # 来源 = 默认盘记录（盘记录权威），与盘 NQN 后缀同源。
+    # 无盘（default_disk_for 返回 None）时不投影，reboot 循环等待建盘。
+    if disk and disk.get("os"):
+        payload["os"] = str(disk["os"]).lower()
+        # os_version 为备注（'' = 无版本）：空值不下发，menu 侧 os-label 拼接自适应
+        if disk.get("os_version"):
+            payload["os_version"] = str(disk["os_version"]).lower()
+        # os_tag = 盘级随机标识（数据面唯一键）：固件拼盘 NQN 后缀，与盘记录权威值一致
+        if disk.get("os_tag"):
+            payload["os_tag"] = str(disk["os_tag"]).lower()
     if agent_id:
-        # base-nqn 投影（C3 拼接起步）：来源 = 盘 NQN 前缀（盘 NQN 由 Agent 按统一模板
-        # base:worker_id.os 生成，无存量盘、无历史命名，固件按模板重拼 = 盘记录权威值）；
+        # base-nqn 投影（C3 拼接起步）：来源 = 盘 NQN 前缀（盘 NQN 由控制面按统一模板
+        # base:worker_id.os.<os_tag> 生成，无存量盘、无历史命名，固件按模板重拼 = 盘记录权威值）；
         # 盘记录缺 nqn → 不下发该键，固件不拼 NVMe-oF 路径（不兼容遗留，不派生）
         nqn = disk.get("nqn")
         base_nqn = _base_nqn_from_target(nqn)
@@ -290,6 +302,12 @@ def _boot_vars_ipxe(payload: dict[str, Any]) -> str:
         lines.append(f"set nbft-secret {payload['nbft_secret']}")
     if payload.get("hostnqn"):
         lines.append(f"set hostnqn {payload['hostnqn']}")
+    if payload.get("os"):
+        lines.append(f"set os {payload['os']}")
+    if payload.get("os_version"):
+        lines.append(f"set os-version {payload['os_version']}")
+    if payload.get("os_tag"):
+        lines.append(f"set os-tag {payload['os_tag']}")
     lines.extend(
         [
             f"set menu-default {payload['menu_default']}",
@@ -318,6 +336,12 @@ def _boot_vars_json(payload: dict[str, Any]) -> dict[str, Any]:
         result["nbft_secret"] = payload["nbft_secret"]
     if payload.get("hostnqn"):
         result["hostnqn"] = payload["hostnqn"]
+    if payload.get("os"):
+        result["os"] = payload["os"]
+    if payload.get("os_version"):
+        result["os_version"] = payload["os_version"]
+    if payload.get("os_tag"):
+        result["os_tag"] = payload["os_tag"]
     return result
 
 
@@ -328,8 +352,8 @@ def _base_iqn_from_target(iqn: str | None) -> str:
 
 
 def _base_nqn_from_target(nqn: str | None) -> str | None:
-    """盘 NQN 的命名空间前缀（C3 拼接）：`nqn.2026-07.com.kurrent:worker-01.ubuntu` → 前缀。
-    盘 NQN 由 Agent 按统一模板 `base:worker_id.os` 生成（无存量盘），前缀重拼 = 盘记录权威值；
+    """盘 NQN 的命名空间前缀（C3 拼接）：`nqn.2026-07.com.kurrent:worker-01.ubuntu.<os_tag>` → 前缀。
+    盘 NQN 由控制面按统一模板 `base:worker_id.os.<os_tag>` 生成（无存量盘），前缀重拼 = 盘记录权威值；
     盘记录缺 nqn → 返回 None（不投影该键，固件不拼 NVMe-oF 路径）。"""
     if nqn and ":" in nqn:
         return nqn.rsplit(":", 1)[0]
@@ -375,14 +399,19 @@ def _find_worker_by_hostname(workers: dict[str, Any], hostname: str) -> tuple[st
 
 
 def _menu_default_for(record_: dict[str, Any]) -> str:
-    """默认启动项：default_os（建盘后单独设置）> boot.menu_default（显式配置）> reboot（未配置时循环重启等待）。"""
-    default_os = str(record_.get("default_os", "")).lower()
-    if default_os:
-        return default_os
+    """默认启动项：default_disk（指向具体盘）> boot.menu_default（显式配置）> reboot（未配置时循环重启等待）。
+    2026-08-30 MAIN MENU 动态化：菜单 OS 项已收敛为唯一通用项 boot-os，
+    显式 menu_default 中的 OS 语义值（旧系统名）统一归一到 boot-os；
+    非 OS 导航值（menu-diag / menu-install / config / shell / reboot / exit）保留原样。"""
+    if record_.get("default_disk"):
+        return "boot-os"
     boot = record_.get("boot") or {}
     menu_default = boot.get("menu_default") or boot.get("menu-default")
     if menu_default:
-        return str(menu_default).lower()
+        md = str(menu_default).lower()
+        if md not in MENU_NAV_ITEMS:
+            return "boot-os"  # OS 语义默认值归一（脚本已无对应标签，choose --default 须指向现有项）
+        return md
     return "reboot"
 
 

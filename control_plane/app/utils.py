@@ -5,6 +5,7 @@
 
 import datetime as _dt
 import re
+import secrets
 from typing import Any
 
 from fastapi import HTTPException, Request
@@ -14,6 +15,8 @@ from .dnsmasq import normalize_mac
 WORKER_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,62}$")
 HOSTNAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 OS_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,31}$")
+OS_VERSION_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,31}$")
+OS_TAG_RE = re.compile(r"^[0-9a-f]{12}$")
 HEX_MAC_RE = re.compile(r"^[0-9a-f]{12}$")
 
 
@@ -36,6 +39,29 @@ def canonical_os(value: str) -> str:
     if not OS_RE.match(os_name):
         raise HTTPException(400, f"invalid os: {value}")
     return os_name
+
+
+def canonical_os_version(value: str) -> str:
+    """系统版本归一：小写原样保留（备注性质，不设枚举）；空值 → ''（库表形态：无版本）。"""
+    version = value.strip().lower()
+    if not version:
+        return ""
+    if not OS_VERSION_RE.match(version):
+        raise HTTPException(400, f"invalid os_version: {value}")
+    return version
+
+
+def canonical_os_tag(value: str) -> str:
+    """盘标识（os_tag）：12 位十六进制随机串，盘级引用键（默认启动/删盘用）。"""
+    tag = value.strip().lower()
+    if not OS_TAG_RE.match(tag):
+        raise HTTPException(400, f"invalid os_tag: {value}")
+    return tag
+
+
+def gen_os_tag() -> str:
+    """随机盘标识：docker 容器 ID 短形式（12 hex），唯一性由随机性保证，碰撞重试即可。"""
+    return secrets.token_hex(6)
 
 
 def canonical_mac(value: str) -> str:
@@ -101,7 +127,7 @@ def add_worker_disk(record: dict[str, Any], disk_record: dict[str, Any]) -> None
 
 
 def find_disk_by_os(record: dict[str, Any], os_name: str) -> dict[str, Any] | None:
-    """按系统名查找系统盘（os 不区分大小写）。"""
+    """按系统名查找系统盘（os 不区分大小写）；同 os 多版本并存后，仅精确到 os 维度。"""
     os_name = os_name.lower()
     for disk in worker_disks(record):
         if str(disk.get("os", "")).lower() == os_name:
@@ -109,15 +135,40 @@ def find_disk_by_os(record: dict[str, Any], os_name: str) -> dict[str, Any] | No
     return None
 
 
+def find_disk_by_os_version(record: dict[str, Any], os_name: str, os_version: str) -> dict[str, Any] | None:
+    """按 (os, os_version) 精确查重：同 worker 同系统同版本至多一块（版本空值 '' 也参与唯一键）。"""
+    os_name = os_name.lower()
+    os_version = os_version.lower()
+    for disk in worker_disks(record):
+        if str(disk.get("os", "")).lower() == os_name and str(disk.get("os_version", "")).lower() == os_version:
+            return disk
+    return None
+
+
+def find_disk_by_tag(record: dict[str, Any], os_tag: str) -> dict[str, Any] | None:
+    """按盘标识（os_tag）查找系统盘：盘级引用键（默认启动/删盘），标签唯一。"""
+    os_tag = os_tag.lower()
+    for disk in worker_disks(record):
+        if str(disk.get("os_tag", "")).lower() == os_tag:
+            return disk
+    return None
+
+
+def disk_label(disk: dict[str, Any]) -> str:
+    """盘的人类可读标签：os[ os_version]（备注性质展示）。"""
+    version = str(disk.get("os_version", "") or "").strip()
+    return f"{disk.get('os', '')} {version}".strip() if version else str(disk.get("os", ""))
+
+
 def default_disk_for(record: dict[str, Any]) -> dict[str, Any] | None:
-    """默认启动盘：default_os 对应系统盘；未设 default_os 时取第一块盘。"""
+    """默认启动盘：default_disk 指向具体盘（按 os_tag）；未设时取第一块盘。"""
     disks = worker_disks(record)
     if not disks:
         return None
-    default_os = str(record.get("default_os", "")).lower()
-    if default_os:
+    default_tag = str(record.get("default_disk", "")).lower()
+    if default_tag:
         for disk in disks:
-            if str(disk.get("os", "")).lower() == default_os:
+            if str(disk.get("os_tag", "")).lower() == default_tag:
                 return disk
     return disks[0]
 
@@ -151,8 +202,9 @@ def nqn_to_iqn(nqn: str) -> str:
     return "iqn." + nqn
 
 
-def build_disk_filename(worker_id: str, os_name: str) -> str:
-    return f"{worker_id}.{os_name}.img".lower()
+def build_disk_filename(worker_id: str, os_name: str, os_tag: str) -> str:
+    """系统盘文件名：worker_id.os.<os_tag>.img（os_tag = 盘级随机标识，数据面唯一键）。"""
+    return f"{worker_id}.{os_name}.{os_tag}.img".lower()
 
 
 def validate_disk(kind: str, name: str | None, size: str | None) -> None:

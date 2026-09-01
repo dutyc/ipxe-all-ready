@@ -1,8 +1,9 @@
 """nvmet 宿主管理服务（NVMe-oF 存储接入 C4，2026-08-22 裁定：宿主原生 nvmet + Agent HTTP 调用）。
 
-运行形态：存储节点宿主 root 运行（systemd unit），绑定 localhost + Bearer token；
+运行形态：存储节点宿主 root 运行（systemd unit），绑定 localhost + mTLS（内部 CA，
+2026-08-31 起与 agent 同构：bootstrap token 一次性引导 + 证书轮换 + 客户端证书鉴权）；
 直接操作内核 configfs（/sys/kernel/config/nvmet）——subsystem/namespace/port/hosts(dhchap_key)。
-Agent 是唯一调用方；盘文件管理仍归 Agent（本服务不挂载盘目录）。
+Agent 是唯一调用方（持有内部 CA 签发的 client cert）；盘文件管理仍归 Agent（本服务不挂载盘目录）。
 契约：blueprint/nvmeof-credential-design.md 第 6 节。
 
 configfs 语义要点（Linux v7.x nvmet）：
@@ -14,14 +15,18 @@ configfs 语义要点（Linux v7.x nvmet）：
 - 删除子系统前须先摘除 port 挂载（symlink），否则 EBUSY
 """
 
-import hmac
 import logging
 import os
 import shutil
 from typing import Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel
+
+from .pki_client import ensure_pki
+
+# 组件 PKI 引导/轮换（K8S 同构）：证书未就绪抛错阻断启动（与 storager-agent 同语义）
+ensure_pki()
 
 log = logging.getLogger("nvmet-host")
 
@@ -39,9 +44,6 @@ def _require_env(name: str) -> str:
     if not val:
         raise RuntimeError(f"missing required env var: {name}")
     return val
-
-
-TOKEN = _require_env("NVMET_HOST_TOKEN")
 
 
 # ============================ configfs 操作封装 ============================
@@ -214,10 +216,16 @@ class HostSet(BaseModel):
     secret: str
 
 
-def verify_token(authorization: str = Header("", alias="Authorization")) -> None:
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(401, "unauthorized")
-    if not hmac.compare_digest(authorization[len("Bearer "):].strip(), TOKEN):
+def verify_client_cert(request: Request) -> None:
+    """mTLS 客户端证书鉴权（K8S 同构：kubelet --client-ca-file 信任模型）。
+
+    uvicorn 以 ssl_cert_reqs=CERT_REQUIRED + ssl_ca_certs=内部 CA 起服：TLS 层
+    强制客户端证书且校验链到内部 CA（无证书/链不符握手即被拒）；身份边界 =
+    内部 CA 签发范围（bootstrap token 一次性引导 + CSR CN 校验 + 组件登记，
+    签发受控制面管控）。uvicorn 不透传客户端证书到 ASGI scope
+    （Kludex/uvicorn#745），应用层无法做 CN 白名单。
+    """
+    if request.client is None:
         raise HTTPException(401, "unauthorized")
 
 
@@ -230,7 +238,7 @@ def healthz():
     return {"status": "ok", "configfs": manager.ready()}
 
 
-@app.get("/capabilities", dependencies=[Depends(verify_token)])
+@app.get("/capabilities", dependencies=[Depends(verify_client_cert)])
 def capabilities():
     return {
         "backend": "nvmet",
@@ -241,17 +249,17 @@ def capabilities():
     }
 
 
-@app.post("/port", dependencies=[Depends(verify_token)])
+@app.post("/port", dependencies=[Depends(verify_client_cert)])
 def ensure_port(trsvcid: str = "4420"):
     return manager.ensure_port(trsvcid=trsvcid)
 
 
-@app.get("/subsystems", dependencies=[Depends(verify_token)])
+@app.get("/subsystems", dependencies=[Depends(verify_client_cert)])
 def list_subsystems():
     return {"subsystems": manager.list_subsystems()}
 
 
-@app.post("/subsystems", status_code=201, dependencies=[Depends(verify_token)])
+@app.post("/subsystems", status_code=201, dependencies=[Depends(verify_client_cert)])
 def create_subsystem(req: SubsystemCreate):
     try:
         manager.create_subsystem(req.nqn, req.backing)
@@ -264,7 +272,7 @@ def create_subsystem(req: SubsystemCreate):
     return {"nqn": req.nqn, "backing": req.backing, "port": PORT_ID}
 
 
-@app.delete("/subsystems/{nqn}", dependencies=[Depends(verify_token)])
+@app.delete("/subsystems/{nqn}", dependencies=[Depends(verify_client_cert)])
 def delete_subsystem(nqn: str):
     try:
         manager.delete_subsystem(nqn)
@@ -273,7 +281,7 @@ def delete_subsystem(nqn: str):
     return {"deleted": nqn}
 
 
-@app.put("/subsystems/{nqn}/hosts", dependencies=[Depends(verify_token)])
+@app.put("/subsystems/{nqn}/hosts", dependencies=[Depends(verify_client_cert)])
 def set_host(nqn: str, req: HostSet):
     """登记/更新 host 认证（DHHC-1 密钥）。Agent 按绑定关系同步调用。"""
     try:
@@ -283,7 +291,7 @@ def set_host(nqn: str, req: HostSet):
     return {"nqn": nqn, "hostnqn": req.hostnqn, "set": True}
 
 
-@app.delete("/subsystems/{nqn}/hosts/{hostnqn}", dependencies=[Depends(verify_token)])
+@app.delete("/subsystems/{nqn}/hosts/{hostnqn}", dependencies=[Depends(verify_client_cert)])
 def delete_host(nqn: str, hostnqn: str):
     manager.delete_host(nqn, hostnqn)
     return {"nqn": nqn, "hostnqn": hostnqn, "deleted": True}
@@ -296,4 +304,13 @@ if __name__ == "__main__":
     port = int(os.getenv("NVMET_HOST_PORT", "4841"))
     # 启动即配置 NVMe/TCP 端口（幂等）：裸端口不允许挂子系统，须先写全 addr_* 属性
     manager.ensure_port()
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    # mTLS（K8S 同构，2026-08-31）：serving cert + 内部 CA 校验客户端证书链（CERT_REQUIRED），
+    # 与 storager-agent 的 uvicorn 参数一致；host 网络直连（无 docker-proxy），协议版本不限
+    pki_dir = os.environ["KURRENT_PKI_DIR"]
+    uvicorn.run(
+        app, host=host, port=port, log_level="info",
+        ssl_keyfile=os.path.join(pki_dir, "serving.key"),
+        ssl_certfile=os.path.join(pki_dir, "serving.crt"),
+        ssl_ca_certs=os.path.join(pki_dir, "ca.crt"),
+        ssl_cert_reqs=2,
+    )
