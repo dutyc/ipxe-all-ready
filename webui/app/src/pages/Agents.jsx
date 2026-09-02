@@ -291,37 +291,25 @@ function AgentForm({ agentId, initial, onClose, onSaved }) {
   )
 }
 
-// 加入节点弹窗：签发一次性 bootstrap token（kubeadm token create 同构）并输出 join 命令。
-// 节点执行 join 后自动引导证书 + 控制面自动登记（kubelet 自动注册 Node 同构）。
+// 加入节点弹窗：签发集群级通用 bootstrap token（kubeadm token create 同构，不绑节点）
+// 并输出带控制面地址的 join 命令（kubeadm token create --print-join-command 同构：
+// 节点粘贴执行即获得地址；声明 storager/kurrent.yaml 缺失时由 join 自动生成，
+// metadata.name 留空取宿主机名）；nvmet-host 凭据由 enroll 按能力自动派生。
 function JoinAgentModal({ onClose }) {
   const { t } = useI18n()
-  const [agentId, setAgentId] = useState('')
-  const [nvmet, setNvmet] = useState(false)
   const [cpUrl, setCpUrl] = useState(() => `https://${window.location.hostname}`)
   const [issuing, setIssuing] = useState(false)
   const [error, setError] = useState(null)
-  const [tokens, setTokens] = useState(null) // { agent: {token, expires_at}, nvmet: {...} | null }
+  const [tok, setTok] = useState(null) // { token, expires_at }
   const [copied, setCopied] = useState(false)
 
   const handleIssue = async (e) => {
     e.preventDefault()
-    const id = agentId.trim()
-    if (!id) return
     setIssuing(true)
     setError(null)
-    setTokens(null)
+    setTok(null)
     try {
-      const agent = await issueBootstrapToken(id, 'agent')
-      let nvmetTok = null
-      if (nvmet) {
-        try {
-          nvmetTok = await issueBootstrapToken(id, 'nvmet-host')
-        } catch (err) {
-          // agent token 已签发（不因 nvmet 失败作废），仅提示
-          setError(`${t('agents.nvmetIssueFailed')}: ${err.message}`)
-        }
-      }
-      setTokens({ agent, nvmet: nvmetTok })
+      setTok(await issueBootstrapToken())
     } catch (err) {
       setError(err.message)
     } finally {
@@ -329,12 +317,7 @@ function JoinAgentModal({ onClose }) {
     }
   }
 
-  const joinCmd = () => {
-    if (!tokens?.agent) return ''
-    let cmd = `kurrent join ${cpUrl.trim()} ${tokens.agent.token} ${agentId.trim()}`
-    if (tokens.nvmet) cmd += ` --nvmet-token ${tokens.nvmet.token}`
-    return cmd
-  }
+  const joinCmd = () => (tok ? `kurrent join ${cpUrl.trim()} --token ${tok.token}` : '')
 
   const handleCopy = async () => {
     try {
@@ -359,33 +342,18 @@ function JoinAgentModal({ onClose }) {
         <p className="create-hint">{t('agents.joinHint')}</p>
         <div className="create-form-grid">
           <Input
-            label={t('agents.idLabel')}
-            value={agentId}
-            onChange={(e) => setAgentId(e.target.value)}
-            placeholder={t('agents.idPlaceholder')}
-            required
-          />
-          <Input
             label={t('agents.cpUrlLabel')}
             value={cpUrl}
             onChange={(e) => setCpUrl(e.target.value)}
             placeholder="https://<control-plane-host>"
           />
         </div>
-        <label className="agent-role-check">
-          <input
-            type="checkbox"
-            checked={nvmet}
-            onChange={(e) => setNvmet(e.target.checked)}
-          />
-          {t('agents.nvmetLabel')}
-        </label>
         {error && <p className="create-error">{error}</p>}
         <div className="create-actions">
           <Button
             type="submit"
             variant="primary"
-            disabled={issuing || !agentId.trim()}
+            disabled={issuing}
           >
             {issuing ? t('agents.issuing') : t('agents.issueBtn')}
           </Button>
@@ -395,25 +363,16 @@ function JoinAgentModal({ onClose }) {
         </div>
       </form>
 
-      {tokens?.agent && (
+      {tok && (
         <div className="join-result">
           <div className="join-token-list">
             <div className="join-token-row">
-              <span className="join-token-label">{t('agents.tokenAgent')}</span>
-              <code className="join-token-code">{tokens.agent.token}</code>
+              <span className="join-token-label">{t('agents.tokenLabel')}</span>
+              <code className="join-token-code">{tok.token}</code>
               <span className="join-token-expires">
-                {t('agents.expires')}: {tokens.agent.expires_at}
+                {t('agents.expires')}: {tok.expires_at}
               </span>
             </div>
-            {tokens.nvmet && (
-              <div className="join-token-row">
-                <span className="join-token-label">{t('agents.tokenNvmet')}</span>
-                <code className="join-token-code">{tokens.nvmet.token}</code>
-                <span className="join-token-expires">
-                  {t('agents.expires')}: {tokens.nvmet.expires_at}
-                </span>
-              </div>
-            )}
           </div>
           <p className="create-hint">{t('agents.burnHint')}</p>
           <p className="create-hint">{t('agents.joinCmdHint')}</p>

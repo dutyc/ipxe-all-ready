@@ -1,50 +1,57 @@
-// join 子命令：存储节点一键加入控制面（kubeadm join 同构，2026-08-31）。
-// 幂等更新 storager/.env 后启动后端编排（nvmet: storager/nvmeof；stgt|lio: storager/iscsi）。
-// 与 storager/kurrent-join.sh 行为一致；无 Go 环境时可用该脚本等价替代。
+// join 子命令：存储节点加入控制面并收敛到运行态（kubeadm join 同构，配置即声明）。
+// 命令携带控制面地址（kubeadm join <endpoint> 同构——签发命令输出即带地址，节点
+// 粘贴执行即获得地址，无需预编辑任何文件）：kurrent join <cp-url> [--token T]。
+// 节点声明 storager/kurrent.yaml 缺失时按模板自动生成（url=命令地址、name=宿主机名、
+// backend nvmet、advertiseUrl 推导、diskDir/nqnBase 默认），已存在则读入并把地址同步
+// 进声明（非 forbid 式合并，未知字段与手工编辑保留；yml 即 kurrent.yaml，后续可编辑）。
+// 引导凭据落盘（--token 或既有 bootstrap/agent.token）→ .env 插值键同步 → 收敛启动
+// agent（docker compose 为内部编排细节，重跑幂等）。
 package main
 
 import (
 	"bufio"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 func cmdJoin(args []string) {
 	p := parseArgs(args)
-	if len(p.pos) < 3 {
-		fatal("用法: kurrent join <cp-url> <bootstrap-token> <agent-id> " +
-			"[--nvmet-token T] [--advertise-url URL] [--backend nvmet|stgt|lio] [--dir PATH]")
+	if len(p.pos) < 1 {
+		fatal("用法: kurrent join <cp-url> [--config PATH] [--token T] [--dir PATH]\n" +
+			"      <cp-url>: 控制面 HTTPS 入口（kubeadm join <endpoint> 同构；kurrent token\n" +
+			"      create 签发的命令直接带地址，粘贴即可执行）；\n" +
+			"      storager/kurrent.yaml 即节点声明：缺失时 join 按模板自动生成（地址/节点名\n" +
+			"      自决），kurrent config print node-defaults 可预置模板再编辑；\n" +
+			"      引导凭据 --token 可选（不给则要求 storager/bootstrap/agent.token 已就位）")
+	}
+	if len(p.pos) > 1 {
+		fatal("多余位置参数: %s（用法: kurrent join <cp-url> [--config PATH] [--token T] [--dir PATH]）", strings.Join(p.pos[1:], " "))
 	}
 	dir, err := resolveStoragerDir(p.opt("dir", ""))
 	if err != nil {
 		fatal("%v", err)
 	}
-	err = joinRun(joinOpts{
-		dir:          dir,
-		cpURL:        p.pos[0],
-		token:        p.pos[1],
-		agentID:      p.pos[2],
-		nvmetToken:   p.opt("nvmet-token", ""),
-		advertiseURL: p.opt("advertise-url", ""),
-		backend:      p.opt("backend", ""),
-	})
-	if err != nil {
+	configFile := p.opt("config", filepath.Join(dir, "kurrent.yaml"))
+	if !filepath.IsAbs(configFile) {
+		if configFile, err = filepath.Abs(configFile); err != nil {
+			fatal("解析 --config: %v", err)
+		}
+	}
+	if err := joinRun(joinOpts{dir: dir, configFile: configFile, cpURL: p.pos[0], token: p.opt("token", "")}); err != nil {
 		fatal("%v", err)
 	}
 }
 
 type joinOpts struct {
-	dir          string // storager 目录
-	cpURL        string
-	token        string
-	agentID      string
-	nvmetToken   string
-	advertiseURL string
-	backend      string
+	dir        string // storager 目录
+	configFile string // 节点声明文件（缺省 <dir>/kurrent.yaml；其他路径 = 应用为节点配置）
+	cpURL      string // 控制面 HTTPS 入口（kubeadm join <endpoint> 同构，必填）
+	token      string // 引导凭据（可选：给则写入 agent.token；不给要求文件已就位）
 }
 
 // resolveStoragerDir 定位 storager 目录：--dir 优先；否则 cwd 下 storager/；cwd 已是 storager 时用 cwd。
@@ -71,71 +78,281 @@ func resolveStoragerDir(explicit string) (string, error) {
 
 var cpHostRe = regexp.MustCompile(`https?://([^/:]+)`)
 
-// joinRun 幂等写 .env 并拉起后端编排（测试直接调用，不经 cmdJoin）。
+// normalizeAgentID 宿主机名 → agent_id（kubelet 节点名同构：小写，非字母数字/点/横线
+// 字符替换为 '-'，保留 '.'——证书 CN 与控制面登记键仅用该字符集）。
+func normalizeAgentID(hostname string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(strings.TrimSpace(hostname)) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '.', r == '-':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('-')
+		}
+	}
+	return b.String()
+}
+
+// joinRun 校验/补默认节点声明并收敛启动 agent（测试直接调用，不经 cmdJoin）。
 func joinRun(o joinOpts) error {
-	cpURL := strings.TrimRight(o.cpURL, "/")
+	target := filepath.Join(o.dir, "kurrent.yaml")
+	// 控制面入口来自命令位置参数（kubeadm join <endpoint> 同构，必填）：
+	// 签发命令输出直接携带，节点执行即获得；同步为声明 spec.controlPlane.url
+	cpURL := strings.TrimRight(strings.TrimSpace(o.cpURL), "/")
+	if cpURL == "" {
+		return fmt.Errorf("cp-url 必填（kurrent join <cp-url> [--token T]，kubeadm join <endpoint> 同构）")
+	}
 	m := cpHostRe.FindStringSubmatch(cpURL)
 	if len(m) < 2 {
 		return fmt.Errorf("无法从 cp-url 解析主机名: %s", o.cpURL)
 	}
 
-	advertise := strings.TrimSpace(o.advertiseURL)
-	if advertise == "" {
-		advertise = "https://" + m[1] + ":4840"
+	// 节点声明：kurrent.yaml 缺失时按模板自动生成（kubeadm join 无预置文件同构：
+	// 生成后即权威声明，可后续手工编辑；--config 指向其他路径 = 应用为节点配置）
+	data, err := os.ReadFile(o.configFile)
+	var root yaml.Node
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("读取 %s: %w", o.configFile, err)
+		}
+		hostname, herr := os.Hostname()
+		if herr != nil {
+			return fmt.Errorf("获取宿主机名: %w", herr)
+		}
+		if err := yaml.Unmarshal([]byte(newNodeDeclaration(normalizeAgentID(hostname), cpURL,
+			filepath.Join(filepath.Dir(o.dir), "storager_img"))), &root); err != nil {
+			return fmt.Errorf("解析配置模板: %w", err)
+		}
+		fmt.Printf("==> kurrent join: no %s — generated from defaults\n", o.configFile)
+	} else if err := yaml.Unmarshal(data, &root); err != nil {
+		return fmt.Errorf("解析 %s: %w", o.configFile, err)
 	}
-	backend := strings.TrimSpace(o.backend)
-	if backend == "" {
-		backend = envValue(filepath.Join(o.dir, ".env"), "KURRENT_BACKEND") // 后端沿用现有部署
+	if kind := nodeValue(&root, "kind"); kind != "NodeConfiguration" {
+		return fmt.Errorf("%s: kind = %q, want NodeConfiguration", o.configFile, kind)
 	}
+
+	// agent_id：声明留空 → 宿主机名（kubelet Node 命名同构）；显式声明校验字符集
+	agentID := strings.TrimSpace(nodeValue(&root, "metadata", "name"))
+	if agentID == "" {
+		hostname, err := os.Hostname()
+		if err != nil {
+			return fmt.Errorf("获取宿主机名: %w", err)
+		}
+		agentID = normalizeAgentID(hostname)
+		setPath(&root, agentID, "metadata", "name")
+	} else if normalizeAgentID(agentID) != agentID {
+		return fmt.Errorf("%s: metadata.name 含非法字符（证书 CN 与登记键仅允许小写字母/数字/./-，可留空由 join 取宿主机名；建议 %s）",
+			o.configFile, normalizeAgentID(agentID))
+	}
+	// 命令地址同步进声明（引导输入权威；agent/nvmet-host enroll/renew 的 mTLS 连接目标）
+	setPath(&root, cpURL, "spec", "controlPlane", "url")
+	// 后端：缺省 nvmet（pydantic 默认同）；显式声明校验取值
+	backend := strings.TrimSpace(nodeValue(&root, "spec", "agent", "backend"))
 	if backend == "" {
 		backend = "nvmet"
+		setPath(&root, backend, "spec", "agent", "backend")
 	}
+	switch backend {
+	case "nvmet", "stgt", "lio":
+	default:
+		return fmt.Errorf("%s: spec.agent.backend 非法: %s（nvmet|stgt|lio）", o.configFile, backend)
+	}
+	// 数据目录 / NQN base：缺省注入（与模板示例一致），显式声明值原样保留
+	if strings.TrimSpace(nodeValue(&root, "spec", "agent", "diskDir")) == "" {
+		setPath(&root, filepath.Join(filepath.Dir(o.dir), "storager_img"), "spec", "agent", "diskDir")
+	}
+	if strings.TrimSpace(nodeValue(&root, "spec", "agent", "nqnBase")) == "" {
+		setPath(&root, "nqn.2026-07.com.kurrent", "spec", "agent", "nqnBase")
+	}
+	// advertise：声明留空 → 推导 https://<cp-host>:4840（kubelet --node-ip 类比；
+	// 特殊场景（NAT 等）编辑 kurrent.yaml 的 spec.agent.advertiseUrl 覆盖）
+	if strings.TrimSpace(nodeValue(&root, "spec", "agent", "advertiseUrl")) == "" {
+		setPath(&root, "https://"+m[1]+":4840", "spec", "agent", "advertiseUrl")
+	}
+
+	// 写回节点配置（非 forbid 式合并：未知/手工编辑字段原样保留；kurrent.yaml 即声明）
+	out, err := yaml.Marshal(&root)
+	if err != nil {
+		return fmt.Errorf("序列化 %s: %w", target, err)
+	}
+	if err := os.WriteFile(target, out, 0o644); err != nil {
+		return fmt.Errorf("写入 %s: %w", target, err)
+	}
+	if o.configFile != target {
+		fmt.Printf("==> kurrent join: applied %s -> %s\n", o.configFile, target)
+	}
+
+	// 引导凭据文件（kubelet bootstrap-kubeconfig 同构）：--token 给则写入 agent.token
+	// （0600）；不给则要求文件已就位（TTL 内可复用，重跑覆盖新 token）。
+	// nvmet-host.token 是派生凭据——agent enroll 上报 backend=nvmet 时控制面签发随
+	// 响应下发（签发不绑节点、不预知后端）。nvmet 后端重跑 join 时清除旧派生文件
+	// （迁移清理，将由 agent 引导时重新派生；stgt/lio 后端不产生该文件）
+	bootstrapDir := filepath.Join(o.dir, "bootstrap")
+	if err := os.MkdirAll(bootstrapDir, 0o755); err != nil {
+		return fmt.Errorf("创建 %s: %w", bootstrapDir, err)
+	}
+	tokenFile := filepath.Join(bootstrapDir, "agent.token")
+	if strings.TrimSpace(o.token) != "" {
+		if err := os.WriteFile(tokenFile, []byte(strings.TrimSpace(o.token)+"\n"), 0o600); err != nil {
+			return fmt.Errorf("写入 %s: %w", tokenFile, err)
+		}
+	} else if data, err := os.ReadFile(tokenFile); err != nil || strings.TrimSpace(string(data)) == "" {
+		return fmt.Errorf("bootstrap token missing: %s 不存在或为空——kurrent join --token <token> 传入（kurrent token create 签发）",
+			tokenFile)
+	}
+	if backend == "nvmet" {
+		if err := os.Remove(filepath.Join(bootstrapDir, "nvmet-host.token")); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("清除旧 %s: %w", filepath.Join(bootstrapDir, "nvmet-host.token"), err)
+		}
+	}
+
+	// .env 仅保留 compose 插值键（业务键已收敛到 kurrent.yaml，旧键自动清空）
+	projectRoot := filepath.Dir(o.dir)
+	entries := []envEntry{
+		{"KURRENT_AGENT_PKI_HOST", filepath.Join(projectRoot, "control_plane/state/pki/components/agent-" + agentID)},
+		// 宿主存储路径（kurrent.yaml spec.agent.diskDir 权威，同步为 compose 挂载源插值键）
+		{"KURRENT_DISK_DIR", nodeValue(&root, "spec", "agent", "diskDir")},
+	}
+	if backend == "nvmet" {
+		entries = append(entries,
+			envEntry{"KURRENT_NVMET_PKI_HOST", filepath.Join(projectRoot, "control_plane/state/pki/components/nvmet-" + agentID)},
+		)
+	}
+	if err := upsertEnv(filepath.Join(o.dir, ".env"), entries); err != nil {
+		return err
+	}
+
 	var composeDir string
 	switch backend {
 	case "nvmet":
 		composeDir = filepath.Join(o.dir, "nvmeof")
 	case "stgt", "lio":
 		composeDir = filepath.Join(o.dir, "iscsi")
-	default:
-		return fmt.Errorf("invalid backend: %s (nvmet|stgt|lio)", backend)
 	}
-
-	envFile := filepath.Join(o.dir, ".env")
-	projectRoot := filepath.Dir(o.dir)
-	entries := []envEntry{
-		{"KURRENT_AGENT_ID", o.agentID},
-		{"KURRENT_BOOTSTRAP_TOKEN", o.token},
-		{"KURRENT_CP_ENROLL_URL", cpURL},
-		{"KURRENT_ADVERTISE_URL", advertise},
-		{"KURRENT_BACKEND", backend},
-		{"KURRENT_AGENT_PKI_HOST", filepath.Join(projectRoot, "control_plane/state/pki/components/agent-"+o.agentID)},
-	}
-	if o.nvmetToken != "" {
-		entries = append(entries,
-			envEntry{"KURRENT_BOOTSTRAP_TOKEN_NVMET", o.nvmetToken},
-			envEntry{"KURRENT_NVMET_PKI_HOST", filepath.Join(projectRoot, "control_plane/state/pki/components/nvmet-"+o.agentID)},
-		)
-	}
-	if err := upsertEnv(envFile, entries); err != nil {
+	fmt.Printf("==> kurrent join: agent=%s backend=%s cp=%s\n", agentID, backend, cpURL)
+	fmt.Printf("==> kurrent join: node configuration -> %s\n", target)
+	fmt.Printf("==> kurrent join: bootstrap token -> %s（nvmet-host.token 由 agent enroll 派生自动生成）\n", tokenFile)
+	fmt.Printf("==> kurrent join: starting %s (compose)\n", composeDir)
+	if err := composeRun(composeDir, "--env-file", "../.env", "up", "-d"); err != nil {
 		return err
 	}
-
-	fmt.Printf("==> kurrent join: agent=%s backend=%s cp=%s\n", o.agentID, backend, cpURL)
-	fmt.Printf("==> kurrent join: starting %s (compose --env-file ../.env)\n", composeDir)
-	cmd := exec.Command("docker", "compose", "--env-file", "../.env", "up", "-d")
-	cmd.Dir = composeDir
-	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("docker compose 启动失败: %w", err)
+	fmt.Println("==> kurrent join: restarting storager-agent (apply declaration & token)")
+	if err := composeRun(composeDir, "--env-file", "../.env", "restart", "storager-agent"); err != nil {
+		return err
 	}
 	fmt.Println("==> kurrent join: done. 容器首次启动会自动引导证书；")
 	fmt.Println("    控制面侧验证: kurrent agents list（或 WebUI「Agent 列表」看 health=ok）")
 	return nil
 }
 
+// newNodeDeclaration 缺省节点声明（kurrent.yaml 缺失时 join 自动生成；干净无注释，
+// 权威声明——后续可手工编辑或 kurrent config print node-defaults 预置模板）。
+// 分层职责（K8S 同构）：容器内路径/监听属 compose 职责；token 在独立凭据文件；
+// diskDir = 宿主存储路径（默认仓库 storager_img，与 compose 一致）。
+func newNodeDeclaration(agentID, cpURL, diskDir string) string {
+	return fmt.Sprintf(`apiVersion: kurrent.io/v1
+kind: NodeConfiguration
+metadata:
+  name: %s
+spec:
+  agent:
+    backend: nvmet
+    diskDir: %s
+    nqnBase: nqn.2026-07.com.kurrent
+  controlPlane:
+    url: %s
+`, agentID, diskDir, cpURL)
+}
+
+// ── kurrent.yaml 读/改/写（yaml.v3 Node 树，保留未知字段）──
+
+// rootMapping 返回文档根 mapping 节点。
+func rootMapping(root *yaml.Node) *yaml.Node {
+	if root.Kind == yaml.DocumentNode && len(root.Content) > 0 && root.Content[0].Kind == yaml.MappingNode {
+		return root.Content[0]
+	}
+	return root
+}
+
+// mapValue 返回 mapping 中键对应的值节点（无则 nil）。
+func mapValue(m *yaml.Node, key string) *yaml.Node {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			return m.Content[i+1]
+		}
+	}
+	return nil
+}
+
+// setPath 更新 mapping 路径上的标量值；缺失节点自动创建，其余字段原样保留（非 forbid 式合并）。
+func setPath(root *yaml.Node, value string, path ...string) {
+	m := rootMapping(root)
+	for _, key := range path[:len(path)-1] {
+		m = childMapping(m, key)
+	}
+	last := path[len(path)-1]
+	if v := mapValue(m, last); v != nil {
+		v.Kind = yaml.ScalarNode
+		v.Tag = "!!str"
+		v.Value = value
+		v.Content = nil
+		return
+	}
+	m.Content = append(m.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: last},
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value})
+}
+
+// childMapping 返回（或创建）mapping 键对应的子 mapping。
+func childMapping(m *yaml.Node, key string) *yaml.Node {
+	if v := mapValue(m, key); v != nil {
+		if v.Kind != yaml.MappingNode {
+			v.Kind = yaml.MappingNode
+			v.Tag = "!!map"
+			v.Content = nil
+		}
+		return v
+	}
+	kn := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}
+	vn := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	m.Content = append(m.Content, kn, vn)
+	return vn
+}
+
+// nodeValue 取 mapping 路径的标量值（路径缺失返回空串）。
+func nodeValue(root *yaml.Node, path ...string) string {
+	cur := rootMapping(root)
+	for i, key := range path {
+		if cur.Kind != yaml.MappingNode {
+			return ""
+		}
+		v := mapValue(cur, key)
+		if v == nil {
+			return ""
+		}
+		if i == len(path)-1 {
+			return v.Value
+		}
+		cur = v
+	}
+	return ""
+}
+
+// ── .env 插值键维护 ──
+
 type envEntry struct{ key, value string }
 
-// envValue 读 .env 中最后一个匹配键的值（无则空）。
+// migratedEnvKeys 已迁移到 kurrent.yaml 的业务键：.env 收敛时清空（compose 不再注入）。
+// KURRENT_DISK_DIR 除外——它是 compose 挂载源插值键（yml spec.agent.diskDir 同步值），保留在 .env。
+var migratedEnvKeys = []string{
+	"KURRENT_AGENT_ID", "KURRENT_COMPONENT", "KURRENT_PKI_DIR", "KURRENT_CP_ENROLL_URL",
+	"KURRENT_CP_CA", "KURRENT_BOOTSTRAP_TOKEN", "KURRENT_BOOTSTRAP_TOKEN_NVMET",
+	"KURRENT_ADVERTISE_URL", "KURRENT_BACKEND", "KURRENT_NQN_BASE",
+	"KURRENT_LOG_FILE", "KURRENT_NVMET_HOST_URL", "KURRENT_NVMET_CACHE_FILE",
+	"KURRENT_ISCSI_CONTAINER",
+}
+
+// envValue 读 .env 中最后一个匹配键的值（无则空；迁移期业务键兜底）。
 func envValue(path, key string) string {
 	f, err := os.Open(path)
 	if err != nil {
@@ -153,13 +370,16 @@ func envValue(path, key string) string {
 	return val
 }
 
-// upsertEnv 幂等更新 .env：删除所有既有匹配键的行再追加（键唯一，重复 join 不堆积）。
+// upsertEnv 幂等更新 .env：删除已迁移业务键与本次条目后追加（键唯一，重复 join 不堆积）。
 func upsertEnv(path string, entries []envEntry) error {
 	var lines []string
 	if data, err := os.ReadFile(path); err == nil {
 		drop := map[string]bool{}
 		for _, e := range entries {
 			drop[e.key] = true
+		}
+		for _, k := range migratedEnvKeys {
+			drop[k] = true
 		}
 		for _, line := range strings.Split(string(data), "\n") {
 			key := line
