@@ -14,12 +14,16 @@ hero:
       link: https://github.com/dutyc/kurrent
 ---
 
+> The Way flows through the six empty lines, above and below without constancy; the firm and the yielding interchange — it adapts to whatever change may come. — the I Ching · Great Commentary (Xici), Part II
+
+Kurrent (周流, zhōuliú — "circling flow") is a cloud-native, stateless bare-metal delivery platform: as Kubernetes makes applications cloud-native, Kurrent makes compute cloud-native — compute is no longer bound to hardware; like an electric current, it flows across bare-metal servers and takes whatever form the moment demands.
+
 ## Features
 
-- **Stateless compute** — zero persistent state; plug in and boot.
-- **Plug-and-play** — auto-registers on boot, delivered from the Web UI.
-- **K8s-aligned** — declarative config and CLI matching kubeadm / kubectl.
-- **Dual data plane** — NVMe-oF and iSCSI, storage scales out.
+- **Stateless compute** — compute nodes hold zero persistent state; plug in and boot.
+- **Plug-and-play** — auto-joins the pool at boot; delivered from the Web UI in one click.
+- **K8s-aligned** — declarative configuration and a CLI matching kubeadm / kubectl.
+- **Dual data plane** — NVMe-oF and iSCSI; storage scales out horizontally.
 
 ## Documentation
 

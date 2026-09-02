@@ -1,13 +1,19 @@
 // Kurrent 官网兼文档站（VitePress）：zh-CN 默认（root 路径），en 英文子路径。
 // 品牌：Kurrent（周流）· Make bare metal flow · logo = 六虚（docs/public/logo.svg）
+// 构建环境注入（GitHub Pages 等子路径部署）：VITEPRESS_BASE=/kurrent/ 设站点 base；
+// VITEPRESS_NO_CLEAN=1 时产物保留 .html 扩展名（GitHub Pages 对无扩展名文件不友好）。
 import { defineConfig } from 'vitepress'
 
 export default defineConfig({
   lang: 'zh-CN',
   title: 'Kurrent（周流）',
   description: 'Make bare metal flow — 云原生无状态裸金属交付',
-  head: [['link', { rel: 'icon', href: '/logo.svg' }]],
-  cleanUrls: true,
+  base: process.env.VITEPRESS_BASE || '/',
+  cleanUrls: process.env.VITEPRESS_NO_CLEAN !== '1',
+  head: [
+    ['link', { rel: 'icon', href: '/favicon.ico', sizes: '32x32' }],
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/logo.svg' }],
+  ],
   lastUpdated: true,
   locales: {
     root: {
@@ -18,7 +24,6 @@ export default defineConfig({
         nav: [
           { text: '首页', link: '/' },
           { text: '指南', link: '/guide/deployment' },
-          { text: 'English', link: '/en/' },
         ],
         sidebar: {
           '/guide/': [
@@ -53,7 +58,6 @@ export default defineConfig({
         nav: [
           { text: 'Home', link: '/en/' },
           { text: 'Guide', link: '/en/guide/deployment' },
-          { text: '简体中文', link: '/' },
         ],
         sidebar: {
           '/en/guide/': [
