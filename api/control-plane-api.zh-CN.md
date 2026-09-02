@@ -111,7 +111,7 @@ curl -s "$BASE_URL/workers" \
 | `POST` | `/agents` | 注册新 Agent（写入 agents.yml，重复 id 返回 409） |
 | `POST` | `/agents/probe` | 探测 Agent 并自动推导注册参数（预览，不写文件） |
 | `PUT` | `/agents/{agent_id}` | 更新 Agent 配置（id 不可改） |
-| `POST` | `/agents/{agent_id}/bootstrap-token` | 签发节点加入 bootstrap token（一次性，幂等 409，见 6.5） |
+| `POST` | `/pki/tokens` | 签发集群级通用 bootstrap token（不绑节点，TTL 内可复用，见 6.5） |
 | `DELETE` | `/agents/{agent_id}` | 删除 Agent 台账（含母盘标签清理，见 6.6） |
 | `GET` | `/agents/{agent_id}/luns` | 列出指定 Agent 上的 iSCSI target/LUN |
 | `GET` | `/masters` | 聚合列出全部存储节点上的母盘清单（合并登记标签，供克隆选盘） |
@@ -765,24 +765,20 @@ curl -s -X DELETE "$BASE_URL/agents/storage-lio-01/masters/_tpl_ubuntu_2204.img/
 | `401` | 缺少 Token 或 Token 错误 |
 | `404` | Agent 不存在 |
 
-## 6.5 一键加入：bootstrap token 签发 + enroll 自动登记
+## 6.5 一键加入：bootstrap token 签发（集群级通用）+ enroll 自动登记
 
 ### 说明
 
-K8S 同构（kubeadm join）：控制面签发一次性 bootstrap token（`<6位>.<16位>`，仅存 sha256 摘要、7 天 TTL），节点引导时以 `Authorization: Bearer` 携带完成 enroll；enroll 成功后 token 即废（后续轮换走 mTLS，见 6.5.1）。**token 明文不可恢复**：重复签发未使用 token 返回 409，须删除 `state/pki/bootstrap-tokens.yml` 对应条目后重发。
+K8S 同构（kubeadm token create）：控制面签发**集群级通用 bootstrap token**（`<6位>.<16位>`，仅存 sha256 摘要、TTL 默认 7 天）。**不绑节点**——节点名由节点自决（join 缺省取宿主机名）+ enroll 自动登记；TTL 内可被**多次 enroll 复用**（不消耗，kubeadm bootstrap token 不限制使用次数）。每次签发都是新 token（明文不可恢复），旧 token 到期自然失效，无 409 幂等限制。
 
-### POST /agents/{agent_id}/bootstrap-token
+`nvmet-host` 组件凭据**不在此签发**：agent enroll 上报 `backend=nvmet` 时控制面派生（绑 agent_id）随 enroll/renew 响应下发，agent 落盘 `storager/bootstrap/nvmet-host.token` 供其引导（能力上报驱动，签发不预知后端）。
 
-#### Query 参数
-
-| 字段 | 必填 | 说明 |
-|---|---:|---|
-| `component` | 否 | `agent`（默认）或 `nvmet-host`；nvmet 组件须 agent 组件已登记 |
+### POST /pki/tokens
 
 #### curl
 
 ```bash
-curl -s -X POST "$BASE_URL/agents/storage-lio-01/bootstrap-token?component=agent" \
+curl -s -X POST "$BASE_URL/pki/tokens" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -790,42 +786,40 @@ curl -s -X POST "$BASE_URL/agents/storage-lio-01/bootstrap-token?component=agent
 
 ```json
 {
-  "agent_id": "storage-lio-01",
-  "component": "agent",
   "token": "a1b2c3.0123456789abcdef",
-  "expires_at": "2026-09-07T12:00:00Z",
+  "expires_at": "2026-09-09T12:00:00Z",
   "usage": ["enroll"]
 }
 ```
 
-`token` 明文仅本次返回可见（存储只留 sha256 摘要），后续使用方式见 6.5.2。
+`token` 明文仅本次返回可见（存储只留 sha256 摘要）；`usage` 预留用途标记（当前仅 `enroll`）。
 
 #### 常见错误
 
 | HTTP 状态码 | 常见原因 |
 |---:|---|
 | `401` | 缺少 Token 或 Token 错误 |
-| `409` | 该 agent/component 已有未用 token（明文不可恢复，删条目重发） |
-| `422` | `component` 非法 |
 
 ### 6.5.1 enroll 自动登记（POST /enroll，nginx 入口 /api/cp/enroll）
 
-K8S 同构（kubelet 首次上报自动注册 Node）：agent 组件引导（`POST /enroll`，Bearer = bootstrap token）时若 `agents.yml` 无该 id，**自动创建条目**（role_disk=True、role_cd=False、enabled=True、tags=`("auto",)`），并把请求体 `base_url` 字段（agent 侧 `KURRENT_ADVERTISE_URL`，控制面可达地址）写入台账。规则：
+K8S 同构（kubelet 首次上报自动注册 Node）：agent 组件引导（`POST /enroll`，Bearer = 集群级通用 bootstrap token）时若 `agents.yml` 无该 id，**自动创建条目**（role_disk=True、role_cd=False、enabled=True、tags=`("auto",)`），并把请求体 `base_url` 字段（agent 侧 `spec.agent.advertiseUrl`，控制面可达地址）写入台账。规则：
 
-- `nvmet-host` 组件**不自动登记**（与 agent 共享 agent_id，须 agent 组件先行在册；否则 400，容器重启重试）
+- token 校验：格式 / 登记存在 / 组件匹配 / 未过期；通用 token 无节点绑定，CSR CN 自决身份（防冒名由 CN 校验承担）；派生 token（nvmet-host）须 agent_id 匹配（防串用）
+- `nvmet-host` 组件**不自动登记**（与 agent 共享 agent_id，须 agent 组件先行在册；否则 400，容器重启重试；token 不消耗）
 - `base_url` 非空时必须为 `http://` / `https://` 开头，否则 400（不自动登记）
 - 已登记 agent 的 `base_url` 不因 enroll 更新（登记信息以 `agents.yml` 为权威）
+- agent 上报 `backend=nvmet` → 响应附加 `nvmet_token`（派生 nvmet-host 凭据）；stgt/lio 或旧 agent 无此字段
 
 ### 6.5.2 一键加入命令（节点侧）
 
-控制面签发后，在目标节点仓库根执行（自动写 `.env` + compose up，幂等可重跑；仓库根以外执行加 `--dir` 指定 storager 目录）：
+声明式工作流（kubeadm 同构：配置即声明、CLI 即工具）：控制面签发 token 时输出**带控制面地址的 join 命令**（kubeadm token create --print-join-command 同构），存储节点粘贴执行即获得地址——节点声明 `storager/kurrent.yaml` 缺失时由 join 按模板自动生成（地址同步进 `spec.controlPlane.url`）、已存在则读入合并，随后收敛启动 agent（幂等可重跑；仓库根以外执行加 `--dir` 指定 storager 目录）：
 
 ```bash
-# 控制面（签发并输出可直接粘贴的 join 命令）：
-./cli/kurrent nodes token storage-lio-01 --nvmet
+# 控制面（签发集群级通用 bootstrap token；--cp-url = 存储节点可达的控制面 HTTPS 入口，缺省按 --server 推导）：
+kurrent token create --cp-url https://<cp-host>
 
-# 节点（storage-01 上执行，kubeadm join 同构；无 Go 环境可用 ./kurrent-join.sh 等价替代）：
-./kurrent join https://<cp-host> <token> storage-lio-01 --nvmet-token <nvmet-token>
+# 存储节点（命令已携带地址，粘贴执行；业务键可用 kurrent config print node-defaults 预置模板编辑）：
+kurrent join https://<cp-host> --token a1b2c3.0123456789abcdef
 ```
 
 ## 6.6 DELETE /agents/{agent_id}

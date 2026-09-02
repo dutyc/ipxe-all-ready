@@ -111,7 +111,7 @@ Notes:
 | `POST` | `/agents` | Register a new Agent (writes agents.yml; 409 if id exists) |
 | `POST` | `/agents/probe` | Probe an Agent and auto-derive registration parameters (preview, no file writes) |
 | `PUT` | `/agents/{agent_id}` | Update an Agent’s configuration (id cannot be changed) |
-| `POST` | `/agents/{agent_id}/bootstrap-token` | Issue a one-time node join bootstrap token (idempotent 409, see 6.5) |
+| `POST` | `/pki/tokens` | Issue a cluster-wide bootstrap token (not node-bound, reusable within TTL, see 6.5) |
 | `DELETE` | `/agents/{agent_id}` | Remove an Agent’s registry entry (incl. master-tag cleanup, see 6.6) |
 | `GET` | `/agents/{agent_id}/luns` | List iSCSI targets/LUNs on a given Agent |
 | `GET` | `/masters` | Aggregate master image inventory from all storage nodes (merged with registered tags, for clone selection) |
@@ -760,24 +760,20 @@ Returns `{ "agent": ..., "name": ..., "removed": true|false }` (`removed=false` 
 | `401` | Missing or invalid Token |
 | `404` | Agent not found |
 
-## 6.5 One-Command Join: bootstrap token issuance + enroll auto-registration
+## 6.5 One-Command Join: bootstrap token issuance (cluster-wide) + enroll auto-registration
 
 ### Description
 
-K8S-homomorphic (`kubeadm join`): the control plane issues a one-time bootstrap token (`<6-hex>.<16-hex>`, only the sha256 hash is stored, 7-day TTL); the node carries it in `Authorization: Bearer` during enrollment and the token is burned once enrollment succeeds (subsequent renewals use mTLS, see 6.5.1). **The plaintext is not recoverable**: re-issuing while an unused token exists returns 409 — delete the entry in `state/pki/bootstrap-tokens.yml` and re-issue.
+K8S-homomorphic (`kubeadm token create`): the control plane issues a **cluster-wide bootstrap token** (`<6-hex>.<16-hex>`, only the sha256 hash is stored, TTL defaults to 7 days). **Not bound to any node** — the node name is self-determined (join defaults to the hostname) and auto-registered at enroll; the token can be **reused across multiple enrolls within its TTL** (not consumed; kubeadm bootstrap tokens do not limit usage count). Every issuance is a new token (plaintext unrecoverable); old tokens expire naturally — no 409 idempotency gate.
 
-### POST /agents/{agent_id}/bootstrap-token
+The `nvmet-host` component credential is **not issued here**: when an agent enrolls with `backend=nvmet`, the control plane derives one (bound to agent_id) and returns it in the enroll/renew response; the agent persists it to `storager/bootstrap/nvmet-host.token` for the nvmet-host container (capability-driven derivation — issuance does not foresee the backend).
 
-#### Query parameters
-
-| Field | Required | Description |
-|---|---:|---|
-| `component` | No | `agent` (default) or `nvmet-host`; the nvmet component requires the agent component to be registered first |
+### POST /pki/tokens
 
 #### curl
 
 ```bash
-curl -s -X POST "$BASE_URL/agents/storage-lio-01/bootstrap-token?component=agent" \
+curl -s -X POST "$BASE_URL/pki/tokens" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -785,42 +781,40 @@ curl -s -X POST "$BASE_URL/agents/storage-lio-01/bootstrap-token?component=agent
 
 ```json
 {
-  "agent_id": "storage-lio-01",
-  "component": "agent",
   "token": "a1b2c3.0123456789abcdef",
-  "expires_at": "2026-09-07T12:00:00Z",
+  "expires_at": "2026-09-09T12:00:00Z",
   "usage": ["enroll"]
 }
 ```
 
-The `token` plaintext is visible only in this response (storage keeps only the sha256 hash); consumption is described in 6.5.2.
+The `token` plaintext is visible only in this response (storage keeps only the sha256 hash); `usage` is a reserved purpose marker (currently only `enroll`).
 
 #### Common errors
 
 | HTTP status | Common cause |
 |---:|---|
 | `401` | Missing or wrong token |
-| `409` | An unused token already exists for this agent/component (plaintext unrecoverable; delete the entry and re-issue) |
-| `422` | Invalid `component` |
 
 ### 6.5.1 enroll auto-registration (POST /enroll, nginx entry /api/cp/enroll)
 
-K8S-homomorphic (kubelet auto-registers the Node on first report): when an `agent` component enrolls (`POST /enroll`, Bearer = bootstrap token) and the id is absent from `agents.yml`, the control plane **auto-creates the entry** (role_disk=True, role_cd=False, enabled=True, tags=`("auto",)`) and persists the request’s `base_url` field (agent side `KURRENT_ADVERTISE_URL`, control-plane-reachable address) into the registry. Rules:
+K8S-homomorphic (kubelet auto-registers the Node on first report): when an `agent` component enrolls (`POST /enroll`, Bearer = cluster-wide bootstrap token) and the id is absent from `agents.yml`, the control plane **auto-creates the entry** (role_disk=True, role_cd=False, enabled=True, tags=`("auto",)`) and persists the request’s `base_url` field (agent side `spec.agent.advertiseUrl`, control-plane-reachable address) into the registry. Rules:
 
-- `nvmet-host` components are **not auto-registered** (they share the agent_id; the agent component must be registered first — otherwise 400, container restart retries)
+- Token validation: format / registry entry / component match / not expired; generic tokens carry no node binding (the CSR CN self-determines identity; anti-spoofing is enforced by CN checks); derived tokens (`nvmet-host`) must match the agent_id (anti-cross-use)
+- `nvmet-host` components are **not auto-registered** (they share the agent_id; the agent component must be registered first — otherwise 400, container restart retries; the token is not consumed)
 - A non-empty `base_url` must start with `http://` / `https://`, otherwise 400 (no auto-registration)
 - An already-registered agent’s `base_url` is not updated by enrollment (`agents.yml` stays authoritative)
+- An agent reporting `backend=nvmet` gets an extra `nvmet_token` field in the response (derived nvmet-host credential); stgt/lio backends and legacy agents have no such field
 
 ### 6.5.2 One-command join (node side)
 
-After issuance, run on the target node from the repository root (auto-writes `.env` + `compose up`, idempotent; use `--dir` to point at the storager directory otherwise):
+Declarative workflow (kubeadm-homomorphic: declaration-driven config, CLI as tooling): the control plane issues the token and prints a **join command carrying the control-plane URL** (kubeadm token create --print-join-command equivalent); pasting it on the storage node yields the address — the node declaration `storager/kurrent.yaml` is auto-generated from defaults when missing (the address synced into `spec.controlPlane.url`) or read in and merged when present, then the agent is converged-started (idempotent, re-runnable; use `--dir` to point at the storager directory from outside the repository root):
 
 ```bash
-# Control plane (issue and print a ready-to-paste join command):
-./cli/kurrent nodes token storage-lio-01 --nvmet
+# Control plane (issue a cluster-wide bootstrap token; --cp-url = control-plane HTTPS entry reachable from the storage node, derived from --server otherwise):
+kurrent token create --cp-url https://<cp-host>
 
-# Node (run on storage-01, kubeadm join homomorphic; ./kurrent-join.sh is the equivalent fallback without Go):
-./kurrent join https://<cp-host> <token> storage-lio-01 --nvmet-token <nvmet-token>
+# Storage node (the command already carries the URL — paste and run; business keys can be pre-declared via kurrent config print node-defaults):
+kurrent join https://<cp-host> --token a1b2c3.0123456789abcdef
 ```
 
 ## 6.6 DELETE /agents/{agent_id}

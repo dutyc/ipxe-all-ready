@@ -12,6 +12,13 @@
 
 ---
 
+## 2026-09-02
+
+### 变更
+
+- **bootstrap token 收敛为集群级通用凭据（签发不带节点名，kubeadm token create 同构）**——新命令组 `kurrent token create`（`nodes token` 退役，cli/nodes.go 删除）：通用 token 不绑节点（节点名由 join 自决缺省宿主机名 + enroll 自动登记）、TTL 内可多次 enroll 复用（去一次性消耗，pki.py 台账 key 改 token_id，`validate_bootstrap_token` 不消耗）；新签发端点 `POST /pki/tokens`（旧 `/agents/{agent_id}/bootstrap-token` 删除，409 幂等限制随每次新签移除）；**nvmet-host 组件凭据不再手工签发**——agent enroll 上报 `backend=nvmet` 时控制面派生（先 revoke 旧条目再新签，绑 agent_id 防串用）随 enroll/renew 响应下发，agent 落盘 `storager/bootstrap/nvmet-host.token`（compose 挂载由单文件改共享目录 `../bootstrap`，agent 可写 / nvmet-host 只读）；`kurrent join` 去掉 `--nvmet-token` 只写 agent.token（nvmet 后端重跑时清除旧派生文件做迁移），.env 的 `KURRENT_NVMET_PKI_HOST` 改按 backend 写入；agent 证书就绪但派生凭据缺失时强制 renew 一次以重新派生（历史部署迁移出口）；webui 加入弹窗同步（去 agentId/nvmet 勾选，输出新 join 命令）；cli/README、部署指南（docs 中英）、api 参考 6.5 节、kurrent.yaml.example 同步；新增测试：通用 token 跨节点复用、nvmet 派生 + 防串用（401）、agent 派生落盘/跳过、token 端点每次新签；tests/requirements.txt 相对引用修复（`-r ../control_plane/requirements.txt`）
+- **kurrent init/join 重构为配置即声明模式（kubeadm init/join --config 同构，yml 是唯一输入）**——命令不再带网络/节点参数：声明文件即用户维护的 `control_plane/kurrent.yaml` / `storager/kurrent.yaml`（模板由 `kurrent config print init-defaults|node-defaults` 输出，与对应 kurrent.yaml.example 同源）；`kurrent init` 读声明 → 校验（networking 五键必填 + CIDR/IP/DHCP 对格式）→ 收敛启动控制面（compose up -d → restart control-plane → 轮询 /healthz → restart dnsmasq 加载新 conf，编排为内部细节，重跑幂等 = 改声明重跑即生效；`--config` 指向其他路径时应用为控制面配置）；`kurrent join <cp-url> --token T`（kubeadm join <endpoint> 同构：命令携带控制面地址——签发命令输出即带地址，节点粘贴执行即获得，无需预编辑文件；声明 storager/kurrent.yaml 缺失时按模板自动生成（url=命令地址、name=宿主机名、backend nvmet、advertiseUrl 推导、diskDir/nqnBase 默认），已存在则读入合并——非 forbid 保留手工编辑，地址同步进 spec.controlPlane.url）→ 引导凭据落盘（`--token` 可选，不给则要求 bootstrap/agent.token 已就位）→ .env 插值键 → 收敛启动 agent（up -d + restart storager-agent，backend 决定 nvmeof/iscsi 编排）；`kurrent token create` 保留 `--cp-url`（缺省按 --server 主机推导）输出带地址的 join 命令（kubeadm token create --print-join-command 同构）；webui 加入弹窗保留控制面入口输入（join 命令带地址）；cli/README、部署指南（docs 中英）、api 参考 6.5.2、两份 kurrent.yaml.example 注释同步；Go 测试重写（声明缺失自动生成/命令地址补入/声明校验/应用外部配置/幂等重跑/print 与 example 同源比对）
+
 ## 2026-09-01
 
 ### 修复
@@ -21,11 +28,22 @@
 
 ### 变更
 
+- **官网兼文档站重建（docs/ 重新引入，2026-08-24 冻结裁定解除）**——VitePress 双语骨架（zh-CN 默认 root + en 子路径）；官网首页（hero「Make bare metal flow」+ 四特性 + 三角色架构图 + logo 六虚）；首篇《多机部署指南》中英双语（控制面 init + 存储节点 join 的声明式流程，含网络/端口规划、跨机 advertiseUrl 覆盖、内核 nvmet 前置）；.gitignore 的 docs/ 排除移除（docs_copy/ 保留）；修复 frontmatter YAML 冒号问题
+- **kurrent init：控制面声明配置一键生成（kubeadm init 同构）**——补齐 kubeadm 侧 CLI 闭环（init/join/token）；`kurrent init --interface --subnet --dhcp-range --gateway --dns [--dir]` 生成 control_plane/kurrent.yaml（networking 五键必填参数，不自动探测——部署环境事实显式传入；其余块默认值全量写出，与 example 同源）；已存在即拒绝（preflight 同构，yml 是手工编辑的权威文件）；参数合法性校验（CIDR/IP 对）；新增 init.go/init_test.go（生成/拒绝/校验 5 用例）
+- **NQN 命名域收敛为节点单一权威（消除双声明歧义）**——控制面 yml 移除 `spec.nqnBase`：盘 NQN 与 Host NQN 的 base 均以节点侧 `spec.agent.nqnBase` 为唯一权威（enroll 经 `capabilities.base_nqn` 上报）；控制面 Host NQN 派生改为盘 NQN 前缀重拼（`_base_nqn_from_target` 归入 workers.py，boot.py 复用同机制），多 Agent 异 base 场景下 Host NQN 与目标盘自动同域；hostnqn 投影与 base-nqn 同条件（无盘/盘缺 nqn 存量不注入）；config.Spec 与 Settings 移除 nqn_base
+- **控制面收敛为 yml 声明式配置（kubeadm InitConfiguration 同构）**——control_plane/kurrent.yaml（apiVersion/kind/metadata/spec；spec.networking 必填五键 interface/subnet/dhcpRange/gateway/dns，pki/serverCert/boot/agentTimeoutSec/nqnBase/dnsmasq.reload 带默认值）；pydantic v2 严格校验（extra="forbid"，配置错误启动即失败）；KURRENT_CP_* 业务 env 全部退役（control_plane.env/.env.example 删除，compose env_file 移除），容器内路径/容器名变代码常量（DEFAULT_*，Settings 属性动态解析），管理口令 KURRENT_CP_TOKEN 留 compose environment 注入（凭据不进声明配置）；dnsmasq.conf 由控制面启动时按 spec.networking 生成（yml 是权威、conf 为派生物，subnet CIDR 推导 netmask，幂等写）；PKI 策略常量收敛进 spec.pki；注册窗口（运行时状态 settings.json）与 TTL 上下限（安全契约）不进 yml；新增 tests/control_plane/test_control_plane_config.py
+- **kurrent join 不再携带节点自身地址（kubeadm join 同构）**——`--advertise-url` 参数移除：节点地址不进 join 命令（kubeadm 只带控制面地址/token），默认推导 `https://<cp-host>:4840`，特殊场景（NAT 等）编辑 kurrent.yaml 的 `spec.agent.advertiseUrl` 覆盖（kubelet `--node-ip` 类比）
+- **kurrent join agent-id 缺省取宿主机名（kubelet Node 命名同构）**——`<agent-id>` 由必填改为可选：缺省自动取宿主机名并规范化（小写、非字母数字/点/横线替换为 `-`，保留 `.`），显式传参仍可覆盖（对应 kubeadm JoinConfiguration 的 `nodeRegistration.name` 缺省 = hostname 语义）；.env 插值键与凭据 CN 同步
+- **容器内路径品牌统一（ipxe-agent → kurrent）**——容器内配置/凭据/日志路径由 /etc/ipxe-agent、/var/log/ipxe-agent 统一为 /etc/kurrent、/var/log/kurrent（Dockerfile 与两份 compose 挂载目标、应用侧模块常量同步）；代码/配置文件注释不再携带变更日期（变更记录归 CHANGELOG）
+- **kurrent.yaml 分层职责修正（K8S 同构收紧）**——声明配置只保留节点级业务键：`metadata.name`/`spec.agent.{backend,advertiseUrl,diskDir,nqnBase}`/`spec.controlPlane.url`（diskDir 语义 = 宿主存储路径，kubeletConfiguration.rootDirectory 类比，join 同步为 .env 插值键 `KURRENT_DISK_DIR` 供 compose 挂载源）；容器内路径（pki/cp-ca/日志/缓存/盘目录挂载点）、监听与内部通讯地址（nvmetHostUrl/nvmetHost 块）、一次性 bootstrap token 全部移出 yml——前者归部署清单 docker-compose.yml（应用侧模块常量固化），token 移入独立凭据文件 storager/bootstrap/{agent,nvmet-host}.token（kubelet bootstrap-kubeconfig 同构，join 写入 0600、compose 挂载进容器、enroll 后即废）；kurrent-join.sh 退役（CLI 为唯一加入入口，脚本与对应测试删除）；存量 kurrent.yaml 手动清理后重启容器生效
+- **Agent/nvmet-host 配置收敛为 yml 声明式（kubeadm JoinConfiguration 同构）**——业务配置从 `storager/.env` 迁移到单文件 `storager/kurrent.yaml`（apiVersion/kind/metadata/spec；agent/nvmetHost/controlPlane/pki/bootstrap 子块），agent 与 nvmet-host 容器挂载同一份只读配置、各自消费自己的 spec 子块；pydantic v2 校验（extra="forbid" 未知字段拒绝、必填缺失报错、默认值注入——启动即失败，杜绝 .env 自由键值）；.env 仅保留 compose 插值键（KURRENT_AGENT_PKI_HOST/KURRENT_NVMET_PKI_HOST）；kurrent-join.sh 与 cli/join.go 幂等写 kurrent.yaml（既有文件保留未知字段与手工业务键，旧 .env 业务键迁移继承，.env.example 同步精简）；新增 storager/kurrent.yaml.example（运行时生成文件不入库，.gitignore 追加）
 - **Agent 能力上报（K8S `--node-labels` 同构）**——`pki_client.py` 引导时随 enroll 上报 `capabilities`（backend/cd；映射表 `BACKEND_CD_CAPABILITY`：stgt 支持 CD，lio/nvmet 不支持）；`/enroll` 自动登记据此推导 `tags=[auto, storage, <backend>]` 与 `role.cd`；旧 agent 缺省兼容（tags=auto、role.cd 默认 false）
 - **光驱能力 UI 隐藏策略（不支持的后端不显示）**——AgentLuns 详情页：`role.cd=false` 时隐藏「+ 创建光驱」按钮与提示（移除写死 LIO 文案）、状态栏 cd 标记条件显示；Agents 列表页光驱属性行仅 `capabilities.cd=true` 时显示；i18n 键拆分（`statusRole`/`statusRoleCd`）
 
 ### 新增
 
+- 分层职责回归测试——`tests/agent/test_config.py` 新增 `test_container_path_keys_rejected`（容器内路径/监听/内部通讯/一次性 token 键出现即拒绝）、`cli/join_test.go` 断言 yml 不含部署细节键且凭据写入 `bootstrap/*.token`、`KURRENT_DISK_DIR` 插值键同步
+- 配置加载与校验测试——`tests/agent/test_config.py`（合法加载/默认值注入/未知字段拒绝（extra=forbid）/必填缺失/bad backend/坏 yaml/文件缺失）、`cli/join_test.go` 与 `tests/scripts/test_kurrent_join.sh` 断言 kurrent.yaml 幂等生成与 .env 收敛为插值键
 - 回归测试 4 用例（token 不烧 1 + 能力推导 3：nvmet/stgt/旧兼容），控制面全量 187 测试通过
 
 ---
