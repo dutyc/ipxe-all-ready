@@ -885,13 +885,22 @@ def _persist_failed_worker(
 
 # ============================ NVMe-oF 凭据（DHHC-1，按 Worker 跟盘） ============================
 
-# Host NQN 前缀与盘 NQN 同域（KURRENT_CP_NQN_BASE，见 config.py；agent 侧同一 base）
-HOST_NQN_PREFIX = settings.nqn_base
+# Host NQN 与盘 NQN 同域：base 取盘 NQN 前缀（盘 NQN 由 build_nqn 按 Agent 上报的
+# capabilities.base_nqn 生成——节点侧 spec.agent.nqnBase 权威，控制面不声明）
 
 
-def _host_nqn_for(worker_id: str) -> str:
-    """Host NQN 派生（按 worker_id，发起端身份；与盘 NQN 同域并立，host. 前缀区分角色）。"""
-    return f"{HOST_NQN_PREFIX}:host.{worker_id}"
+def _base_nqn_from_target(nqn: str | None) -> str | None:
+    """盘 NQN 的命名空间前缀：`nqn.2026-07.com.kurrent:worker-01.ubuntu.<os_tag>` → 前缀。
+    盘 NQN 由控制面按统一模板 `base:worker_id.os.<os_tag>` 生成（无存量盘），前缀重拼 = 盘记录权威值；
+    盘记录缺 nqn → 返回 None（不派生，不兼容遗留）。"""
+    if nqn and ":" in nqn:
+        return nqn.rsplit(":", 1)[0]
+    return None
+
+
+def _host_nqn_for(base_nqn: str, worker_id: str) -> str:
+    """Host NQN 派生（发起端身份，host. 前缀区分角色）：与盘 NQN 同域并立。"""
+    return f"{base_nqn}:host.{worker_id}"
 
 
 _UNSET = object()
@@ -908,7 +917,7 @@ def _push_credentials(worker_id: str, secret: object = _UNSET) -> None:
         with credentials.locked():
             entry = credentials.load()["credentials"].get(worker_id)
         secret = entry.get("secret") if entry else None
-    host_nqns = [_host_nqn_for(worker_id)]
+    host_nqns = []  # 按持盘 Agent 的盘 NQN 前缀派生（节点侧 nqnBase 权威，见 _host_nqn_for）
     groups: dict[str, list[str]] = {}
     for disk in worker_disks(record_):
         # NVMe-oF 子系统标识 = NQN（盘记录权威字段）；缺 nqn（存量盘）→ 跳过该盘，
@@ -917,6 +926,9 @@ def _push_credentials(worker_id: str, secret: object = _UNSET) -> None:
             groups.setdefault(disk["agent"], []).append(disk["nqn"])
     for agent_id, sub_nqns in groups.items():
         agent = agents.get(agent_id)
+        # Host NQN base：盘 NQN 前缀（与 base_nqn 投影同机制）——同一 worker 持多盘
+        # 时各盘同 agent 同域，base 一致；缺 nqn 的盘已跳过，此处恒有值
+        host_nqns = [_host_nqn_for(_base_nqn_from_target(sub_nqns[0]), worker_id)]
         try:
             agents.client(agent).set_credential(worker_id, secret, sub_nqns, host_nqns)
             record("credential.push", "ok", worker_id=worker_id, agent=agent_id,

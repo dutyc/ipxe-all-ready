@@ -1,7 +1,7 @@
-"""nvmet 宿主管理服务（NVMe-oF 存储接入 C4，2026-08-22 裁定：宿主原生 nvmet + Agent HTTP 调用）。
+"""nvmet 宿主管理服务（NVMe-oF 存储接入 C4：宿主原生 nvmet + Agent HTTP 调用）。
 
 运行形态：存储节点宿主 root 运行（systemd unit），绑定 localhost + mTLS（内部 CA，
-2026-08-31 起与 agent 同构：bootstrap token 一次性引导 + 证书轮换 + 客户端证书鉴权）；
+与 agent 同构：bootstrap token 一次性引导 + 证书轮换 + 客户端证书鉴权）；
 直接操作内核 configfs（/sys/kernel/config/nvmet）——subsystem/namespace/port/hosts(dhchap_key)。
 Agent 是唯一调用方（持有内部 CA 签发的 client cert）；盘文件管理仍归 Agent（本服务不挂载盘目录）。
 契约：blueprint/nvmeof-credential-design.md 第 6 节。
@@ -23,6 +23,10 @@ from typing import Any
 from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
+from .config import (  # noqa: E402
+    CONFIG, DEFAULT_BOOTSTRAP_TOKEN_FILE, DEFAULT_HOST_ADDR, DEFAULT_HOST_DISK_DIR,
+    DEFAULT_HOST_PORT, DEFAULT_PKI_DIR,
+)
 from .pki_client import ensure_pki
 
 # 组件 PKI 引导/轮换（K8S 同构）：证书未就绪抛错阻断启动（与 storager-agent 同语义）
@@ -34,16 +38,8 @@ CONFIGFS_NVMET = os.getenv("NVMET_CONFIGFS", "/sys/kernel/config/nvmet")
 PORT_ID = os.getenv("NVMET_PORT_ID", "1")
 # 容器内磁盘目录：configfs 的 device_path 由写入进程（本容器）所在挂载命名空间解析，
 # 必须指向本容器可见路径；Agent 传入的 backing 是其容器内路径（如 /home/iscsi_img/xxx.img），
-# 本服务按 basename 重拼到 NVMET_HOST_DISK_DIR。
-# 不配置则原样写入（agent 与本服务同路径部署场景）。
-HOST_DISK_DIR = os.getenv("NVMET_HOST_DISK_DIR", "")
-
-
-def _require_env(name: str) -> str:
-    val = os.environ.get(name)
-    if not val:
-        raise RuntimeError(f"missing required env var: {name}")
-    return val
+# 本服务按 basename 重拼到 DEFAULT_HOST_DISK_DIR（compose 挂载目标，部署清单职责）。
+HOST_DISK_DIR = DEFAULT_HOST_DISK_DIR
 
 
 # ============================ configfs 操作封装 ============================
@@ -300,13 +296,14 @@ def delete_host(nqn: str, hostnqn: str):
 if __name__ == "__main__":
     import uvicorn
 
-    host = os.getenv("NVMET_HOST_ADDR", "127.0.0.1")
-    port = int(os.getenv("NVMET_HOST_PORT", "4841"))
+    # 监听地址/端口为部署细节（host 网络，同机固定拓扑；agent 经 DEFAULT_NVMET_HOST_URL 访问）
+    host = DEFAULT_HOST_ADDR
+    port = DEFAULT_HOST_PORT
     # 启动即配置 NVMe/TCP 端口（幂等）：裸端口不允许挂子系统，须先写全 addr_* 属性
     manager.ensure_port()
-    # mTLS（K8S 同构，2026-08-31）：serving cert + 内部 CA 校验客户端证书链（CERT_REQUIRED），
+    # mTLS（K8S 同构）：serving cert + 内部 CA 校验客户端证书链（CERT_REQUIRED），
     # 与 storager-agent 的 uvicorn 参数一致；host 网络直连（无 docker-proxy），协议版本不限
-    pki_dir = os.environ["KURRENT_PKI_DIR"]
+    pki_dir = DEFAULT_PKI_DIR
     uvicorn.run(
         app, host=host, port=port, log_level="info",
         ssl_keyfile=os.path.join(pki_dir, "serving.key"),

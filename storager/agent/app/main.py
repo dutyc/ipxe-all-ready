@@ -23,11 +23,15 @@ FICLONE = 0x40049409
 
 # ============================ 框架层：配置 ============================
 
-def _require_env(name: str) -> str:
-    val = os.environ.get(name)
-    if not val:
-        raise RuntimeError(f"missing required env var: {name} (check .env)")
-    return val
+# 节点声明式配置（K8S 同构）：业务配置收敛到 storager/kurrent.yaml
+# （kubeadm JoinConfiguration 同构，pydantic 校验：未知字段拒绝/必填缺失报错/默认值注入）；
+# 容器内路径（盘目录挂载点/日志/缓存/pki/cp-ca/容器名）属部署清单 compose 职责，以模块常量固化；
+# 一次性 bootstrap token 在独立凭据文件（kubelet bootstrap-kubeconfig 同构）。
+# .env 仅保留 compose 插值键。文件缺失/校验失败在 import 即抛错阻断启动。
+from .config import (  # noqa: E402
+    CONFIG, DEFAULT_BOOTSTRAP_TOKEN_FILE, DEFAULT_DISK_DIR, DEFAULT_ISCSI_CONTAINER,
+    DEFAULT_LOG_FILE, DEFAULT_NVMET_CACHE_FILE, DEFAULT_NVMET_HOST_URL, DEFAULT_PKI_DIR,
+)
 
 
 def nqn_to_iqn(nqn: str) -> str:
@@ -42,11 +46,11 @@ def nqn_to_iqn(nqn: str) -> str:
     return "iqn." + nqn
 
 
-DISK_DIR = _require_env("KURRENT_DISK_DIR")
-NQN_BASE = _require_env("KURRENT_NQN_BASE")        # 权威：盘标识命名空间（NVMe-oF 首选协议）
-IQN_BASE = nqn_to_iqn(NQN_BASE)                 # 派生：iSCSI 数据面（同后缀前缀变换）
-BACKEND = _require_env("KURRENT_BACKEND")
-LOG_FILE = _require_env("KURRENT_LOG_FILE")
+DISK_DIR = DEFAULT_DISK_DIR  # 容器内盘目录挂载点（宿主路径见 kurrent.yaml spec.agent.diskDir，compose 挂载关联）
+NQN_BASE = CONFIG.spec.agent.nqn_base              # 权威：盘标识命名空间（NVMe-oF 首选协议）
+IQN_BASE = nqn_to_iqn(NQN_BASE)                  # 派生：iSCSI 数据面（同后缀前缀变换）
+BACKEND = CONFIG.spec.agent.backend
+LOG_FILE = DEFAULT_LOG_FILE  # 容器内路径（compose 挂载目标，部署清单职责）
 
 # 组件 PKI 引导/轮换（K8S 同构）：证书未就绪则抛错阻断启动（uvicorn 起服务前）
 from .pki_client import ensure_pki  # noqa: E402
@@ -305,7 +309,7 @@ def logged(op: str, req_dict: dict, client: str):
 class Backend(abc.ABC):
     def __init__(self):
         self.client = docker.from_env()
-        self.container = _require_env("KURRENT_ISCSI_CONTAINER")
+        self.container = DEFAULT_ISCSI_CONTAINER  # compose 服务名（部署清单职责）
 
     def _exec(self, cmd: str) -> str:
         try:
@@ -546,15 +550,13 @@ def _make_backend() -> Backend:
     if BACKEND == "lio":
         return LioBackend()
     if BACKEND == "nvmet":
-        # 宿主原生 nvmet（C4）：经 nvmet-host 服务调 configfs；env 按需读取，不影响其他后端
+        # 宿主原生 nvmet（C4）：经 nvmet-host 服务调 configfs；配置按需读取，不影响其他后端
         from .nvmet import NvmetBackend, NvmetCredentialCache, NvmetHostClient
-        host = NvmetHostClient(_require_env("KURRENT_NVMET_HOST_URL"),
-                               Path(_require_env("KURRENT_PKI_DIR")))
-        cache_path = os.environ.get("KURRENT_NVMET_CACHE_FILE") or \
-            os.path.join(os.path.dirname(LOG_FILE), "nvmet-credentials.json")
+        host = NvmetHostClient(DEFAULT_NVMET_HOST_URL, Path(DEFAULT_PKI_DIR))
+        cache_path = DEFAULT_NVMET_CACHE_FILE
         cache = NvmetCredentialCache(host, cache_path)
         return NvmetBackend(host, cache, DISK_DIR, NQN_BASE)
-    raise RuntimeError(f"unknown KURRENT_BACKEND: {BACKEND} (expect stgt|lio|nvmet)")
+    raise RuntimeError(f"unknown backend: {BACKEND} (expect stgt|lio|nvmet)")
 
 
 backend = _make_backend()
@@ -632,7 +634,7 @@ def push_credential(req: CredentialPushReq, request: Request):
     secret=null 吊销该 worker 全部绑定设备认证；审计不记密钥本体。"""
     from .nvmet import NvmetBackend, NvmetHostError
     if not isinstance(backend, NvmetBackend):
-        raise HTTPException(400, "credential push requires KURRENT_BACKEND=nvmet")
+        raise HTTPException(400, "credential push requires backend=nvmet")
     req_dict = {"worker_id": req.worker_id, "secret": bool(req.secret),
                 "sub_nqns": req.sub_nqns, "host_nqns": req.host_nqns}
     with logged("credential", req_dict, request.client.host):

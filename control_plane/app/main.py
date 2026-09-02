@@ -9,8 +9,8 @@ import logging
 
 from fastapi import FastAPI
 
-from . import cert_bootstrap, config, pki
-from .routers import agents, boot, devices, enroll, operations, settings, workers
+from . import cert_bootstrap, config, dnsmasq_conf, pki
+from .routers import agents, boot, devices, enroll, operations, settings, tokens, workers
 
 log = logging.getLogger("control-plane")
 
@@ -23,10 +23,17 @@ app.include_router(settings.router)
 app.include_router(agents.router)
 app.include_router(workers.router)
 app.include_router(operations.router)
+app.include_router(tokens.router)
 app.include_router(enroll.router)
 
 # 启动时执行一次旧数据迁移（幂等；失败仅记日志，不阻断启动）
 devices.migrate_legacy_devices()
+
+# 启动时按 spec.networking 生成 dnsmasq.conf（yml 是权威，conf 为派生物；失败仅记日志，不阻断启动）
+try:
+    dnsmasq_conf.ensure_dnsmasq_conf(config.DEFAULT_DNSMASQ_CONF)
+except Exception:
+    log.exception("dnsmasq: failed to render dnsmasq.conf")
 
 # 启动时幂等生成 TOFU 引导链服务器证书（失败仅记日志，不阻断启动；轮换 = 删 state/certs/ 重启）
 try:

@@ -22,7 +22,7 @@ services:
 
   # ── 控制面（Control Plane）──
   # Worker 生命周期编排 / Agent 调度 / 台账 / dnsmasq 绑定 / 启动变量投影
-  # 配置来源：control_plane/control_plane.env（从 .env.example 复制后修改）
+  # 配置来源：control_plane/kurrent.yaml（从 kurrent.yaml.example 复制后修改，声明式权威）
   kurrent-control-plane:
     build:
       context: ./control_plane
@@ -32,15 +32,21 @@ services:
     restart: unless-stopped
     ports:
       - "4839:8080"
-    env_file:
-      - ./control_plane/control_plane.env
+    environment:
+      # 管理口令（Bearer 鉴权凭据，不进声明配置）：未设置则鉴权关闭
+      - KURRENT_CP_TOKEN=${KURRENT_CP_TOKEN:-}
+      # 容器时区（日志时间戳）
+      - TZ=Asia/Shanghai
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      # 声明式配置（只读）：spec.networking 是 dnsmasq.conf 的权威来源
+      - ./control_plane/kurrent.yaml:/etc/kurrent/kurrent.yaml:ro
       - ./control_plane/config:/app/config
       - ./control_plane/state:/app/state
       - /etc/localtime:/etc/localtime:ro
+      # dnsmasq 目录（可写）：dnsmasq.conf 由控制面启动时按 spec.networking 生成，dnsmasq 容器挂载同文件
       - ./dnsmasq:/app/dnsmasq
 
   # ── Web 管理界面 + 文件浏览（nginx）──

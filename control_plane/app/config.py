@@ -1,62 +1,200 @@
+"""控制面声明式配置加载（K8S 同构：kubeadm InitConfiguration）。
+
+配置来源：control_plane/kurrent.yaml（apiVersion/kind/metadata/spec 单文件权威配置，
+从 kurrent.yaml.example 复制后手工编辑）；容器内挂载路径固定 /etc/kurrent/kurrent.yaml
+（KURRENT_CONFIG_FILE 可覆盖，测试注入用）。
+
+分层职责（K8S 同构）：kurrent.yaml 只声明控制面业务策略（PXE 部署网络/组件 PKI 策略/
+服务器证书/引导行为/数据面参数），容器内文件路径与容器名属部署清单 docker-compose.yml
+职责，此处以模块常量固化（与 compose 挂载目标一致，单处维护）；运行时状态（注册窗口/
+强制设备认证等）在 state/settings.json，不属声明配置（etcd 类比）。
+
+校验语义（K8S 同构）：未知字段拒绝（extra="forbid"）、必填缺失报错、默认值注入——
+配置错误在启动即失败，杜绝 env 自由键值的静默偏差。
+"""
+
 import os
-from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
+import yaml
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-def _bool_env(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
+# compose 卷挂载路径（control_plane/kurrent.yaml → 容器内，只读）
+DEFAULT_CONFIG_FILE = "/etc/kurrent/kurrent.yaml"
 
+# ── 容器内路径/拓扑常量（部署清单 docker-compose.yml 职责，不在 yml 声明）──
+DEFAULT_AGENTS_FILE = "/app/config/agents.yml"
+DEFAULT_WORKERS_FILE = "/app/state/workers.yml"
+DEFAULT_DEVICES_FILE = "/app/state/devices.yml"
+DEFAULT_OPERATIONS_FILE = "/app/state/operations.jsonl"
+DEFAULT_SETTINGS_FILE = "/app/state/settings.json"
+DEFAULT_DNSMASQ_HOSTS_FILE = "/app/dnsmasq/dhcp-hosts.conf"
+DEFAULT_DNSMASQ_CONF = "/app/dnsmasq/dnsmasq.conf"      # 由控制面启动时按 spec.networking 生成（yml 权威）
+DEFAULT_DNSMASQ_CONTAINER = "kurrent-dnsmasq"           # compose 服务名（docker.sock reload 用）
+DEFAULT_CERT_DIR = "/app/state/certs"                   # TOFU 自签服务器证书（nginx 只读挂载）
+DEFAULT_CREDENTIALS_FILE = "/app/state/credentials.yml"
+DEFAULT_PKI_DIR = "/app/state/pki"                      # 内部 CA + 组件证书（nginx 只读挂载 ca.crt）
+DEFAULT_CONTROL_PLANE_COMPONENT = "control-plane"       # 控制面自身 client cert 别名（CN=control-plane）
+DEFAULT_MASTERS_FILE = "/app/state/masters.yml"
 
-# 注册窗口 TTL 硬上限（分钟）：代码层不可配置为永久（2026-08-21 裁定：注册只在窗口期）
+# ── 协议契约/安全边界（代码层常量，不收敛 yml）──
+# 注册窗口 TTL 硬上限（分钟）：不可配置为永久，注册只在窗口期
 REGISTRATION_WINDOW_TTL_MAX_MINUTES = 60
 REGISTRATION_WINDOW_TTL_MIN_MINUTES = 1
 # 挑战 nonce 短 TTL（秒）：防重放，引导期无可靠时钟不能依赖时间戳
 CHALLENGE_NONCE_TTL_SECONDS = 60
-
-# ── 组件 PKI（K8S 同构：内部 CA + bootstrap token 引导 + 证书轮换，2026-08-31）──
-# bootstrap token 短 TTL：仅引导期一次性使用（格式 <6位>.<16位>，只存 sha256 hash）
-BOOTSTRAP_TOKEN_TTL_DAYS = 7
-# 组件证书短 TTL：90 天，验证轮换链路（CA 10 年）
-COMPONENT_CERT_DAYS = 90
-# 轮换触发阈值：剩余生命周期低于该比例时重新签发
-RENEW_THRESHOLD = 0.2
 # nginx mTLS 校验通过后透传的客户端证书 DN 头（renew 用）
 CLIENT_CERT_DN_HEADER = "x-client-cert-dn"
 
 
-@dataclass(frozen=True)
+class NetworkingSpec(BaseModel):
+    """spec.networking：PXE 部署网络声明（kubeadm ClusterConfiguration.networking 同构）。
+
+    掩码由 subnet（CIDR）推导，dnsmasq.conf 由控制面启动时按本块生成——yml 是权威。
+    """
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    interface: str = Field(alias="interface")          # 绑定网卡（dnsmasq interface= + bind-interfaces）
+    subnet: str = Field(alias="subnet")                # 服务网段 CIDR（如 192.168.80.0/24）
+    dhcp_range: str = Field(alias="dhcpRange")         # DHCP 池起止（如 192.168.80.50,192.168.80.100）
+    gateway: str = Field(alias="gateway")              # dhcp-option=3
+    dns: str = Field(alias="dns")                      # dhcp-option=6
+
+
+class PkiSpec(BaseModel):
+    """spec.pki：组件 PKI 策略（内部 CA + bootstrap token 引导 + 证书轮换）。"""
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    bootstrap_token_ttl_days: int = Field(7, alias="bootstrapTokenTtlDays", ge=1)
+    component_cert_days: int = Field(90, alias="componentCertDays", ge=1)
+    renew_threshold: float = Field(0.2, alias="renewThreshold", gt=0, le=1)
+
+
+class ServerCertSpec(BaseModel):
+    """spec.serverCert：TOFU 引导链服务器证书（自签，启动时幂等生成，nginx 只读挂载）。"""
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    san: str = Field("IP:127.0.0.1,DNS:localhost", alias="san")
+    days: int = Field(3650, alias="days", ge=1)
+
+
+class BootSpec(BaseModel):
+    """spec.boot：iPXE 引导行为。"""
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    default_arch: str = Field("x86_64", alias="defaultArch")
+    menu_timeout_ms: int = Field(5000, alias="menuTimeoutMs", ge=0)
+    auto_boot_timeout_sec: int = Field(1, alias="autoBootTimeoutSec", ge=0)
+
+
+class DnsmasqSpec(BaseModel):
+    """spec.dnsmasq：dnsmasq 集成（hosts 变更后是否自动 reload）。"""
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    reload: bool = False
+
+
+class Spec(BaseModel):
+    """spec：networking 必填；pki/serverCert/boot/agentTimeoutSec/dnsmasq 带默认值。
+
+    NQN 命名域不在本文件声明：盘 NQN 与 Host NQN 的 base 均来自节点侧
+    spec.agent.nqnBase（节点权威，enroll 经 capabilities.base_nqn 上报）。
+    """
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    networking: NetworkingSpec
+    pki: PkiSpec = Field(default_factory=PkiSpec)
+    server_cert: ServerCertSpec = Field(default_factory=ServerCertSpec, alias="serverCert")
+    boot: BootSpec = Field(default_factory=BootSpec)
+    agent_timeout_sec: float = Field(10, alias="agentTimeoutSec", gt=0)
+    dnsmasq: DnsmasqSpec = Field(default_factory=DnsmasqSpec)
+
+
+class MetadataSpec(BaseModel):
+    """metadata：控制面名称（声明身份）。"""
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    name: str = Field(alias="name")
+
+
+class ControlPlaneConfiguration(BaseModel):
+    """控制面配置根（apiVersion/kind/metadata/spec，kubeadm InitConfiguration 同构）。"""
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    api_version: str = Field("kurrent.io/v1", alias="apiVersion")
+    kind: Literal["ControlPlaneConfiguration"] = "ControlPlaneConfiguration"
+    metadata: MetadataSpec
+    spec: Spec
+
+
+def load_config(path: str | None = None) -> ControlPlaneConfiguration:
+    """加载并校验控制面配置；文件缺失/校验失败抛错阻断启动（启动即失败）。"""
+    cfg_path = Path(path or os.environ.get("KURRENT_CONFIG_FILE") or DEFAULT_CONFIG_FILE)
+    if not cfg_path.is_file():
+        raise RuntimeError(
+            f"missing control plane configuration: {cfg_path} "
+            "(copy control_plane/kurrent.yaml.example to control_plane/kurrent.yaml)")
+    try:
+        data = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+        return ControlPlaneConfiguration.model_validate(data)
+    except yaml.YAMLError as exc:
+        raise RuntimeError(f"invalid control plane configuration {cfg_path}: {exc}") from exc
+    except ValidationError as exc:
+        raise RuntimeError(f"invalid control plane configuration {cfg_path}: {exc}") from exc
+
+
+# 模块级单例：import app.config 即加载（main.py / stores.py / routers 共同消费）
+CONFIG = load_config()
+
+# ── Settings 字段 → 取值来源映射（属性访问即解析，不缓存）──
+_PATH_FIELDS = {
+    "agents_file": "DEFAULT_AGENTS_FILE",
+    "workers_file": "DEFAULT_WORKERS_FILE",
+    "devices_file": "DEFAULT_DEVICES_FILE",
+    "operations_file": "DEFAULT_OPERATIONS_FILE",
+    "settings_file": "DEFAULT_SETTINGS_FILE",
+    "dnsmasq_hosts_file": "DEFAULT_DNSMASQ_HOSTS_FILE",
+    "cert_dir": "DEFAULT_CERT_DIR",
+    "credentials_file": "DEFAULT_CREDENTIALS_FILE",
+    "pki_dir": "DEFAULT_PKI_DIR",
+    "masters_file": "DEFAULT_MASTERS_FILE",
+}
+_STR_FIELDS = {
+    "dnsmasq_container": "DEFAULT_DNSMASQ_CONTAINER",
+    "control_plane_component": "DEFAULT_CONTROL_PLANE_COMPONENT",
+}
+_SPEC_FIELDS = {
+    "dnsmasq_reload": ("dnsmasq", "reload"),
+    "default_arch": ("boot", "default_arch"),
+    "boot_menu_timeout": ("boot", "menu_timeout_ms"),
+    "auto_boot_timeout": ("boot", "auto_boot_timeout_sec"),
+    "agent_timeout": ("agent_timeout_sec",),
+    "cert_san": ("server_cert", "san"),
+    "cert_days": ("server_cert", "days"),
+}
+
+
 class Settings:
-    agents_file: Path = Path(os.getenv("KURRENT_CP_AGENTS_FILE", "config/agents.yml"))
-    workers_file: Path = Path(os.getenv("KURRENT_CP_WORKERS_FILE", "state/workers.yml"))
-    devices_file: Path = Path(os.getenv("KURRENT_CP_DEVICES_FILE", "state/devices.yml"))
-    operations_file: Path = Path(os.getenv("KURRENT_CP_OPERATIONS_FILE", "state/operations.jsonl"))
-    settings_file: Path = Path(os.getenv("KURRENT_CP_SETTINGS_FILE", "state/settings.json"))
-    dnsmasq_hosts_file: Path = Path(os.getenv("KURRENT_CP_DNSMASQ_HOSTS_FILE", "dnsmasq/dhcp-hosts.conf"))
-    dnsmasq_container: str = os.getenv("KURRENT_CP_DNSMASQ_CONTAINER", "kurrent-dnsmasq")
-    dnsmasq_reload: bool = _bool_env("KURRENT_CP_DNSMASQ_RELOAD", True)
-    default_arch: str = os.getenv("KURRENT_CP_DEFAULT_ARCH", "x86_64")
-    boot_menu_timeout: int = int(os.getenv("KURRENT_CP_BOOT_MENU_TIMEOUT", "5000"))
-    auto_boot_timeout: int = int(os.getenv("KURRENT_CP_AUTO_BOOT_TIMEOUT", "1"))
-    agent_timeout: float = float(os.getenv("KURRENT_CP_AGENT_TIMEOUT", "10"))
-    control_token: str = os.getenv("KURRENT_CP_TOKEN", "")
-    # TOFU 引导链服务器证书（自签，控制面启动时幂等生成；nginx 只读挂载 state/certs）
-    cert_dir: Path = Path(os.getenv("KURRENT_CP_CERT_DIR", "state/certs"))
-    cert_san: str = os.getenv("KURRENT_CP_CERT_SAN", "IP:127.0.0.1,DNS:localhost")
-    cert_days: int = int(os.getenv("KURRENT_CP_CERT_DAYS", "3650"))
-    # NVMe-oF 认证凭据库（DHHC-1 密钥按 worker_id 索引，按 Worker 跟盘裁定 2026-08-22）
-    credentials_file: Path = Path(os.getenv("KURRENT_CP_CREDENTIALS_FILE", "state/credentials.yml"))
-    # 组件 PKI 根目录（内部 CA + 组件证书 + bootstrap token 登记，2026-08-31）
-    pki_dir: Path = Path(os.getenv("KURRENT_CP_PKI_DIR", "state/pki"))
-    # 控制面自身 client cert 别名（cp→agent 的 mTLS 客户端身份，CN=control-plane）
-    control_plane_component: str = os.getenv("KURRENT_CP_COMPONENT", "control-plane")
-    # 母盘标签台账（2026-08-30 裁定：标签 = 控制面登记，备注性质，未来迁 masters 表）
-    masters_file: Path = Path(os.getenv("KURRENT_CP_MASTERS_FILE", "state/masters.yml"))
-    # NQN 命名空间 base（与 agent/storager 的 KURRENT_NQN_BASE 同源；盘 NQN 与
-    # host NQN 都由它派生，变更须两侧同步）
-    nqn_base: str = os.getenv("KURRENT_CP_NQN_BASE", "nqn.2026-07.com.kurrent")
+    """控制面运行时设置：字段动态读模块常量 / yml spec / env（属性访问即解析，不缓存）。
+
+    测试重定向 DEFAULT_* 常量或替换 KURRENT_CONFIG_FILE 后无需重建实例即生效。
+    """
+
+    def __getattr__(self, name: str):
+        if name in _PATH_FIELDS:
+            return Path(globals()[_PATH_FIELDS[name]])
+        if name in _STR_FIELDS:
+            return globals()[_STR_FIELDS[name]]
+        if name in _SPEC_FIELDS:
+            node = CONFIG.spec
+            for part in _SPEC_FIELDS[name]:
+                node = getattr(node, part)
+            return node
+        if name == "control_token":
+            # 管理口令（WebUI/API Bearer 鉴权）：凭据不进声明配置，compose environment 注入（KURRENT_CP_TOKEN）
+            return os.getenv("KURRENT_CP_TOKEN", "")
+        raise AttributeError(name)
 
 
 settings = Settings()

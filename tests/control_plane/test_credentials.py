@@ -162,21 +162,30 @@ def _bind_existing_worker(client, auth_headers, register_claimed_device, worker_
     return worker_id
 
 
-def test_boot_vars_injects_nbft_secret(client, auth_headers, register_claimed_device):
+def test_boot_vars_injects_nbft_secret(client, auth_headers, register_claimed_device, mock_agent_client):
     _bound_worker(client, auth_headers, register_claimed_device)
+    # 建盘（Host NQN 与盘 NQN 同域派生需盘 NQN：base = agent 上报的 capabilities.base_nqn）
+    client.post("/agents", json={
+        "id": "ag-01", "base_url": "http://ag-01:8000",
+        "role": {"disk": True, "cd": False}, "tags": ["storage", "stgt"],
+    }, headers=auth_headers)
+    res = client.post("/workers/worker-01/luns/disk", json={
+        "type": "master", "os": "ubuntu", "name": "ubuntu-24.04-master",
+    }, headers=auth_headers)
+    assert res.status_code == 201, res.text
     secret = make_secret()
     client.put("/workers/worker-01/credential", json={"secret": secret}, headers=auth_headers)
 
     res = client.get("/boot-vars", params={"mac": MAC_A, "hostname": "worker-01"})
     assert res.status_code == 200
     assert f"set nbft-secret {secret}" in res.text
-    # Host NQN 与盘 NQN 同域派生（_host_nqn_for），与 nvmet hosts/ 登记值一致
-    assert "set hostnqn nqn.2026-07.com.kurrent:host.worker-01" in res.text
+    # Host NQN 与盘 NQN 同域派生（_host_nqn_for，base = 盘 NQN 前缀），与 nvmet hosts/ 登记值一致
+    assert "set hostnqn nqn.2026-07.com.test:host.worker-01" in res.text
 
     # JSON 格式同样投影 nbft_secret / hostnqn
     res = client.get("/boot-vars", params={"mac": MAC_A, "hostname": "worker-01", "format": "json"})
     assert res.json()["nbft_secret"] == secret
-    assert res.json()["hostnqn"] == "nqn.2026-07.com.kurrent:host.worker-01"
+    assert res.json()["hostnqn"] == "nqn.2026-07.com.test:host.worker-01"
 
 
 def test_boot_vars_no_secret_without_credential(client, auth_headers, register_claimed_device):
@@ -209,8 +218,9 @@ def test_boot_vars_credential_audit(client, auth_headers, register_claimed_devic
 
 # ============================ C4：控制面推送驱动（Agent 转调宿主服务） ============================
 
-# Host NQN = worker 维度派生（发起端身份，与绑定设备无关；nqn.2026-07.com.kurrent:host.<worker_id>）
-HOST_NQN = "nqn.2026-07.com.kurrent:host.worker-01"
+# Host NQN = worker 维度派生（发起端身份；base = 持盘 Agent 上报的 nqnBase，
+# 测试 mock capabilities.base_nqn = nqn.2026-07.com.test）
+HOST_NQN = "nqn.2026-07.com.test:host.worker-01"
 # 盘标识权威 = NQN（控制面 build_nqn 生成盘 NQN，后缀带 os_tag；IQN 由 NQN 派生；推送 sub_nqns 用 NQN）
 
 
@@ -281,7 +291,7 @@ def test_push_host_nqn_derives_from_worker_id(client, auth_headers, mock_agent_c
 
 
 def test_push_on_bind_unbind(client, auth_headers, register_claimed_device, mock_agent_client):
-    """绑定/解绑触发推送：host_nqns 恒为 worker 派生（与绑定设备无关，盘随 worker）。
+    """绑定/解绑触发推送：host_nqns 按 worker 派生（base = 持盘 Agent 的 nqnBase）。
 
     注：create_worker 带 mac 走内部 _bind_device（不推送，建 worker 时无凭据可言）；
     显式 bind/unbind 端点才是推送触发点。

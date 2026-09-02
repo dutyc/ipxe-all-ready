@@ -24,7 +24,7 @@ from ..utils import (
     now_iso,
     parse_uint,
 )
-from .workers import MENU_NAV_ITEMS, _host_nqn_for
+from .workers import MENU_NAV_ITEMS, _base_nqn_from_target, _host_nqn_for
 
 router = APIRouter()
 
@@ -241,17 +241,17 @@ def _worker_boot_payload(match: tuple[str, dict[str, Any]]) -> dict[str, Any]:
         payload["storager_ip"] = storager_ip
         if backend in {"stgt", "lio"}:
             payload["iscsi_sep"] = ":::1:" if backend == "stgt" else "::::"
+        # Host NQN 注入（C2 凭据链路配套）：base 与盘 NQN 同域（节点侧
+        # spec.agent.nqnBase 权威，经盘 NQN 前缀派生）；无 base（盘缺 nqn 存量）
+        # → 不注入，固件走默认 hostnqn（与 base-nqn 投影同条件）
+        if base_nqn:
+            payload["hostnqn"] = _host_nqn_for(base_nqn, worker_id)
     # NVMe-oF 认证密钥注入（C2，按 Worker 跟盘裁定）：绑定 worker 在密钥库有条目时注入。
     # 固件侧消费：menu 拼 nvme://...?secret=${nbft-secret}（C3 已启用，secret 条件化拼装）；
     # 无条目 → 不注入，固件走明文连接（兼容未启用认证的 target）。
     secret = _credential_secret_for(worker_id)
     if secret:
         payload["nbft_secret"] = secret
-    # Host NQN 注入（C2 凭据链路配套）：iPXE nvmetcp 默认 hostnqn 为
-    # nqn.2014-08.org.ipxe:<uuid>（无 UUID 时 :ipxe），与 nvmet 登记的
-    # host.<worker_id> 不匹配则严格模式认证必败；固件 0011 补丁支持
-    # hostnqn 设置覆盖，这里按 worker 投影同一身份（nvmet-host 登记值）。
-    payload["hostnqn"] = _host_nqn_for(worker_id)
     return payload
 
 
@@ -349,15 +349,6 @@ def _base_iqn_from_target(iqn: str | None) -> str:
     if iqn and ":" in iqn:
         return iqn.rsplit(":", 1)[0]
     return "iqn.2026-07.com.controller"
-
-
-def _base_nqn_from_target(nqn: str | None) -> str | None:
-    """盘 NQN 的命名空间前缀（C3 拼接）：`nqn.2026-07.com.kurrent:worker-01.ubuntu.<os_tag>` → 前缀。
-    盘 NQN 由控制面按统一模板 `base:worker_id.os.<os_tag>` 生成（无存量盘），前缀重拼 = 盘记录权威值；
-    盘记录缺 nqn → 返回 None（不投影该键，固件不拼 NVMe-oF 路径）。"""
-    if nqn and ":" in nqn:
-        return nqn.rsplit(":", 1)[0]
-    return None
 
 
 def _credential_secret_for(worker_id: str) -> str | None:

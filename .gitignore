@@ -18,7 +18,10 @@ __pycache__/
 thirdparty/
 
 # docs/ 文档站整体排除（旧文档，冻结待重写，2026-08-24 裁定；重写时重新引入）
-docs/
+docs_copy/
+# VitePress 构建产物（docs 站重新引入后补充）
+docs/.vitepress/cache/
+docs/.vitepress/dist/
 webui/app/node_modules
 
 # WebUI 构建产物（vite build 生成，不入库）
@@ -55,8 +58,13 @@ webui/app/.env
 
 # 本地运行时配置（含真实 token），仓库只保留 *.example 模板
 storager/.env
+# 节点声明式配置（kurrent join 生成，含 bootstrap token，不入库；模板见 kurrent.yaml.example）
+storager/kurrent.yaml
+# 一次性引导凭据文件（bootstrap-kubeconfig 同构，kurrent join 写入，不入库）
+storager/bootstrap/
 control_plane/config/agents.yml
-control_plane/control_plane.env
+# 控制面声明式配置（运行时文件不入库；模板见 kurrent.yaml.example）
+control_plane/kurrent.yaml
 control_plane/state/settings.json
 
 # 内部架构规划（不入版本库）

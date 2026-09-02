@@ -1,0 +1,37 @@
+# 控制面声明式配置（kubeadm InitConfiguration 同构）：业务策略全部收敛到此文件，
+# 容器内路径/容器名属部署清单 docker-compose.yml 职责；运行时状态（注册窗口等）在
+# state/settings.json，不属声明配置。运行时文件不入库：模板与
+# `kurrent config print init-defaults` 输出同源——生成或复制本文件为 kurrent.yaml
+# 后编辑，kurrent init 校验并启动控制面（.gitignore 已忽略 kurrent.yaml）。
+apiVersion: kurrent.io/v1
+kind: ControlPlaneConfiguration
+metadata:
+  name: kurrent-cp
+spec:
+  # PXE 部署网络声明（kubeadm ClusterConfiguration.networking 同构）：
+  # dnsmasq.conf 由控制面启动时按本块生成（yml 是权威，conf 为派生物），勿手工编辑 dnsmasq.conf
+  networking:
+    interface: enp3s0                  # 绑定网卡（dnsmasq interface= + bind-interfaces）
+    subnet: 192.168.80.0/24            # 服务网段（CIDR，掩码自动推导）
+    dhcpRange: 192.168.80.50,192.168.80.100   # DHCP 池起止
+    gateway: 192.168.80.2              # dhcp-option=3
+    dns: 223.5.5.5                     # dhcp-option=6
+  # 组件 PKI 策略（内部 CA + bootstrap token 引导 + 证书轮换）
+  pki:
+    bootstrapTokenTtlDays: 7
+    componentCertDays: 90
+    renewThreshold: 0.2
+  # TOFU 引导链服务器证书（自签，启动时幂等生成；nginx 只读挂载 state/certs）
+  serverCert:
+    san: "IP:127.0.0.1,DNS:localhost"
+    days: 3650
+  # iPXE 引导行为
+  boot:
+    defaultArch: x86_64
+    menuTimeoutMs: 5000
+    autoBootTimeoutSec: 1
+  # 调用存储 Agent 超时（秒）
+  agentTimeoutSec: 10
+  # dnsmasq 集成：hosts 台账变更后是否自动 reload 容器（需 docker.sock 挂载）
+  dnsmasq:
+    reload: false

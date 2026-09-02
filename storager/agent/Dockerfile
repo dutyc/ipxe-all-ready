@@ -32,7 +32,7 @@ COPY app ./app
 # 注：协议版本不限（默认 TLS1.2/1.3 皆可）——docker-proxy 对 TLS1.3 客户端证书握手
 # 有兼容问题，由客户端（控制面 AgentClient）强制 TLS1.2 规避，见 agent_client.py
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", \
-     "--ssl-keyfile", "/etc/ipxe-agent/pki/serving.key", \
-     "--ssl-certfile", "/etc/ipxe-agent/pki/serving.crt", \
-     "--ssl-ca-certs", "/etc/ipxe-agent/pki/ca.crt", \
+     "--ssl-keyfile", "/etc/kurrent/pki/serving.key", \
+     "--ssl-certfile", "/etc/kurrent/pki/serving.crt", \
+     "--ssl-ca-certs", "/etc/kurrent/pki/ca.crt", \
      "--ssl-cert-reqs", "2"]
