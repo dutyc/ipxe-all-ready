@@ -1,7 +1,10 @@
 """组件 PKI 引导/轮换接口（K8S CSR API 同构，2026-08-31）。
 
-- POST /enroll：组件首次注册。凭据 = 一次性 bootstrap token（Bearer 头，经 nginx
-  TLS 传输）；校验 token 绑定身份与 CSR CN 一致后，用内部 CA 签发 client + serving 证书。
+- POST /enroll：组件首次注册。凭据 = bootstrap token（Bearer 头，经 nginx TLS 传输）：
+  agent 用集群级通用 token（kubeadm token create 同构——不绑节点、TTL 内可多次
+  enroll 复用、不消耗）；nvmet-host 用 agent enroll 时按能力派生下发的 token
+  （绑 agent_id，防串用）。token 校验通过后校验 CSR CN 与登记身份一致，
+  用内部 CA 签发 client + serving 证书。
 - POST /renew：证书轮换。凭据 = 组件现有 client cert（nginx 该路径强制 mTLS 校验，
   通过后把客户端证书 DN 透传到 X-Client-Cert-DN）；CN 必须在册（agents.yml 存在）
   且与请求 agent_id/component 匹配后重签。
@@ -65,25 +68,35 @@ def _issue(agent_id: str, component: str, req: EnrollReq) -> dict:
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {
+    resp = {
         "certificates": {name: pem.decode() for name, pem in certs.items()},
         "ca_crt": pki.ca_cert_pem(config.settings.pki_dir).decode(),
     }
+    # nvmet-host 组件凭据派生（能力上报驱动，签发不预知后端）：agent 上报
+    # backend=nvmet → 签发绑 agent_id 的派生 token 随响应下发（agent 落盘供
+    # nvmet-host 容器引导）；派生前清理旧条目（幂等重建）；stgt/lio 无该组件不派生。
+    # enroll 与 renew 同路径：agent 证书轮换时顺带刷新派生 token。
+    if component == "agent" and str(req.capabilities.get("backend") or "").strip() == "nvmet":
+        pki.revoke_agent_tokens(config.settings.pki_dir, agent_id, "nvmet-host")
+        resp["nvmet_token"] = pki.issue_bootstrap_token(
+            config.settings.pki_dir, agent_id, "nvmet-host")
+        log.info("enroll: derived nvmet-host bootstrap token for %s", agent_id)
+    return resp
 
 
 @router.post("", status_code=201)
 def enroll(req: EnrollReq, request: Request, authorization: str = Header("", alias="Authorization")):
-    """首次引导：Bearer bootstrap token → 校验 → 签发。token 用后即废。"""
+    """首次引导：Bearer bootstrap token → 校验（TTL 内复用，不消耗）→ 签发。"""
     token = authorization[len("Bearer "):].strip() if authorization.startswith("Bearer ") else ""
-    # nvmet-host 与 agent 共享 agent_id：agent 未在册时先拒绝（不消耗 token），
-    # 部署序保证 agent 先引导；nvmet-host 容器 restart 重试即可，token 不会被烧掉
+    # nvmet-host 与 agent 共享 agent_id：agent 未在册时先拒绝（token 复用不消耗，
+    # 部署序保证 agent 先引导；nvmet-host 容器 restart 重试即可）
     if req.component != "agent":
         try:
             stores.agents.get(req.agent_id)
         except KeyError:
             raise HTTPException(400, f"agent not registered: {req.agent_id}") from None
     try:
-        pki.consume_bootstrap_token(config.settings.pki_dir, token, req.agent_id, req.component)
+        pki.validate_bootstrap_token(config.settings.pki_dir, token, req.agent_id, req.component)
     except ValueError as exc:
         raise HTTPException(401, str(exc)) from exc
     return _issue(req.agent_id, req.component, req)

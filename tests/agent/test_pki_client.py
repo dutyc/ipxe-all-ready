@@ -8,6 +8,15 @@ from storager.agent.app import pki_client
 
 
 class _FakeResp:
+    def __init__(self, payload=None):
+        self._payload = payload or {
+            "certificates": {
+                "client.crt": "FAKE-CLIENT",
+                "serving.crt": "FAKE-SERVING",
+            },
+            "ca_crt": "FAKE-CA",
+        }
+
     def __enter__(self):
         return self
 
@@ -15,24 +24,18 @@ class _FakeResp:
         return False
 
     def read(self):
-        return json.dumps({
-            "certificates": {
-                "client.crt": "FAKE-CLIENT",
-                "serving.crt": "FAKE-SERVING",
-            },
-            "ca_crt": "FAKE-CA",
-        }).encode()
+        return json.dumps(self._payload).encode()
 
     def close(self):
         pass
 
 
-def _client(monkeypatch, pki_dir, captured, **kwargs):
+def _client(monkeypatch, pki_dir, captured, resp_payload=None, **kwargs):
     def fake_urlopen(req, *, context=None, timeout=None):
         captured["url"] = req.full_url
         captured["body"] = json.loads(req.data)
         captured["auth"] = req.get_header("Authorization")
-        return _FakeResp()
+        return _FakeResp(resp_payload)
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
     defaults = dict(agent_id="t-ag-1", component="agent", pki_dir=pki_dir,
@@ -74,3 +77,27 @@ def test_no_token_and_no_cert_raises(monkeypatch, pki_dir, captured):
     c = _client(monkeypatch, pki_dir, captured, bootstrap_token=None)
     with pytest.raises(RuntimeError, match="cannot enroll"):
         c._enroll(renew=False)
+
+
+def test_derived_token_written_when_present(monkeypatch, pki_dir, captured, tmp_path):
+    """agent enroll 响应含 nvmet_token（backend=nvmet 派生）→ 落盘共享凭据目录。"""
+    derived = tmp_path / "nvmet-host.token"
+    c = _client(monkeypatch, pki_dir, captured,
+                resp_payload={
+                    "certificates": {"client.crt": "C", "serving.crt": "S"},
+                    "ca_crt": "CA",
+                    "nvmet_token": "abc123.def4567890123456",
+                },
+                bootstrap_token="tok.123", derived_token_file=derived)
+    c._enroll(renew=False)
+    assert derived.read_text(encoding="utf-8").strip() == "abc123.def4567890123456"
+    assert (derived.stat().st_mode & 0o777) == 0o600
+
+
+def test_derived_token_skipped_when_absent(monkeypatch, pki_dir, captured, tmp_path):
+    """响应无 nvmet_token（stgt/lio 后端或旧控制面）→ 不写文件、不报错。"""
+    derived = tmp_path / "nvmet-host.token"
+    c = _client(monkeypatch, pki_dir, captured,
+                bootstrap_token="tok.123", derived_token_file=derived)
+    c._enroll(renew=False)
+    assert not derived.exists()

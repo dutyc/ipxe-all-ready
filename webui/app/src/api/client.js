@@ -104,12 +104,9 @@ export function updateAgent(agentId, data) {
   return request(`/agents/${agentId}`, { method: 'PUT', body: data });
 }
 
-export function issueBootstrapToken(agentId, component) {
-  // 签发一次性 bootstrap token（kubeadm token create 同构）；已有未用 token 时 409
-  return request(`/agents/${agentId}/bootstrap-token`, {
-    method: 'POST',
-    params: { component },
-  });
+export function issueBootstrapToken() {
+  // 签发集群级通用 bootstrap token（kubeadm token create 同构）：不绑节点，每次新签
+  return request('/pki/tokens', { method: 'POST' });
 }
 
 export function probeAgent(data) {

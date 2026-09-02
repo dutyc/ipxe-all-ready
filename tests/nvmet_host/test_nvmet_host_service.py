@@ -11,6 +11,8 @@ import os
 # Windows 路径段不允许冒号（WinError 267）：mock configfs 的 NQN 用点分隔（真实 NQN 冒号语义不受影响）
 NQN = "nqn.2026-07.com.test.worker-01.ubuntu"
 BACKING = "/srv/iscsi/worker-01.ubuntu.img"
+# device_path 由宿主按 spec.nvmetHost.diskDir（conftest kurrent.yaml）重拼前缀
+DEVICE_PATH = "/srv/nvmet-disks/worker-01.ubuntu.img"
 HOST_NQN = "nqn.2026-07.com.kurrent.host.worker-01"
 SECRET = "DHHC-1:01:YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXo="
 
@@ -68,7 +70,8 @@ def test_create_subsystem_strict(client, configfs, symlinks):
     sub = configfs / "subsystems" / NQN
     assert (sub / "attr_allow_any_host").read_text().strip() == "0"
     ns = sub / "namespaces" / "1"
-    assert (ns / "device_path").read_text().strip() == BACKING
+    # 盘路径按 spec.nvmetHost.diskDir 重拼（Agent 容器内路径 → 宿主容器内路径）
+    assert (ns / "device_path").read_text().strip() == DEVICE_PATH
     assert (ns / "enable").read_text().strip() == "1"
     link = configfs / "ports" / "1" / "subsystems" / NQN
     assert os.path.islink(link)
@@ -89,7 +92,7 @@ def test_list_subsystems(client, configfs):
     assert res.status_code == 200
     subs = {s["nqn"]: s for s in res.json()["subsystems"]}
     assert set(subs) == {NQN, NQN + ".2"}
-    assert subs[NQN]["namespaces"] == [{"nsid": 1, "device_path": BACKING}]
+    assert subs[NQN]["namespaces"] == [{"nsid": 1, "device_path": DEVICE_PATH}]
     assert subs[NQN]["hosts"] == []
 
 

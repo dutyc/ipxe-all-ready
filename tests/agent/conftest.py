@@ -1,7 +1,8 @@
-"""Agent（nvmet 后端）单测夹具：env 隔离 + 直接 import app.main。
+"""Agent（nvmet 后端）单测夹具：临时 kurrent.yaml + 直接 import app.main。
 
 storager/agent/app 注入 sys.path（顶层 app 包名与 control_plane.app / nvmet_host_main
-均不冲突），KURRENT_* 环境变量在 import 前全量设置（main.py 顶层 _require_env）。
+均不冲突），节点声明式配置写为临时 kurrent.yaml 并经 KURRENT_CONFIG_FILE 指向
+（main.py/config.py 顶层 import 即加载，不再读 KURRENT_* 业务 env）。
 PKI 引导跳过：预生成占位 client.crt（长有效期）使 ensure_pki() 走 ready 分支，
 单测不连控制面（引导/轮换/证书落盘由部署集成测试覆盖）。
 """
@@ -21,16 +22,39 @@ sys.path.insert(0, str(PROJECT_ROOT / "tests"))  # pki_testkit 共享工具
 from pki_testkit import gen_pki_dir  # noqa: E402
 
 _STATE = Path(tempfile.mkdtemp(prefix="storager-agent-test-"))
-os.environ["KURRENT_DISK_DIR"] = str(_STATE / "disks")
-os.environ["KURRENT_NQN_BASE"] = "nqn.2026-07.com.test"
-os.environ["KURRENT_BACKEND"] = "nvmet"
-os.environ["KURRENT_LOG_FILE"] = str(_STATE / "ops.jsonl")
-os.environ["KURRENT_NVMET_HOST_URL"] = "https://127.0.0.1:4841"
-os.environ["KURRENT_NVMET_CACHE_FILE"] = str(_STATE / "nvmet-credentials.json")
 _PKI_DIR = gen_pki_dir(_STATE / "pki")
-os.environ["KURRENT_PKI_DIR"] = str(_PKI_DIR)
-os.environ["KURRENT_AGENT_ID"] = "test-agent-01"
-os.environ["KURRENT_CP_ENROLL_URL"] = "https://127.0.0.1"
+_CONF_FILE = _STATE / "kurrent.yaml"
+_CONF_FILE.write_text(
+    f"""apiVersion: kurrent.io/v1
+kind: NodeConfiguration
+metadata:
+  name: test-agent-01
+spec:
+  agent:
+    backend: nvmet
+    advertiseUrl: "https://127.0.0.1:4840"
+    diskDir: {_STATE / "disks"}
+    nqnBase: nqn.2026-07.com.test
+  controlPlane:
+    url: "https://127.0.0.1"
+""",
+    encoding="utf-8",
+)
+os.environ["KURRENT_CONFIG_FILE"] = str(_CONF_FILE)
+
+import app.config as _cfg  # noqa: E402
+# 容器内路径/凭据常量重定向到测试状态目录：pki/cp-ca/盘目录挂载点/日志/引导凭据属部署清单 compose 职责，
+# 测试环境不依赖宿主挂载（ensure_pki 走 ready 分支，不实际使用 cp-ca/token）
+_cfg.DEFAULT_PKI_DIR = str(_PKI_DIR)
+_cfg.DEFAULT_CP_CA = str(_STATE / "cp-ca.crt")
+_cfg.DEFAULT_DISK_DIR = str(_STATE / "disks")
+_cfg.DEFAULT_LOG_FILE = str(_STATE / "ops.jsonl")
+_cfg.DEFAULT_NVMET_CACHE_FILE = str(_STATE / "nvmet-credentials.json")
+_cfg.DEFAULT_BOOTSTRAP_TOKEN_FILE = str(_STATE / "bootstrap-token")
+# nvmet-host 派生凭据占位文件：backend=nvmet 且文件缺失时 ensure_pki 会强制 renew
+# （真实网络请求）——预建占位使 force_renew 不触发（单测走 ready 分支）
+_cfg.DEFAULT_NVMET_BOOTSTRAP_TOKEN_FILE = str(_STATE / "bootstrap-nvmet.token")
+Path(_cfg.DEFAULT_NVMET_BOOTSTRAP_TOKEN_FILE).write_text("placeholder.token\n", encoding="utf-8")
 
 import app.main as agent_main  # noqa: E402
 

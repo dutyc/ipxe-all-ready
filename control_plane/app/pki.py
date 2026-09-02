@@ -3,13 +3,16 @@
 设计（对照 Kubernetes）：
 - 控制面 = kube-apiserver + CA：幂等生成内部 CA（state/pki/ca.{key,crt}），
   为每个组件签发 client cert（身份，CN=<component>-<id>）与 serving cert（TLS 服务端）
-- bootstrap token = 一次性引导凭据（仿 cluster-bootstrap 格式 <6位>.<16位>，
-  登记只存 sha256 hash，绑定组件身份 + 过期时间；用后即废）
+- bootstrap token = 集群级通用引导凭据（kubeadm token create 同构，<6位>.<16位>，
+  登记只存 sha256 hash）；TTL 内可被多次 enroll 复用（kubeadm bootstrap token 不限制
+  使用次数）——agent 通用 token 不绑节点（节点名由节点自决 + enroll 自动登记）；
+  nvmet-host 凭据按 agent 能力上报派生（backend=nvmet 时随 enroll 响应下发，绑节点）
 - 组件证书 TTL 90 天（CA 10 年）：轮换 = 组件在证书剩余 <20% 时重新提交 CSR
   （/renew，经 nginx mTLS 校验证书身份），控制面自动签发
 - 吊销 = 证书到期自然失效 + 组件从注册表移除后拒绝 renew（不引入 CRL，MVP 够用）
 
-CSR 校验规则（防冒名）：subject CN 必须与 bootstrap token 绑定的组件身份一致；
+CSR 校验规则（防冒名）：subject CN 必须与 token 绑定的组件身份一致（nvmet-host
+派生 token 按 agent_id 匹配；agent 通用 token 由 CSR 自决 + 自动登记）；
 签名有效；公钥 RSA >= 2048。
 """
 
@@ -118,7 +121,7 @@ def ensure_control_plane_client_cert(pki_dir: Path, ca_cert, ca_key,
             pass
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     csr_pem = _build_csr(key, component)
-    cert = _sign_csr(ca_cert, ca_key, csr_pem, "clientAuth", [], config.COMPONENT_CERT_DAYS)
+    cert = _sign_csr(ca_cert, ca_key, csr_pem, "clientAuth", [], config.CONFIG.spec.pki.component_cert_days)
     key_path.write_bytes(key.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.TraditionalOpenSSL,
@@ -218,9 +221,9 @@ def sign_component_certs(ca_cert, ca_key, agent_id: str, component: str,
     for csr in (client_csr, serving_csr):
         if _csr_cn(_parse_csr(csr)) != expected_cn:
             raise ValueError(f"csr cn mismatch: expect {expected_cn}")
-    client_cert = _sign_csr(ca_cert, ca_key, client_csr, "clientAuth", [], config.COMPONENT_CERT_DAYS)
+    client_cert = _sign_csr(ca_cert, ca_key, client_csr, "clientAuth", [], config.CONFIG.spec.pki.component_cert_days)
     serving_cert = _sign_csr(ca_cert, ca_key, serving_csr, "serverAuth", serving_sans,
-                             config.COMPONENT_CERT_DAYS)
+                             config.CONFIG.spec.pki.component_cert_days)
     return {"client.crt": client_cert, "serving.crt": serving_cert}
 
 
@@ -241,6 +244,13 @@ def parse_dn_cn(dn: str) -> str:
 
 
 # ============================ bootstrap token ============================
+# kubeadm bootstrap token 同构：集群级通用引导凭据，TTL 内可被多次 enroll 复用
+# （不一次性消耗）。台账 key = token_id（每 token 独立，多 token 并存，写入时
+# 惰性清理过期条目）：
+# - agent 通用 token（不绑节点）：kubeadm token create 同构，任何存储节点可用它
+#   引导（enroll 自动登记，节点名由节点自决）
+# - nvmet-host 派生 token（绑 agent_id）：agent enroll 上报 backend=nvmet 时控制面
+#   自动签发随响应下发（能力上报驱动，签发不预知后端）
 
 def _token_file(pki_dir: Path) -> Path:
     return pki_dir / TOKENS_FILENAME
@@ -254,12 +264,13 @@ def _load_tokens(pki_dir: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def _token_key(agent_id: str, component: str) -> str:
-    """登记键：agent_id + 组件（同一 agent 的 agent / nvmet-host 各自独立，互不覆盖）。"""
-    return f"{agent_id}/{component}"
-
-
 def _save_tokens(pki_dir: Path, tokens: dict) -> None:
+    """落盘 token 台账（写入前惰性清理过期条目）。"""
+    now = _dt.datetime.now(_dt.timezone.utc)
+    tokens = {
+        tid: entry for tid, entry in tokens.items()
+        if _entry_active(entry.get("expires_at"), now)
+    }
     pki_dir.mkdir(parents=True, exist_ok=True)
     tmp = _token_file(pki_dir).with_suffix(".yml.tmp")
     tmp.write_text(yaml.safe_dump(tokens, allow_unicode=True, sort_keys=True), encoding="utf-8")
@@ -267,78 +278,78 @@ def _save_tokens(pki_dir: Path, tokens: dict) -> None:
     os.chmod(_token_file(pki_dir), 0o600)
 
 
-def generate_bootstrap_token(pki_dir: Path, agent_id: str, component: str,
-                             days: int | None = None) -> str:
-    """登记一次性 bootstrap token，返回明文（仅登记 sha256 hash）。
+def _entry_active(expires_at: str, now: _dt.datetime) -> bool:
+    try:
+        return _dt.datetime.fromisoformat(expires_at) > now
+    except (KeyError, TypeError, ValueError):
+        return False
 
-    格式仿 K8S cluster-bootstrap：<6位>.<16位>（hex 随机）。同日同一组件已有未
-    过期 token 则沿用（幂等，便于重试部署）。
+
+def issue_bootstrap_token(pki_dir: Path, agent_id: str = "", component: str = "agent",
+                          days: int | None = None) -> str:
+    """签发 bootstrap token，返回明文（登记只存 secret 的 sha256；key = token_id）。
+
+    无幂等沿用（kubeadm token create 每次新签；明文不可恢复，旧 token TTL 内仍有效）；
+    agent 通用 token 不绑节点（agent_id=""），nvmet-host 派生 token 绑 agent_id。
     """
-    days = days or config.BOOTSTRAP_TOKEN_TTL_DAYS
-    tokens = _load_tokens(pki_dir)
-    now = _dt.datetime.now(_dt.timezone.utc)
-    key = _token_key(agent_id, component)
-    existing = tokens.get(key)
-    if existing and not existing.get("used"):
-        try:
-            if _dt.datetime.fromisoformat(existing["expires_at"]) > now:
-                # 幂等：登记只存 hash，明文无法恢复；重新生成会覆盖旧 token
-                log.warning("pki: active bootstrap token exists for %s/%s; "
-                            "delete the entry to reissue", agent_id, component)
-                return None
-        except ValueError:
-            pass
+    days = days or config.CONFIG.spec.pki.bootstrap_token_ttl_days
     token_id = secrets.token_hex(3)
     token_secret = secrets.token_hex(8)
-    expires = (now + _dt.timedelta(days=days)).isoformat()
-    tokens[key] = {
+    tokens = _load_tokens(pki_dir)
+    tokens[token_id] = {
         "component": component,
-        "token_id": token_id,
-        # 明文仅在生成时可见：登记只存 hash（与 K8S cluster-bootstrap 同思路）
+        "agent_id": agent_id or "",
+        # 明文仅在生成时可见：登记只存 secret 部分 hash（token_id 为台账 key，非机密）
         "token_secret_hash": hashlib.sha256(token_secret.encode()).hexdigest(),
-        "expires_at": expires,
+        "expires_at": (_dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(days=days)).isoformat(),
         "usage": ["enroll"],
-        "used": False,
     }
     _save_tokens(pki_dir, tokens)
-    log.info("pki: bootstrap token issued for %s (agent_id=%s, expires=%s)", component, agent_id, expires)
+    log.info("pki: bootstrap token issued: component=%s agent=%s", component, agent_id or "-")
     return f"{token_id}.{token_secret}"
 
 
-def get_bootstrap_token(pki_dir: Path, agent_id: str, component: str) -> dict | None:
-    """只读返回某 agent 组件的 bootstrap token 登记条目（剔除 secret hash）。"""
-    entry = _load_tokens(pki_dir).get(_token_key(agent_id, component))
+def revoke_agent_tokens(pki_dir: Path, agent_id: str, component: str = "nvmet-host") -> None:
+    """删除某 agent 组件的全部登记条目（派生 token 重建前调用；agent 通用 token 不动）。"""
+    tokens = _load_tokens(pki_dir)
+    drop = [tid for tid, e in tokens.items()
+            if e.get("component") == component and e.get("agent_id") == agent_id]
+    for tid in drop:
+        tokens.pop(tid)
+    if drop:
+        _save_tokens(pki_dir, tokens)
+        log.info("pki: revoked %d %s token(s) for agent %s", len(drop), component, agent_id)
+
+
+def get_bootstrap_token(pki_dir: Path, token_id: str) -> dict | None:
+    """只读返回 token 登记条目（剔除 secret hash）。"""
+    entry = _load_tokens(pki_dir).get(token_id)
     if not entry:
         return None
     return {k: v for k, v in entry.items() if k != "token_secret_hash"}
 
 
-def consume_bootstrap_token(pki_dir: Path, token: str, agent_id: str, component: str) -> None:
-    """校验并一次性消费 bootstrap token（enroll 用）。
+def validate_bootstrap_token(pki_dir: Path, token: str, agent_id: str, component: str) -> None:
+    """校验 bootstrap token（enroll 用）：格式、登记存在、组件匹配、绑定匹配、未过期。
 
-    校验：格式、登记存在、组件匹配、未用过、未过期。通过后标记 used（防重放）。
-    失败抛 ValueError（调用方转 401）。
+    TTL 内可复用——不消耗（kubeadm bootstrap token 同构，不限制使用次数）。
+    agent 通用 token（无绑定）任何节点可用；nvmet-host 派生 token 须 agent_id 匹配
+    （防串用）。失败抛 ValueError（调用方转 401）。
     """
     token = token.strip()
     token_id, _, secret = token.partition(".")
     if not token_id or not secret:
         raise ValueError("malformed bootstrap token")
-    tokens = _load_tokens(pki_dir)
-    key = _token_key(agent_id, component)
-    entry = tokens.get(key)
+    entry = _load_tokens(pki_dir).get(token_id)
     if not entry:
-        raise ValueError(f"no bootstrap token for {key}")
-    if entry.get("used"):
-        raise ValueError("bootstrap token already used")
+        raise ValueError(f"no bootstrap token for token id {token_id}")
+    if entry.get("component") != component:
+        raise ValueError("bootstrap token component mismatch")
+    if entry.get("agent_id") and entry.get("agent_id") != agent_id:
+        raise ValueError("bootstrap token agent mismatch")
     if not hmac.compare_digest(hashlib.sha256(secret.encode()).hexdigest(),
                                entry.get("token_secret_hash", "")):
         raise ValueError("bootstrap token invalid")
-    try:
-        expired = _dt.datetime.fromisoformat(entry["expires_at"]) < _dt.datetime.now(_dt.timezone.utc)
-    except (KeyError, ValueError):
-        expired = True
-    if expired:
+    if not _entry_active(entry.get("expires_at"), _dt.datetime.now(_dt.timezone.utc)):
         raise ValueError("bootstrap token expired")
-    entry["used"] = True
-    _save_tokens(pki_dir, tokens)
-    log.info("pki: bootstrap token consumed: agent_id=%s component=%s", agent_id, component)
+    log.info("pki: bootstrap token validated: component=%s agent=%s", component, agent_id)

@@ -1,11 +1,14 @@
-"""nvmet-host 宿主服务单测夹具：env 隔离 + importlib 加载。
+"""nvmet-host 宿主服务单测夹具：临时 kurrent.yaml + importlib 加载。
 
 NVMET_CONFIGFS 重定向到临时目录（mock configfs），PKI 引导跳过（预生成占位 client.crt
 使 ensure_pki() 走 ready 分支，单测不连控制面）；
+节点声明式配置写为临时 kurrent.yaml 并经 KURRENT_CONFIG_FILE 指向（main.py 顶层
+import .config 即加载，不再读 NVMET_HOST_*/KURRENT_* 业务 env）；
 模块以独立名字 nvmet_host_main 加载，避免与 Agent 的 app 包名冲突。
-main.py 顶层 `from .pki_client import ensure_pki` 相对导入无 parent package：
-预注册 app 包 + 本目录 pki_client（若 Agent 测试先行，sys.modules["app"] 为 Agent 的
-app 包，此处仅覆盖 app.pki_client 为本目录实现——同一组件 PKI 客户端，行为一致）。
+main.py 顶层 `from .config import CONFIG` / `from .pki_client import ensure_pki`
+相对导入无 parent package：预注册 app 包 + 本目录 config/pki_client——无论 Agent
+测试是否先行占用 sys.modules["app"]，此处都覆盖 app.config / app.pki_client 为
+本组件实现（同一组件 PKI 客户端，行为一致）。
 """
 
 import importlib.util
@@ -26,22 +29,43 @@ from pki_testkit import gen_pki_dir  # noqa: E402
 _SPEC_DIR = PROJECT_ROOT / "storager" / "nvmeof" / "nvmet-host" / "app"
 
 _STATE = Path(tempfile.mkdtemp(prefix="nvmet-host-test-"))
-os.environ["NVMET_HOST_ADDR"] = "127.0.0.1"
-os.environ["NVMET_HOST_PORT"] = "4841"
+_PKI_DIR = gen_pki_dir(_STATE / "pki")
+_CONF_FILE = _STATE / "kurrent.yaml"
+_CONF_FILE.write_text(
+    f"""apiVersion: kurrent.io/v1
+kind: NodeConfiguration
+metadata:
+  name: test-nvmet-host-01
+spec:
+  agent:
+    backend: nvmet
+    diskDir: /tmp/disks
+    nqnBase: nqn.2026-07.com.test
+  controlPlane:
+    url: "https://127.0.0.1"
+""",
+    encoding="utf-8",
+)
+os.environ["KURRENT_CONFIG_FILE"] = str(_CONF_FILE)
 os.environ["NVMET_CONFIGFS"] = str(_STATE / "configfs-nvmet")
-os.environ["KURRENT_PKI_DIR"] = str(gen_pki_dir(_STATE / "pki"))
-os.environ["KURRENT_AGENT_ID"] = "test-nvmet-host-01"
-os.environ["KURRENT_CP_ENROLL_URL"] = "https://127.0.0.1"
 
-# main.py 顶层相对导入 .pki_client：spec 加载的模块无 parent package，预注册包上下文
+# main.py 顶层相对导入 .config/.pki_client：spec 加载的模块无 parent package，
+# 预注册 app 包 + 本目录 config/pki_client（覆盖 Agent 测试先行导入的同名模块）
 if "app" not in sys.modules:
     _app_pkg = types.ModuleType("app")
     _app_pkg.__path__ = []
     sys.modules["app"] = _app_pkg
-_pki_spec = importlib.util.spec_from_file_location("app.pki_client", _SPEC_DIR / "pki_client.py")
-_pki = importlib.util.module_from_spec(_pki_spec)
-sys.modules["app.pki_client"] = _pki
-_pki_spec.loader.exec_module(_pki)
+for _name in ("config", "pki_client"):
+    _spec = importlib.util.spec_from_file_location(
+        f"app.{_name}", _SPEC_DIR / f"{_name}.py")
+    _mod = importlib.util.module_from_spec(_spec)
+    sys.modules[f"app.{_name}"] = _mod
+    _spec.loader.exec_module(_mod)
+# 容器内路径/凭据常量重定向到测试状态目录：pki/cp-ca/引导凭据属部署清单 compose 职责，
+# 测试环境不依赖宿主挂载（ensure_pki 走 ready 分支，不实际使用 cp-ca/token）
+sys.modules["app.config"].DEFAULT_PKI_DIR = str(_PKI_DIR)
+sys.modules["app.config"].DEFAULT_CP_CA = str(_STATE / "cp-ca.crt")
+sys.modules["app.config"].DEFAULT_BOOTSTRAP_TOKEN_FILE = str(_STATE / "bootstrap-token")
 
 _spec = importlib.util.spec_from_file_location(
     "nvmet_host_main", _SPEC_DIR / "main.py")

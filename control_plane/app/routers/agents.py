@@ -1,11 +1,13 @@
-"""Agent 管理端点（Bearer 鉴权）：注册/更新/探测、LUN 管理、母盘聚合（/masters）。"""
+"""Agent 管理端点（Bearer 鉴权）：注册/更新/探测、LUN 管理、母盘聚合（/masters）。
+
+bootstrap token 签发已移至 POST /pki/tokens（kubeadm token create 同构：集群级通用
+引导凭据，不绑节点）；nvmet-host 组件凭据由 enroll 按能力派生，均不在本模块。"""
 
 from typing import Any
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from .. import config, pki
 from ..agent_client import AgentAPIError, AgentClient, AgentConfig
 from ..auth import verify_control_token
 from ..models import (
@@ -20,32 +22,6 @@ from ..stores import agents, master_tags, record, store
 from ..utils import WORKER_ID_RE, canonical_os, canonical_os_version, client_host
 
 router = APIRouter(dependencies=[Depends(verify_control_token)])
-
-
-@router.post("/agents/{agent_id}/bootstrap-token", status_code=201)
-def issue_bootstrap_token(agent_id: str, request: Request, component: str = Query("agent", pattern="^(agent|nvmet-host)$")):
-    """签发一次性 bootstrap token（kubeadm token create 同构，2026-08-31）。
-
-    凭据 = 管理面 Bearer（webui 鉴权）。明文仅本次响应可见（登记只存 sha256
-    hash、7 天 TTL、enroll 后即废）；已有未用 token 返回 409（明文不可恢复，
-    需删除 bootstrap-tokens.yml 对应条目后重发）。token 用于节点侧一键加入
-    （kurrent-join.sh），agent 不在册也可预签发（enroll 时自动登记）。
-    """
-    agent_id = agent_id.strip().lower()
-    token = pki.generate_bootstrap_token(config.settings.pki_dir, agent_id, component)
-    if token is None:
-        raise HTTPException(409, f"active bootstrap token exists for {agent_id}/{component}; "
-                            f"delete its entry in {config.settings.pki_dir / 'bootstrap-tokens.yml'} to reissue")
-    info = pki.get_bootstrap_token(config.settings.pki_dir, agent_id, component) or {}
-    record("agent.bootstrap-token", "ok", agent=agent_id, component=component,
-           client=client_host(request))
-    return {
-        "agent_id": agent_id,
-        "component": component,
-        "token": token,
-        "expires_at": info.get("expires_at", ""),
-        "usage": info.get("usage", []),
-    }
 
 
 @router.get("/agents")

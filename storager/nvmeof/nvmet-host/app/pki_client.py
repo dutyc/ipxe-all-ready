@@ -1,4 +1,4 @@
-"""组件 PKI 客户端（K8S kubelet 证书引导同构，2026-08-31）。
+"""组件 PKI 客户端（K8S kubelet 证书引导同构）。
 
 职责：首次启动引导（bootstrap token → /enroll 换证书）+ 证书轮换（现有 client cert
 mTLS → /renew），并把 CA/证书落盘到 pki_dir。调用时机：uvicorn 起服务前（模块导入
@@ -9,7 +9,8 @@ mTLS → /renew），并把 CA/证书落盘到 pki_dir。调用时机：uvicorn 
   client.crt/key   client cert（本组件身份：向 cp renew、向 nvmet-host 认证）
   serving.crt/key  serving cert（本组件 TLS 服务端）
 
-enroll 凭据 = 一次性 bootstrap token（KURRENT_BOOTSTRAP_TOKEN，enroll 后即废）；
+enroll 凭据 = nvmet-host 派生 bootstrap token（agent enroll 按 backend=nvmet 能力签发
+随响应下发并落盘 nvmet-host.token，绑 agent_id 防串用）；
 renew 凭据 = 现有 client cert（mTLS，nginx 校验后透传 DN 给控制面）。
 """
 
@@ -31,13 +32,6 @@ from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 log = logging.getLogger("agent")
 
 RENEW_THRESHOLD = 0.2  # 剩余生命周期低于该比例触发轮换（与控制面 config 一致）
-
-
-def _require_env(name: str) -> str:
-    val = os.environ.get(name)
-    if not val:
-        raise RuntimeError(f"missing required env var: {name}")
-    return val
 
 
 def _san(value: str):
@@ -177,13 +171,23 @@ class PkiClient:
         return context
 
 
+def _read_bootstrap_token(path: Path) -> str | None:
+    """读取引导凭据文件（bootstrap-kubeconfig 同构；缺失/空返回 None）。"""
+    try:
+        value = path.read_text(encoding="utf-8").strip()
+        return value or None
+    except OSError:
+        return None
+
+
 def ensure_pki() -> None:
-    """模块级入口：从环境变量装配并执行引导/轮换（证书未就绪则抛错阻断启动）。"""
-    pki_dir = Path(_require_env("KURRENT_PKI_DIR"))
-    agent_id = _require_env("KURRENT_AGENT_ID")
-    component = os.environ.get("KURRENT_COMPONENT", "agent")
-    cp_base = _require_env("KURRENT_CP_ENROLL_URL")
-    cp_ca = os.environ.get("KURRENT_CP_CA")
-    token = os.environ.get("KURRENT_BOOTSTRAP_TOKEN")
-    PkiClient(agent_id, component, pki_dir, cp_base,
-              Path(cp_ca) if cp_ca else None, token).ensure()
+    """模块级入口：从节点配置（kurrent.yaml）+ 引导凭据文件装配并执行引导/轮换。
+
+    nvmet-host 派生 token 在独立凭据文件（agent enroll 按能力签发并落盘，compose 只读
+    挂载），不在 yml 声明。"""
+    from .config import CONFIG, DEFAULT_BOOTSTRAP_TOKEN_FILE, DEFAULT_CP_CA, DEFAULT_PKI_DIR
+    spec = CONFIG.spec
+    PkiClient(CONFIG.metadata.name, "nvmet-host", Path(DEFAULT_PKI_DIR),
+              spec.control_plane.url,
+              Path(DEFAULT_CP_CA),
+              _read_bootstrap_token(Path(DEFAULT_BOOTSTRAP_TOKEN_FILE))).ensure()

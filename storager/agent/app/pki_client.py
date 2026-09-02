@@ -1,4 +1,4 @@
-"""组件 PKI 客户端（K8S kubelet 证书引导同构，2026-08-31）。
+"""组件 PKI 客户端（K8S kubelet 证书引导同构）。
 
 职责：首次启动引导（bootstrap token → /enroll 换证书）+ 证书轮换（现有 client cert
 mTLS → /renew），并把 CA/证书落盘到 pki_dir。调用时机：uvicorn 起服务前（模块导入
@@ -9,7 +9,9 @@ mTLS → /renew），并把 CA/证书落盘到 pki_dir。调用时机：uvicorn 
   client.crt/key   client cert（本组件身份：向 cp renew、向 nvmet-host 认证）
   serving.crt/key  serving cert（本组件 TLS 服务端）
 
-enroll 凭据 = 一次性 bootstrap token（KURRENT_BOOTSTRAP_TOKEN，enroll 后即废）；
+enroll 凭据 = 集群级通用 bootstrap token（独立凭据文件 agent.token，kubeadm
+bootstrap-kubeconfig 同构：不绑节点、TTL 内可多次 enroll 复用）；nvmet-host 派生
+凭据随本组件 enroll/renew 响应下发并落盘（nvmet-host.token，供 nvmet-host 容器引导）；
 renew 凭据 = 现有 client cert（mTLS，nginx 校验后透传 DN 给控制面）。
 """
 
@@ -35,13 +37,6 @@ RENEW_THRESHOLD = 0.2  # 剩余生命周期低于该比例触发轮换（与控�
 # 后端 ISO 光驱能力（与各 backend capabilities() 的 cd 字段一致）：stgt 支持，lio/nvmet 不支持。
 # agent 引导时随 enroll 上报，控制面自动登记据此推导 role.cd 与标签（K8S --node-labels 同构）。
 BACKEND_CD_CAPABILITY = {"stgt": True, "lio": False, "nvmet": False}
-
-
-def _require_env(name: str) -> str:
-    val = os.environ.get(name)
-    if not val:
-        raise RuntimeError(f"missing required env var: {name}")
-    return val
 
 
 def _san(value: str):
@@ -92,7 +87,8 @@ class PkiClient:
 
     def __init__(self, agent_id: str, component: str, pki_dir: Path,
                  cp_base: str, cp_ca: Path | None, bootstrap_token: str | None,
-                 advertise_url: str | None = None, capabilities: dict | None = None):
+                 advertise_url: str | None = None, capabilities: dict | None = None,
+                 derived_token_file: Path | None = None):
         self.component = component          # agent | nvmet-host（与控制面 COMPONENT_PREFIX 键一致）
         self.agent_id = agent_id
         # CN 前缀：nvmet-host → nvmet（与控制面 sign_component_certs 的规则一致）
@@ -104,15 +100,19 @@ class PkiClient:
         self.bootstrap_token = bootstrap_token
         self.advertise_url = (advertise_url or "").strip()  # 自动登记时写入 agents.yml
         self.capabilities = capabilities or {}  # 后端能力摘要（backend/cd），自动登记时推导角色/标签
+        # nvmet-host 派生凭据落盘路径（仅 agent 组件）：控制面按 backend=nvmet 能力签发
+        # 随 enroll/renew 响应下发，本组件写入供 nvmet-host 容器引导（compose 共享目录）
+        self.derived_token_file = Path(derived_token_file) if derived_token_file else None
 
     def ready(self) -> bool:
         """证书就绪且剩余生命周期高于阈值。"""
         ratio = _cert_remaining_ratio(self.pki_dir / "client.crt")
         return ratio is not None and ratio > RENEW_THRESHOLD
 
-    def ensure(self) -> None:
-        """引导或轮换证书（进程启动时调用）。已就绪则跳过。"""
-        if self.ready():
+    def ensure(self, force_renew: bool = False) -> None:
+        """引导或轮换证书（进程启动时调用）。已就绪则跳过；force_renew 时证书在也重签
+        （agent 用于 nvmet-host 派生凭据缺失时主动刷新，renew 响应带新派生 token）。"""
+        if self.ready() and not force_renew:
             log.info("pki: client cert ok (cn=%s)", self.cn)
             return
         if (self.pki_dir / "client.crt").exists():
@@ -170,6 +170,11 @@ class PkiClient:
         _write_pem(self.pki_dir / "client.crt", certs["client.crt"].encode())
         _write_pem(self.pki_dir / "serving.crt", certs["serving.crt"].encode())
         _write_pem(self.pki_dir / "ca.crt", data["ca_crt"].encode())
+        # nvmet-host 派生凭据落盘（agent 组件）：控制面按 backend=nvmet 能力签发随响应
+        # 下发；写入共享凭据目录供 nvmet-host 容器引导（缺失响应 = 非 nvmet 后端/旧控制面）
+        if self.derived_token_file and data.get("nvmet_token"):
+            _write_token(self.derived_token_file, data["nvmet_token"])
+            log.info("pki: derived nvmet-host bootstrap token written (%s)", self.derived_token_file)
         log.info("pki: %s done (cn=%s)", "renew" if renew else "enroll", self.cn)
 
     def _cp_context(self, with_client_cert: bool) -> ssl.SSLContext:
@@ -188,16 +193,39 @@ class PkiClient:
         return context
 
 
+def _read_bootstrap_token(path: Path) -> str | None:
+    """读取引导凭据文件（bootstrap-kubeconfig 同构；缺失/空返回 None）。"""
+    try:
+        value = path.read_text(encoding="utf-8").strip()
+        return value or None
+    except OSError:
+        return None
+
+
+def _write_token(path: Path, token: str) -> None:
+    """原子写引导凭据文件（0600，与 join 写入权限一致）。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(token.strip() + "\n", encoding="utf-8")
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+
+
 def ensure_pki() -> None:
-    """模块级入口：从环境变量装配并执行引导/轮换（证书未就绪则抛错阻断启动）。"""
-    pki_dir = Path(_require_env("KURRENT_PKI_DIR"))
-    agent_id = _require_env("KURRENT_AGENT_ID")
-    component = os.environ.get("KURRENT_COMPONENT", "agent")
-    cp_base = _require_env("KURRENT_CP_ENROLL_URL")
-    cp_ca = os.environ.get("KURRENT_CP_CA")
-    token = os.environ.get("KURRENT_BOOTSTRAP_TOKEN")
-    backend = os.environ.get("KURRENT_BACKEND", "").strip()
+    """模块级入口：从节点配置（kurrent.yaml）+ 引导凭据文件装配并执行引导/轮换。
+
+    通用 bootstrap token 在独立凭据文件（compose 挂载，join 写入）；nvmet-host 派生
+    凭据随 enroll/renew 响应下发落盘（backend=nvmet 时）；派生凭据缺失（历史部署迁移
+    清除等）→ 证书在也强制 renew 一次以重新派生。"""
+    from .config import (CONFIG, DEFAULT_BOOTSTRAP_TOKEN_FILE, DEFAULT_CP_CA,
+                         DEFAULT_NVMET_BOOTSTRAP_TOKEN_FILE, DEFAULT_PKI_DIR)
+    spec = CONFIG.spec
+    backend = spec.agent.backend
     capabilities = {"backend": backend, "cd": BACKEND_CD_CAPABILITY.get(backend, False)}
-    PkiClient(agent_id, component, pki_dir, cp_base,
-              Path(cp_ca) if cp_ca else None, token,
-              os.environ.get("KURRENT_ADVERTISE_URL"), capabilities).ensure()
+    derived = Path(DEFAULT_NVMET_BOOTSTRAP_TOKEN_FILE)
+    force_renew = backend == "nvmet" and not derived.is_file()
+    PkiClient(CONFIG.metadata.name, "agent", Path(DEFAULT_PKI_DIR), spec.control_plane.url,
+              Path(DEFAULT_CP_CA),
+              _read_bootstrap_token(Path(DEFAULT_BOOTSTRAP_TOKEN_FILE)),
+              spec.agent.advertise_url or None, capabilities,
+              derived_token_file=derived).ensure(force_renew=force_renew)
