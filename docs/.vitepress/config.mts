@@ -4,15 +4,18 @@
 // VITEPRESS_NO_CLEAN=1 时产物保留 .html 扩展名（GitHub Pages 对无扩展名文件不友好）。
 import { defineConfig } from 'vitepress'
 
+// 站点 base（head 数组中的链接不自动加 base 前缀，须与 favicon 等拼接同源）
+const base = process.env.VITEPRESS_BASE || '/'
+
 export default defineConfig({
   lang: 'zh-CN',
   title: 'Kurrent（周流）',
   description: 'Make bare metal flow — 云原生无状态裸金属交付',
-  base: process.env.VITEPRESS_BASE || '/',
+  base,
   cleanUrls: process.env.VITEPRESS_NO_CLEAN !== '1',
   head: [
-    ['link', { rel: 'icon', href: '/favicon.ico', sizes: '32x32' }],
-    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/logo.svg' }],
+    ['link', { rel: 'icon', href: `${base}favicon.ico`, sizes: '32x32' }],
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: `${base}logo.svg` }],
   ],
   lastUpdated: true,
   locales: {
