@@ -27,5 +27,5 @@ Kurrent（周流）是云原生无状态裸金属交付平台：K8S 让应用云
 
 ## 文档
 
-- [多机部署指南](./guide/deployment)
+- [部署指南](./guide/deployment)
 - [Manifesto](https://github.com/dutyc/kurrent/blob/main/about/zh/Manifesto.md)

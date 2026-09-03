@@ -1,48 +1,34 @@
 # Kurrent (周流)
 
-![Cloud Native](https://img.shields.io/badge/Cloud%20Native-True%20Cloud%20Native-18181b) [![Stars](https://img.shields.io/github/stars/dutyc/kurrent)](https://github.com/dutyc/kurrent/stargazers) [![Release](https://img.shields.io/github/v/release/dutyc/kurrent)](https://github.com/dutyc/kurrent/releases) [![License](https://img.shields.io/github/license/dutyc/kurrent)](LICENSE) [![Docs](https://img.shields.io/badge/Docs-https://example.com-2563eb)](https://example.com)
+![Cloud Native](https://img.shields.io/badge/Cloud%20Native-True%20Cloud%20Native-18181b) [![NVMe-oF](https://img.shields.io/badge/Data%20Plane-NVMe--oF%20First-00D4FF)](https://dutyc.github.io/kurrent/guide/deployment.html) [![Stars](https://img.shields.io/github/stars/dutyc/kurrent)](https://github.com/dutyc/kurrent/stargazers) [![Release](https://img.shields.io/github/v/release/dutyc/kurrent)](https://github.com/dutyc/kurrent/releases) [![License](https://img.shields.io/github/license/dutyc/kurrent)](LICENSE) [![Docs](https://img.shields.io/badge/Docs-GitHub%20Pages-2563eb)](https://dutyc.github.io/kurrent/)
 
 [中文版](./README.zh-CN.md) | [English](./README.md)
 
 **Make bare metal flow.**
 *周流六虚，上下无常。*
 
-K8s 花了十年，让应用成为云。
-而 Kurrent，让算力成为云。
-
-*K8s orchestrates the containers. Kurrent orchestrates the compute.*
+K8s 让应用成为云。Kurrent 让算力成为云——*K8s orchestrates containers. Kurrent orchestrates compute.*
 
 **Kurrent** 是一套云原生无状态裸金属交付范式。它将“无状态”贯彻到物理算力层本身：计算节点（Device）自身不持有任何持久状态，身份（Worker）、系统与数据均由网络和控制面外部授予。插上网线即活，算力脱离硬件束缚，如电流般在裸金属节点间自由周流。
 
+阅读我们的宣言：**[about/zh/Manifesto.md](./about/zh/Manifesto.md)**——*我们对云原生的定义*（English: [about/en/Manifesto.md](./about/en/Manifesto.md)）。
 
+## NVMe-oF：主数据面
 
-## 架构
+Kurrent 的存储面 NVMe-oF 优先：存储节点以 `backend=nvmet`（缺省）加入集群，经**内核态 NVMe-oF target**（NVMe over TCP，4420 端口）导出母盘。单一 NQN 命名域（缺省 `nqn.2026-07.com.kurrent`）、DHHC-1 认证按 Worker 跟盘、nvmet-host 凭据 enroll 自动派生、引导链直连带密钥的 `nvme://` 根路径——iSCSI（stgt/lio）保留为兼容后端。
 
-控制面 / 数据面分离与三个角色（Controller、Storager、Devices）详见 **[about/zh/ARCHITECTURE.md](./about/zh/ARCHITECTURE.md)**（English: [about/en/ARCHITECTURE.md](./about/en/ARCHITECTURE.md)）。
+## 快速开始
 
-## 快速上手
+数分钟内拉起控制面并接入存储节点——见[部署指南](https://dutyc.github.io/kurrent/guide/deployment.html)（英文：[en](https://dutyc.github.io/kurrent/en/guide/deployment.html)）。`kurrent` CLI 以预编译单二进制随 [Releases](https://github.com/dutyc/kurrent/releases) 发布（Linux amd64/arm64、Windows amd64），无需本地编译。
 
-```bash
-git clone https://github.com/dutyc/kurrent
-cd kurrent
-
-cp control_plane/control_plane.env.example control_plane/control_plane.env
-cp dnsmasq/dnsmasq.conf.example dnsmasq/dnsmasq.conf
-cp dnsmasq/dhcp-hosts.conf.example dnsmasq/dhcp-hosts.conf
-# 修改 dnsmasq.conf：网卡名、网段、网关
-docker compose up -d
-```
-
-* Web 界面：`http://<controller-ip>:4838`
-* 控制面 API：`http://<controller-ip>:4839`
-
+- **文档站（双语）**——https://dutyc.github.io/kurrent/
+- **CLI 参考**——[cli/README.md](./cli/README.md)
+- **控制面 API 参考**——[api/control-plane-api.zh-CN.md](./api/control-plane-api.zh-CN.md) / [api/control-plane-api.en.md](./api/control-plane-api.en.md)
+- **架构**——[about/zh/ARCHITECTURE.md](./about/zh/ARCHITECTURE.md)（English: [about/en/ARCHITECTURE.md](./about/en/ARCHITECTURE.md)）
 
 ## 核心特性: 算力周流，即插即用
 
 一条无状态裸金属交付流：新机器首启自动入设备池，WebUI 点几下即可绑定 Worker、分配系统盘与默认系统。一台 Worker 可挂载多块系统盘（Windows / Ubuntu / Debian / CentOS / ESXi）随时在线切换。
-
-## 文档
-施工中...
 
 ## 固件仓库
 

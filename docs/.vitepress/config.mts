@@ -33,7 +33,7 @@ export default defineConfig({
             {
               text: '部署与使用',
               items: [
-                { text: '多机部署指南', link: '/guide/deployment' },
+                { text: '部署指南', link: '/guide/deployment' },
               ],
             },
           ],
@@ -67,7 +67,7 @@ export default defineConfig({
             {
               text: 'Deployment & Usage',
               items: [
-                { text: 'Multi-Node Deployment Guide', link: '/en/guide/deployment' },
+                { text: 'Deployment Guide', link: '/en/guide/deployment' },
               ],
             },
           ],

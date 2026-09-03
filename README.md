@@ -1,6 +1,6 @@
 # Kurrent
 
-![Cloud Native](https://img.shields.io/badge/Cloud%20Native-True%20Cloud%20Native-18181b) [![Stars](https://img.shields.io/github/stars/dutyc/kurrent)](https://github.com/dutyc/kurrent/stargazers) [![Release](https://img.shields.io/github/v/release/dutyc/kurrent)](https://github.com/dutyc/kurrent/releases) [![License](https://img.shields.io/github/license/dutyc/kurrent)](LICENSE) [![Docs](https://img.shields.io/badge/Docs-https://example.com-2563eb)](https://example.com)
+![Cloud Native](https://img.shields.io/badge/Cloud%20Native-True%20Cloud%20Native-18181b) [![NVMe-oF](https://img.shields.io/badge/Data%20Plane-NVMe--oF%20First-00D4FF)](https://dutyc.github.io/kurrent/guide/deployment.html) [![Stars](https://img.shields.io/github/stars/dutyc/kurrent)](https://github.com/dutyc/kurrent/stargazers) [![Release](https://img.shields.io/github/v/release/dutyc/kurrent)](https://github.com/dutyc/kurrent/releases) [![License](https://img.shields.io/github/license/dutyc/kurrent)](LICENSE) [![Docs](https://img.shields.io/badge/Docs-GitHub%20Pages-2563eb)](https://dutyc.github.io/kurrent/)
 
 [中文版](./README.zh-CN.md) | [English](./README.md)
 
@@ -8,43 +8,29 @@
 
 *周流六虚，上下无常。* — from the *I Ching*: currents flow through the six voids, above and below, without constancy.
 
-K8s spent a decade making applications cloud-native.
-Kurrent makes compute cloud-native.
+K8s made applications cloud-native. Kurrent makes compute cloud-native — *K8s orchestrates containers; Kurrent orchestrates compute.*
 
-*K8s orchestrates the containers. Kurrent orchestrates the compute.*
+**Kurrent** is a cloud-native stateless bare-metal delivery platform: compute nodes hold no persistent state — identity (Worker), OS and data are granted by the network and the control plane. Plug in a cable and a node comes alive; compute flows across bare metal like current itself.
 
-**Kurrent** is a cloud-native stateless bare-metal delivery paradigm. It pushes statelessness down to the physical compute layer itself: compute nodes (Devices) hold no persistent state — identity (Worker), OS, and data are granted externally by the network and the control plane. Plug in a cable and a node comes alive; compute is unshackled from hardware and flows freely across bare-metal nodes, like current itself.
-
-Read our manifesto: **[about/en/Manifesto.md](./about/en/Manifesto.md)** — *Our Definition of Cloud Native* (Chinese original: [about/zh/Manifesto.md](./about/zh/Manifesto.md)).
+Read our manifesto: **[about/en/Manifesto.md](./about/en/Manifesto.md)** — *Our Definition of Cloud Native* (中文: [about/zh/Manifesto.md](./about/zh/Manifesto.md)).
 
 
-## Architecture
+## NVMe-oF: The Primary Data Plane
 
-The control plane / data plane separation and the three roles — Controller, Storager, Devices — are detailed in **[about/en/ARCHITECTURE.md](./about/en/ARCHITECTURE.md)** (中文: [about/zh/ARCHITECTURE.md](./about/zh/ARCHITECTURE.md)).
+Storage is NVMe-oF-first: nodes join with `backend=nvmet` (default) and serve disks through the in-kernel NVMe-oF target (NVMe over TCP, port 4420). One NQN namespace (`nqn.2026-07.com.kurrent`), DHHC-1 authentication per worker, credentials derived automatically at enroll, and a boot chain wired for `nvme://` root paths — iSCSI (`stgt`/`lio`) stays as the compatibility backend.
 
-## Quick Start
+## Getting Started
 
-```bash
-git clone https://github.com/dutyc/kurrent
-cd kurrent
+Deploy a control plane and join storage nodes in minutes — [deployment guide (zh)](https://dutyc.github.io/kurrent/guide/deployment.html) / [en](https://dutyc.github.io/kurrent/en/guide/deployment.html). The `kurrent` CLI ships as prebuilt binaries on the [Releases](https://github.com/dutyc/kurrent/releases) page (Linux amd64/arm64, Windows amd64) — no local build needed.
 
-cp control_plane/control_plane.env.example control_plane/control_plane.env
-cp dnsmasq/dnsmasq.conf.example dnsmasq/dnsmasq.conf
-cp dnsmasq/dhcp-hosts.conf.example dnsmasq/dhcp-hosts.conf
-# Adapt dnsmasq.conf: NIC name, subnet, gateway
-docker compose up -d
-```
-
-* Web UI: `http://<controller-ip>:4838`
-* Control Plane API: `http://<controller-ip>:4839`
+- **Docs site (bilingual)** — https://dutyc.github.io/kurrent/
+- **CLI reference** — [cli/README.md](./cli/README.md)
+- **Control-plane API reference** — [api/control-plane-api.en.md](./api/control-plane-api.en.md) / [api/control-plane-api.zh-CN.md](./api/control-plane-api.zh-CN.md)
+- **Architecture** — [about/en/ARCHITECTURE.md](./about/en/ARCHITECTURE.md) (中文: [about/zh/ARCHITECTURE.md](./about/zh/ARCHITECTURE.md))
 
 ## Key Features: Compute That Flows, Plug-and-Play
 
 A stateless bare-metal delivery flow: machines join the device pool on first boot, then a few clicks in the Web UI bind them to a Worker with a system disk and a default OS. One Worker can carry multiple system disks — Windows, Ubuntu, Debian, CentOS, ESXi — and switch between them online.
-
-## Documentation
-
-Under construction...
 
 ## Firmware Repo
 

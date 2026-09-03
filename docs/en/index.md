@@ -27,5 +27,5 @@ Kurrent (周流, zhōuliú — "circling flow") is a cloud-native, stateless bar
 
 ## Documentation
 
-- [Multi-Node Deployment Guide](./guide/deployment)
+- [Deployment Guide](./guide/deployment)
 - [Manifesto](https://github.com/dutyc/kurrent/blob/main/about/en/Manifesto.md)

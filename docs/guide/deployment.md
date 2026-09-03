@@ -1,7 +1,6 @@
-# Kurrent 多机部署指南
+# Kurrent 部署指南
 
-> 覆盖拓扑：**控制面服务器与存储节点分离**（两台 Linux 服务器 + 局域网裸机客户端）。
-> 存储节点可横向扩展（每台存储服务器一个 Agent）；控制面自动按能力调度建盘。
+> 覆盖角色：**控制面服务器 + 存储节点**（可同机自测，亦可分离部署与横向扩展——每台存储服务器一个 Agent）。以下按两角色分步；同机自测时在同一台机器顺序执行即可。
 
 本文基于 Kurrent 当前的声明式配置形态：控制面声明 `control_plane/kurrent.yaml` 由 `kurrent config print init-defaults` 生成模板后编辑、`kurrent init` 校验并收敛启动（kubeadm init 同构）；存储节点声明 `storager/kurrent.yaml` 由 `kurrent config print node-defaults` 生成模板后编辑、`kurrent join` 加入（kubeadm join 同构）。
 
@@ -46,7 +45,7 @@
 
 ## 前置条件
 
-**两台服务器**（Debian 12 / Ubuntu 22.04+，x86_64）：
+**Linux 服务器**（Debian 12 / Ubuntu 22.04+，x86_64；控制面一台、存储节点一台——自测可同机）：
 
 ```bash
 # 1. Docker 与 Compose v2
@@ -65,14 +64,19 @@ mkdir -p /sys/kernel/config && mount -t configfs none /sys/kernel/config   # 持
 
 ## 第 1 步：控制面服务器
 
-### 1.1 克隆仓库、构建并全局安装 CLI
+### 1.1 准备仓库与安装 kurrent CLI
 
 ```bash
-git clone https://github.com/dutyc/kurrent
-cd kurrent
-cd cli && go build -o kurrent . && cd ..    # 零依赖单二进制
+git clone https://github.com/dutyc/kurrent && cd kurrent
+
+# CLI 免本地编译：下载 release 单二进制（v0.3.0 起随 Release 发布；Linux amd64/arm64、Windows）
+curl -sL -o cli/kurrent https://github.com/dutyc/kurrent/releases/download/v0.3.0/kurrent-linux-amd64
+chmod +x cli/kurrent
 sudo install -m 0755 cli/kurrent /usr/local/bin/kurrent   # 全局安装（本文档后续命令直接用 kurrent）
+kurrent version   # 校验安装
 ```
+
+> 版本随 Release 更新（https://github.com/dutyc/kurrent/releases，Windows 取 `kurrent-windows-amd64.exe`）；或源码构建替代下载（`cd cli && go build -o kurrent .`，需 Go 1.27+）。
 
 ### 1.2 生成控制面声明配置
 
@@ -135,7 +139,8 @@ kurrent join https://192.168.1.10 --token a1b2c3.d4e5f6a7b8c9d0e1
 git clone https://github.com/dutyc/kurrent
 cd kurrent
 mkdir -p storager_img        # 盘映像目录（kurrent join 默认；自定义路径见 2.3）
-sudo install -m 0755 cli/kurrent /usr/local/bin/kurrent   # 全局安装 CLI（构建同 1.1，或本机重新 go build）
+curl -sL -o cli/kurrent https://github.com/dutyc/kurrent/releases/download/v0.3.0/kurrent-linux-amd64 && chmod +x cli/kurrent
+sudo install -m 0755 cli/kurrent /usr/local/bin/kurrent   # 按 1.1 安装 CLI（或从控制面机器拷贝已装二进制）
 ```
 
 ### 2.2 声明节点配置并加入集群
@@ -154,7 +159,7 @@ kurrent join https://192.168.1.10 --token a1b2c3.d4e5f6a7b8c9d0e1
 
 预置声明（可选）：自定义 backend/diskDir/advertiseUrl 等业务键时，先 `kurrent config print node-defaults > storager/kurrent.yaml` 生成带注释模板并按环境编辑，再执行 join（声明读入合并，手工字段保留）。
 
-**多机关键一步**：agent 的广告地址默认推导为 `https://<cp-host>:4840`（同机形态），分离部署时控制面必须经**存储节点局域网 IP** 访问 Agent——编辑声明文件覆盖它（kubelet `--node-ip` 类比，声明配置层覆盖）：
+**分离部署关键一步**：agent 的广告地址默认推导为 `https://<cp-host>:4840`（同机形态），控制面与存储节点分机时控制面必须经**存储节点局域网 IP** 访问 Agent——编辑声明文件覆盖它（kubelet `--node-ip` 类比，声明配置层覆盖）：
 
 ```bash
 # 编辑 storager/kurrent.yaml：spec.agent.advertiseUrl → https://192.168.1.20:4840
