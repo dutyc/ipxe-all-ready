@@ -6,7 +6,10 @@ Kurrent 控制面命令行工具（kubectl 同构，2026-08-31）。零第三方
 
 ```bash
 cd cli
-go build -o kurrent .        # 单二进制（约 9.6 MB）
+go build -o kurrent .        # 单二进制（约 9.6 MB）；版本号发版时注入，见下方
+
+# 发版构建（版本号注入 + 交叉编译示例）：
+#   go build -ldflags "-X main.version=v0.3.0" -o kurrent .
 
 # 可选：全局安装（此后任意目录直接用 kurrent 命令，部署指南即此形态）
 sudo install -m 0755 kurrent /usr/local/bin/kurrent
@@ -38,19 +41,22 @@ kurrent [--server URL] [--token T] <group> <verb> [args]
   agents edit <id> --base-url URL [...]       更新 Agent（全量覆盖，参数同 add）
   agents remove <id>                          删除 Agent 台账（含母盘标签）
   agents probe --base-url URL                 探测 Agent 能力（不落盘）
-  token create                                签发集群级通用 bootstrap token（kubeadm token
-                                              create 同构：不绑节点，TTL 内可复用，输出 join 指引）
+  token create [--cp-url URL]                签发集群级通用 bootstrap token（kubeadm token
+                                              create 同构：不绑节点，TTL 内可复用，输出带地址的
+                                              join 命令——--cp-url 或从 --server 推导）
   config print init-defaults|node-defaults   输出声明模板（kubeadm config print 同构；
                                               重定向为 control_plane/kurrent.yaml 或
                                               storager/kurrent.yaml 后编辑）
   init [--config PATH] [--dir PATH]          控制面初始化：校验声明并收敛启动控制面
                                               （默认读 control_plane/kurrent.yaml，kubeadm
                                               init 同构；--config 指定其他声明文件则应用之）
-  join [--config PATH] [--token T] [--dir PATH]
-                                              节点侧加入：校验 storager/kurrent.yaml 声明并
-                                              收敛启动 agent（kubeadm join 同构，幂等）
+  join <cp-url> [--config PATH] [--token T] [--dir PATH]
+                                              节点侧加入（kubeadm join <endpoint> 同构）：
+                                              声明 kurrent.yaml 缺失自动生成、已存在则读入并
+                                              同步地址，收敛启动 agent（幂等可重跑）
   workers list | workers get <id>             Worker 台账（只读）
   ops list [--limit N] [-o table|json]        操作审计日志（只读）
+  version                                     输出版本号（发版构建 -ldflags 注入，如 v0.3.0）
 ```
 
 位置参数与 `--key value` / `--key=value` / `--flag` 可任意混排（如 `agents add cli-test-01 --base-url https://x`）。

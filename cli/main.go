@@ -52,6 +52,7 @@ const usageText = `kurrent —— Kurrent 控制面 CLI（kubectl 同构，2026-
                                               同步地址，收敛启动 agent（幂等可重跑）
   workers list | workers get <id>             Worker 台账（只读）
   ops list [--limit N] [-o table|json]        操作审计日志（只读）
+  version                                     输出版本号（发版构建 -ldflags 注入，如 v0.3.0）
 `
 
 func main() {
@@ -80,6 +81,8 @@ func main() {
 		cmdWorkers(args[1:])
 	case "ops":
 		cmdOps(args[1:])
+	case "version":
+		cmdVersion(args[1:])
 	default:
 		fatal("unknown command group: %s（help 查看用法）", args[0])
 	}

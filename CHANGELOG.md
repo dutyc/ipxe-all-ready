@@ -12,6 +12,15 @@
 
 ---
 
+## 2026-09-03
+
+### 新增
+
+- **CLI `version` 子命令**——`kurrent version` 输出版本号（`kurrent v0.3.0` 格式）；发版构建经 `go build -ldflags "-X main.version=vX.Y.Z"` 注入，日常构建显示 dev；main.go usage、cli/README 命令清单同步（顺带修正清单中 token create/join 与 usage 不一致的旧表述）；Go 测试 TestVersionOutput
+- **v0.3.0 发布（GitHub Release）**——首次附带 CLI 单二进制资产（Linux amd64/arm64 + Windows amd64 交叉编译，版本号注入）
+
+---
+
 ## 2026-09-02
 
 ### 变更
