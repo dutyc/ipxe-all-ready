@@ -12,6 +12,15 @@
 
 ---
 
+## 2026-09-04
+
+### 修复
+
+- **nvmet-host host 凭据登记/删除的 configfs 语义（固件仓库全链路测试反馈）**——`set_host` 在 link 显式 host 前先把子系统切严格模式（写 `attr_allow_any_host=0`）：内核在 allow_any=1（默认）时拒绝 link（-EINVAL），遗留/手工创建的宽松子系统上登记 host 认证即失败；`delete_host` 改用 `os.rmdir` 删全局 `hosts/<hostnqn>`（configfs group 删除语义——属性文件不可单独 unlink，rmdir 即连带清理），替换会静默残留目录的 `shutil.rmtree`；allowed_hosts 判断改 `lexists`。mock configfs 夹具同步 group 删除语义（rmdir 前清理属性模拟文件）；回归测试补 allow_any 兑底断言
+- **menu.ipxe nbft-secret isset 链兜底（固件仓库全链路测试反馈）**——`isset ${nbft-secret} && set root-path ...?secret=...` 行尾补空 `||`：未注入 nbft-secret（明文/免认证场景）时 isset 短路不产生失败链状态，后续 `sanboot` 正常求值
+
+---
+
 ## 2026-09-03
 
 ### 新增

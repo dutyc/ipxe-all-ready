@@ -130,25 +130,30 @@ class NvmetManager:
 
     def set_host(self, nqn: str, hostnqn: str, secret: str) -> None:
         """登记/更新 host 认证：全局 hosts/<hostnqn> 写 DHHC-1 密钥（dhchap_key），
-        再 symlink 挂到子系统 allowed_hosts/ 完成准入（严格模式）。"""
+        再 symlink 挂到子系统 allowed_hosts/ 完成准入。
+        前置：内核在 allow_any_host=1 时拒绝 link explicit host（-EINVAL），
+        因此准入前先把该 subsystem 切为严格模式（host 白名单语义）。"""
         sub = self._sub_path(nqn)
         if not os.path.isdir(sub):
             raise ValueError(f"subsystem not found: {nqn}")
         host_dir = os.path.join(self.root, "hosts", hostnqn)
         os.makedirs(host_dir, exist_ok=True)
         self._write(host_dir, "dhchap_key", secret, newline=False)
+        self._write(sub, "attr_allow_any_host", "0")
         link = os.path.join(sub, "allowed_hosts", hostnqn)
-        os.makedirs(os.path.dirname(link), exist_ok=True)
-        if not os.path.islink(link):
+        if not os.path.lexists(link):
             os.symlink(host_dir, link)
 
     def delete_host(self, nqn: str, hostnqn: str) -> None:
-        """移除 host 认证：先摘 allowed_hosts 挂载，再删全局 hosts/<hostnqn>。"""
+        """移除 host 认证：先摘子系统 allowed_hosts 链接（configfs symlink
+        用 unlink，同 diag teardown 的 rm -f 语义），再 rmdir 全局 hosts/<hostnqn>。"""
         sub = self._sub_path(nqn)
         link = os.path.join(sub, "allowed_hosts", hostnqn)
-        if os.path.islink(link):
+        if os.path.lexists(link):
             os.unlink(link)
-        shutil.rmtree(os.path.join(self.root, "hosts", hostnqn), ignore_errors=True)
+        host_dir = os.path.join(self.root, "hosts", hostnqn)
+        if os.path.isdir(host_dir):
+            os.rmdir(host_dir)
 
     def ensure_port(self, trtype: str = "tcp", adrfam: str = "ipv4", traddr: str = "0.0.0.0",
                     trsvcid: str = "4420") -> dict[str, str]:

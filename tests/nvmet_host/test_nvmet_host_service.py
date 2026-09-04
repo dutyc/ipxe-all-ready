@@ -98,11 +98,16 @@ def test_list_subsystems(client, configfs):
 
 def test_set_host_auth(client, configfs, symlinks):
     """host 认证：全局 hosts/<hostnqn>/dhchap_key 写 DHHC-1 明文（无换行，写 key 即启用），
-    再 symlink 挂到子系统 allowed_hosts/ 完成严格模式准入。"""
+    子系统先切严格模式（allow_any_host=0，内核在 allow_any=1 时拒绝 link 显式 host），
+    再 symlink 挂到子系统 allowed_hosts/ 完成准入。"""
     client.post("/subsystems", json={"nqn": NQN, "backing": BACKING})
+    # 模拟遗留/手工创建的宽松子系统（内核默认 allow_any_host=1）
+    (configfs / "subsystems" / NQN / "attr_allow_any_host").write_text("1")
     res = client.put(f"/subsystems/{NQN}/hosts",
                      json={"hostnqn": HOST_NQN, "secret": SECRET})
     assert res.status_code == 200
+    # set_host 兜底切严格模式：allow_any_host=1 时内核拒绝 link 显式 host（-EINVAL）
+    assert (configfs / "subsystems" / NQN / "attr_allow_any_host").read_text().strip() == "0"
     host_dir = configfs / "hosts" / HOST_NQN
     assert (host_dir / "dhchap_key").read_text() == SECRET  # newline=False：内容与密钥完全一致
     link = configfs / "subsystems" / NQN / "allowed_hosts" / HOST_NQN

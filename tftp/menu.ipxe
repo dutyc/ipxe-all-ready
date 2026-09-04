@@ -76,7 +76,7 @@ set netX/gateway ${storager-ip}
 # os / os-tag 由控制面 /boot-vars 下发（= 默认盘记录投影），与盘 NQN 后缀同源；
 # 已注入 nbft-secret（DHHC-1）时附加 ?secret=（明文连接不附带）
 set root-path nvme://${storager-ip}:4420/${base-nqn}:${hostname}.${os}.${os-tag}
-isset ${nbft-secret} && set root-path nvme://${storager-ip}:4420/${base-nqn}:${hostname}.${os}.${os-tag}?secret=${nbft-secret}
+isset ${nbft-secret} && set root-path nvme://${storager-ip}:4420/${base-nqn}:${hostname}.${os}.${os-tag}?secret=${nbft-secret} ||
 set keep-san 1
 sanboot ${root-path} || goto failed
 goto start

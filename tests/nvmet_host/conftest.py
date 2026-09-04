@@ -121,9 +121,25 @@ def _symlink_compat(monkeypatch):
         _symlink_records.pop(str(path), None)
         return real_unlink(path, *args, **kwargs)
 
+    # configfs group 删除语义：rmdir 目录即连带清理内部属性文件（configfs 属性
+    # 不可单独 unlink）。mock 以普通文件模拟属性，需在 rmdir 前清空——与真实内核一致。
+    real_rmdir = os.rmdir
+
+    def fake_rmdir(path, *args, **kwargs):
+        path = os.fspath(path)
+        if os.path.isdir(path):
+            for name in os.listdir(path):
+                child = os.path.join(path, name)
+                if os.path.isdir(child) and not os.path.islink(child):
+                    fake_rmdir(child)
+                else:
+                    os.unlink(child)
+        return real_rmdir(path, *args, **kwargs)
+
     monkeypatch.setattr(os, "symlink", fake_symlink)
     monkeypatch.setattr(os.path, "islink", fake_islink)
     monkeypatch.setattr(os, "unlink", fake_unlink)
+    monkeypatch.setattr(os, "rmdir", fake_rmdir)
 
 
 @pytest.fixture()
